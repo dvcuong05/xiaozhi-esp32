@@ -1,7 +1,7 @@
 #include "web_server.h"
-#include "application.h"
 #include "config.h"
 #include "robot_drive.h"
+#include "robot_mcp_tools.h"
 
 #include <algorithm>
 #include <cmath>
@@ -64,10 +64,12 @@ static const char* INDEX_HTML =
     "        \n"
     "        <div class=\"section\">\n"
     "            <h2>Chat</h2>\n"
-    "            <textarea id=\"prompt\" placeholder=\"Type your message here...\"></textarea>\n"
-    "            <button class=\"btn-primary\" onclick=\"sendPrompt()\">Send</button>\n"
-    "            <div class=\"response\" id=\"response\"></div>\n"
-    "            <div class=\"status\" id=\"status\"></div>\n"
+    "            <textarea id=\"prompt\" maxlength=\"1000\" "
+    "placeholder=\"Type a command for XiaoZhi...\"></textarea>\n"
+    "            <button class=\"btn-primary\" id=\"sendPromptButton\" "
+    "onclick=\"sendPrompt()\">Send</button>\n"
+    "            <div class=\"response\" id=\"promptResponse\">"
+    "Experimental MCP bridge: the server must ask the robot for your message.</div>\n"
     "        </div>\n"
     "        \n"
     "        <div class=\"section\">\n"
@@ -83,6 +85,7 @@ static const char* INDEX_HTML =
     "                <button class=\"btn-control\" onclick=\"move('backward')\">DOWN</button>\n"
     "                <div class=\"empty\"></div>\n"
     "            </div>\n"
+    "            <div class=\"status\" id=\"status\"></div>\n"
     "        </div>\n"
     "        \n"
     "        <div class=\"section\">\n"
@@ -186,45 +189,38 @@ static const char* INDEX_HTML =
     "        loadConfig();\n"
     "        \n"
     "        async function sendPrompt() {\n"
-    "            const prompt = document.getElementById('prompt').value;\n"
-    "            const status = document.getElementById('status');\n"
-    "            const response = document.getElementById('response');\n"
-    "            \n"
-    "            if (!prompt.trim()) return;\n"
-    "            \n"
-    "            status.textContent = 'Sending...';\n"
-    "            \n"
+    "            const input = document.getElementById('prompt');\n"
+    "            const button = document.getElementById('sendPromptButton');\n"
+    "            const output = document.getElementById('promptResponse');\n"
+    "            const prompt = input.value.trim();\n"
+    "            if (!prompt) return;\n"
+    "            button.disabled = true;\n"
+    "            output.textContent = 'Queueing message...';\n"
     "            try {\n"
-    "                const res = await fetch('/api/prompt', {\n"
-    "                    method: 'POST',\n"
-    "                    headers: { 'Content-Type': 'application/json' },\n"
-    "                    body: JSON.stringify({ prompt: prompt })\n"
-    "                });\n"
+    "                const res = await fetch('/api/prompt', {method: 'POST', "
+    "headers: {'Content-Type': 'application/json'}, "
+    "body: JSON.stringify({prompt})});\n"
     "                if (!res.ok) throw new Error(await res.text());\n"
-    "                response.textContent = 'Queued for XiaoZhi...';\n"
-    "                document.getElementById('prompt').value = '';\n"
-    "                let replied = false;\n"
-    "                for (let i = 0; i < 40; i++) {\n"
+    "                output.textContent = 'Waiting for XiaoZhi to request the message...';\n"
+    "                for (let i = 0; i < 70; i++) {\n"
     "                    await new Promise(resolve => setTimeout(resolve, 500));\n"
     "                    const check = await fetch('/api/prompt_status');\n"
     "                    if (!check.ok) throw new Error('Cannot read prompt status');\n"
-    "                    const data = await check.json();\n"
-    "                    if (data.status === 'failed') throw new Error('Device could not "
-    "send prompt');\n"
-    "                    if (data.status === 'responding') {\n"
-    "                        response.textContent = 'XiaoZhi is responding on the device';\n"
-    "                        replied = true;\n"
-    "                        break;\n"
+    "                    const state = (await check.json()).status;\n"
+    "                    if (state === 'consumed') {\n"
+    "                        output.textContent = 'AI requested your message. "
+    "Waiting for its reply on the robot.';\n"
+    "                        input.value = '';\n"
+    "                        return;\n"
     "                    }\n"
-    "                    response.textContent = data.status === 'sent' ? "
-    "'Sent to server; waiting for response...' : 'Connecting to XiaoZhi...';\n"
+    "                    if (state === 'failed' || state === 'timeout') "
+    "throw new Error('Server did not request the message (' + state + ')');\n"
     "                }\n"
-    "                if (!replied) response.textContent = "
-    "'Sent, but no response after 20 seconds; check server support/logs';\n"
-    "                status.textContent = '';\n"
+    "                throw new Error('Server did not request the message within 35 seconds');\n"
     "            } catch (e) {\n"
-    "                response.textContent = 'Error: ' + e.message;\n"
-    "                status.textContent = '';\n"
+    "                output.textContent = 'Error: ' + e.message;\n"
+    "            } finally {\n"
+    "                button.disabled = false;\n"
     "            }\n"
     "        }\n"
     "\n"
@@ -548,55 +544,32 @@ esp_err_t WebServer::ApiPromptHandler(httpd_req_t* req) {
     if (root == nullptr) {
         return ESP_FAIL;
     }
-    const cJSON* prompt_json = cJSON_GetObjectItem(root, "prompt");
-    if (prompt_json == nullptr || !cJSON_IsString(prompt_json) ||
-        prompt_json->valuestring == nullptr || prompt_json->valuestring[0] == '\0' ||
-        std::strlen(prompt_json->valuestring) > 1000) {
+    const cJSON* prompt = cJSON_GetObjectItem(root, "prompt");
+    if (!cJSON_IsString(prompt) || prompt->valuestring == nullptr ||
+        prompt->valuestring[0] == '\0' || std::strlen(prompt->valuestring) > 1000) {
         cJSON_Delete(root);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid prompt");
         return ESP_FAIL;
     }
-
-    bool queued = Application::GetInstance().QueueTextPrompt(prompt_json->valuestring);
+    bool queued = QueueRobotWebPrompt(prompt->valuestring);
     cJSON_Delete(root);
     if (!queued) {
         httpd_resp_set_status(req, "409 Conflict");
-        httpd_resp_send(req, "Device is busy or unavailable", HTTPD_RESP_USE_STRLEN);
-        return ESP_FAIL;
+        return httpd_resp_send(req, "A prompt is already pending or the robot is busy",
+                               HTTPD_RESP_USE_STRLEN);
     }
     httpd_resp_set_status(req, "202 Accepted");
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "result", "Prompt queued");
+        cJSON_AddStringToObject(response, "status", "queued");
     }
     return SendJson(req, response);
 }
 
 esp_err_t WebServer::ApiPromptStatusHandler(httpd_req_t* req) {
-    const char* status = "idle";
-    switch (Application::GetInstance().GetTextPromptStatus()) {
-        case TextPromptStatus::Idle:
-            status = "idle";
-            break;
-        case TextPromptStatus::Queued:
-            status = "queued";
-            break;
-        case TextPromptStatus::Connecting:
-            status = "connecting";
-            break;
-        case TextPromptStatus::Sent:
-            status = "sent";
-            break;
-        case TextPromptStatus::Responding:
-            status = "responding";
-            break;
-        case TextPromptStatus::Failed:
-            status = "failed";
-            break;
-    }
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "status", status);
+        cJSON_AddStringToObject(response, "status", GetRobotWebPromptStatus());
     }
     return SendJson(req, response);
 }

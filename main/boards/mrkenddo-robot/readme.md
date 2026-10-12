@@ -28,12 +28,16 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET/POST /api/config`: cấu hình `steps`, `delay_ms`, `left_inverted`, `right_inverted`; lưu NVS namespace `motor_config`. Các client cũ không gửi hai cờ đảo chiều sẽ giữ giá trị đã lưu.
 - `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height và `rotation` (0 hoặc 180 độ); lưu NVS và khởi tạo lại OLED sau khi lưu. `POST /api/oled_test` cũng khởi tạo lại OLED và hiển thị đồng hồ.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`; 270° tương đương -90°. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
-- `POST /api/prompt`: `{ "prompt": "..." }`; trả HTTP 202 khi được xếp hàng, 409 nếu thiết bị bận. Firmware mở phiên hội thoại rồi gửi `listen/detect/text` (không gửi MCP); backend phải hỗ trợ văn bản theo giao thức này.
-- `GET /api/prompt_status`: trả `idle`, `queued`, `connecting`, `sent`, `responding` hoặc `failed`. `sent` chỉ xác nhận transport đã gửi, chưa xác nhận backend sẽ trả lời.
+- `POST /api/prompt`: `{ "prompt": "..." }` (tối đa 1000 byte UTF-8) trả HTTP 202 khi được xếp hàng, 409 nếu thiết bị bận. Đây là cầu nối MCP thử nghiệm cho server tenclass.net: firmware chỉ gửi trigger ngắn `web_chat` qua `listen/detect`, còn câu lệnh đầy đủ chỉ được chuyển khi AI gọi tool `self.web_chat.consume_pending`. Không dùng `detect` để gửi văn bản dài.
+- `GET /api/prompt_status`: `queued`, `trigger_sent`, `consumed`, `failed` hoặc `timeout`. `trigger_sent` **không** có nghĩa AI đã nhận câu lệnh; chỉ `consumed` xác nhận tool đã được gọi. Phản hồi TTS vẫn cần thử trên phần cứng và phụ thuộc server/agent; sau 30 giây không gọi tool, câu lệnh bị xóa và trạng thái chuyển `timeout`.
 
 OLED dùng font bitmap 5×7 cục bộ, hiển thị `HH:MM:SS` mỗi giây; trước khi đồng bộ giờ, hiển thị `--:--:--`. Tùy chọn xoay OLED 180 độ áp dụng khi vẽ pixel, còn TFT xoay qua LVGL/panel. Motor còn có MCP user-only tools `move_motor`, `stop_motor`, `set_motor_speed`; `move_motor` dùng `steps` có dấu để tiến/lùi và `set_motor_speed` giữ tên API cũ nhưng thực chất chỉnh mili-giây mỗi đơn vị.
 
 HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 2048 byte và cấu hình được kiểm tra trước khi ghi NVS.
+
+## Nguồn tham khảo cho các tính năng robot
+
+Tham khảo [hudrucan/xiaozhi-desk-robot](https://github.com/hudrucan/xiaozhi-desk-robot) khi phát triển web chat, điều khiển, cảm biến và giao diện robot. Đối chiếu thiết kế và giao thức với upstream XiaoZhi, phần cứng của board này và backend đang dùng trước khi áp dụng; không sao chép GPIO/board identity hay giả định server tùy biến của dự án tham khảo tương thích tenclass.net.
 
 ## Build và kiểm thử
 

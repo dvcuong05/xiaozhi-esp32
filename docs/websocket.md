@@ -203,11 +203,6 @@ WebSocket text frames carry JSON. The most common `"type"` values and their sema
      }
      ```
 
-   The same `listen`/`detect` envelope can carry a user text prompt when the
-   backend supports text input. The firmware opens the conversation channel
-   first and JSON-escapes arbitrary text before sending it. A successful send
-   does not guarantee that the backend will generate a response.
-
 5. **MCP**
    - The recommended channel for IoT control. Device capability discovery and tool invocation all flow through `type: "mcp"` messages whose `payload` is JSON-RPC 2.0 (see [MCP protocol document](./mcp-protocol.md)).
    - Device-to-server response example:

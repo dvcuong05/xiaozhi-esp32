@@ -12,7 +12,6 @@
 #include <memory>
 #include <functional>
 #include <cstdint>
-#include <atomic>
 #include <vector>
 
 #include "protocol.h"
@@ -44,8 +43,6 @@ enum AecMode {
     kAecOnDeviceSide,
     kAecOnServerSide,
 };
-
-enum class TextPromptStatus { Idle, Queued, Connecting, Sent, Responding, Failed };
 
 class Application {
 public:
@@ -113,11 +110,10 @@ public:
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
+    bool StartTextBridgeConversation(std::function<void(bool)> on_ready);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
-    bool QueueTextPrompt(std::string text);
-    TextPromptStatus GetTextPromptStatus() const { return text_prompt_status_.load(); }
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
@@ -150,14 +146,14 @@ private:
     std::unique_ptr<Ota> ota_;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
-    std::atomic<bool> text_prompt_pending_{false};
-    std::atomic<TextPromptStatus> text_prompt_status_{TextPromptStatus::Idle};
 
     bool has_server_time_ = false;
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
+    bool text_bridge_active_ = false;
+    int64_t text_bridge_started_us_ = 0;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

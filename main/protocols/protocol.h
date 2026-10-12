@@ -61,8 +61,9 @@ public:
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;
     virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
+    // Bind a transport's return-audio path without uploading microphone audio.
+    virtual bool PrimeAudioChannel() { return true; }
     virtual void SendWakeWordDetected(const std::string& wake_word);
-    bool SendUserText(const std::string& text);
     virtual void SendStartListening(ListeningMode mode);
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);

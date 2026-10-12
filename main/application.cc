@@ -273,6 +273,16 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+            if (text_bridge_active_ && esp_timer_get_time() - text_bridge_started_us_ > 40000000 &&
+                GetDeviceState() == kDeviceStateListening) {
+                ESP_LOGW(TAG, "Web text bridge timed out waiting for the assistant");
+                text_bridge_active_ = false;
+                if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                    protocol_->CloseAudioChannel();
+                } else {
+                    SetDeviceState(kDeviceStateIdle);
+                }
+            }
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
@@ -570,9 +580,7 @@ void Application::InitializeProtocol() {
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
-            if (text_prompt_status_.load() == TextPromptStatus::Sent) {
-                text_prompt_status_.store(TextPromptStatus::Failed);
-            }
+            text_bridge_active_ = false;
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -626,10 +634,8 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
+                    text_bridge_active_ = false;
                     aborted_ = false;
-                    if (text_prompt_status_.load() == TextPromptStatus::Sent) {
-                        text_prompt_status_.store(TextPromptStatus::Responding);
-                    }
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
@@ -1034,6 +1040,14 @@ void Application::HandleStateChangedEvent() {
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 
+            if (text_bridge_active_) {
+                // The web request supplies text through MCP; do not capture microphone audio.
+                pending_listening_start_ = false;
+                audio_service_.EnableVoiceProcessing(false);
+                audio_service_.EnableWakeWordDetection(false);
+                break;
+            }
+
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
                 // For auto mode, wait for the playback queue to drain before enabling
@@ -1303,6 +1317,60 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
     }
 }
 
+bool Application::StartTextBridgeConversation(std::function<void(bool)> on_ready) {
+    if (event_group_ == nullptr || GetDeviceState() != kDeviceStateIdle) {
+        return false;
+    }
+    Schedule([this, on_ready = std::move(on_ready)]() {
+        if (GetDeviceState() != kDeviceStateIdle || protocol_ == nullptr) {
+            on_ready(false);
+            return;
+        }
+        text_bridge_active_ = true;
+        text_bridge_started_us_ = esp_timer_get_time();
+        const ListeningMode previous_mode = listening_mode_;
+        if (!SetDeviceState(kDeviceStateConnecting)) {
+            text_bridge_active_ = false;
+            on_ready(false);
+            return;
+        }
+        Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        if (!protocol_->IsAudioChannelOpened() && !protocol_->OpenAudioChannel()) {
+            text_bridge_active_ = false;
+            listening_mode_ = previous_mode;
+            SetDeviceState(kDeviceStateIdle);
+            on_ready(false);
+            return;
+        }
+        listening_mode_ = kListeningModeManualStop;
+        pending_listening_start_ = false;
+        audio_service_.EnableVoiceProcessing(false);
+        audio_service_.EnableWakeWordDetection(false);
+        while (audio_service_.PopPacketFromSendQueue()) {
+        }
+        if (!SetDeviceState(kDeviceStateListening)) {
+            text_bridge_active_ = false;
+            listening_mode_ = previous_mode;
+            protocol_->CloseAudioChannel();
+            on_ready(false);
+            return;
+        }
+        protocol_->SendStartListening(listening_mode_);
+        if (!protocol_->PrimeAudioChannel()) {
+            text_bridge_active_ = false;
+            listening_mode_ = previous_mode;
+            protocol_->CloseAudioChannel();
+            on_ready(false);
+            return;
+        }
+        // Only a short trigger travels in listen/detect. The actual text stays on the device
+        // until the assistant requests it via the board's MCP tool.
+        protocol_->SendWakeWordDetected("web_chat");
+        on_ready(true);
+    });
+    return true;
+}
+
 bool Application::CanEnterSleepMode() {
     if (GetDeviceState() != kDeviceStateIdle) {
         return false;
@@ -1334,47 +1402,6 @@ void Application::SendMcpMessage(const std::string& payload) {
             mcp_broadcast_callback_(payload);
         }
     });
-}
-
-bool Application::QueueTextPrompt(std::string text) {
-    if (text.empty() || event_group_ == nullptr || GetDeviceState() != kDeviceStateIdle) {
-        return false;
-    }
-    bool expected = false;
-    if (!text_prompt_pending_.compare_exchange_strong(expected, true)) {
-        return false;
-    }
-    text_prompt_status_.store(TextPromptStatus::Queued);
-    Schedule([this, text = std::move(text)]() {
-        if (GetDeviceState() != kDeviceStateIdle || protocol_ == nullptr) {
-            ESP_LOGW(TAG, "Text prompt rejected: device is not idle");
-            text_prompt_status_.store(TextPromptStatus::Failed);
-            text_prompt_pending_.store(false);
-            return;
-        }
-        text_prompt_status_.store(TextPromptStatus::Connecting);
-        if (!protocol_->IsAudioChannelOpened() && !protocol_->OpenAudioChannel()) {
-            ESP_LOGW(TAG, "Text prompt failed: cannot open audio channel");
-            text_prompt_status_.store(TextPromptStatus::Failed);
-            text_prompt_pending_.store(false);
-            return;
-        }
-        // A typed request must not automatically enable microphone capture
-        // after TTS finishes, unlike a voice-initiated conversation.
-        ListeningMode previous_mode = listening_mode_;
-        listening_mode_ = kListeningModeManualStop;
-        if (!protocol_->SendUserText(text)) {
-            ESP_LOGW(TAG, "Text prompt failed: transport send error");
-            listening_mode_ = previous_mode;
-            protocol_->CloseAudioChannel();
-            text_prompt_status_.store(TextPromptStatus::Failed);
-        } else {
-            ESP_LOGI(TAG, "Text prompt delivered to conversation transport");
-            text_prompt_status_.store(TextPromptStatus::Sent);
-        }
-        text_prompt_pending_.store(false);
-    });
-    return true;
 }
 
 void Application::SetAecMode(AecMode mode) {

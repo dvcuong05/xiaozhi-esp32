@@ -8,10 +8,18 @@
 #include <netdb.h>
 #include <charconv>
 #include <cstring>
+#include <iterator>
 #include <system_error>
 #include "assets/lang_config.h"
 
 #define TAG "MQTT"
+
+// A valid 60 ms 16 kHz mono Opus silence frame binds the UDP return path
+// without sending microphone input during a web-initiated conversation.
+static constexpr uint8_t kAudioPrimeOpusSilence[] = {
+    0x58, 0x02, 0xF9, 0x30, 0x4D, 0xBB, 0x0D, 0xE5, 0xE3, 0x92,
+    0x09, 0x89, 0x38, 0xEB, 0xCA, 0xE1, 0xB1, 0xD1, 0xDD, 0x85,
+};
 
 MqttProtocol::MqttProtocol() {
     event_group_handle_ = xEventGroupCreate();
@@ -244,6 +252,15 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
 
     // Send without holding channel_mutex_ (see above).
     return udp->Send(encrypted) > 0;
+}
+
+bool MqttProtocol::PrimeAudioChannel() {
+    auto packet = std::make_unique<AudioStreamPacket>();
+    packet->sample_rate = 16000;
+    packet->frame_duration = 60;
+    packet->timestamp = 0;
+    packet->payload.assign(std::begin(kAudioPrimeOpusSilence), std::end(kAudioPrimeOpusSilence));
+    return SendAudio(std::move(packet));
 }
 
 void MqttProtocol::CloseAudioChannel(bool send_goodbye) {

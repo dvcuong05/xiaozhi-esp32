@@ -1,9 +1,101 @@
 #include "robot_mcp_tools.h"
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <cstdint>
+#include <mutex>
+#include <utility>
 
 static RobotDrive* g_drive = nullptr;
 
 static const char* TAG = "RobotMCP";
+
+namespace {
+
+enum class WebPromptStatus { Idle, Queued, TriggerSent, Consumed, Failed, Timeout };
+
+std::mutex web_prompt_mutex;
+std::string pending_web_prompt;
+WebPromptStatus web_prompt_status = WebPromptStatus::Idle;
+int64_t web_prompt_started_us = 0;
+uint32_t web_prompt_id = 0;
+
+void ExpireWebPrompt() {
+    if ((web_prompt_status == WebPromptStatus::Queued ||
+         web_prompt_status == WebPromptStatus::TriggerSent) &&
+        esp_timer_get_time() - web_prompt_started_us > 30000000) {
+        pending_web_prompt.clear();
+        web_prompt_status = WebPromptStatus::Timeout;
+    }
+}
+
+ToolResult ConsumeWebPrompt(const PropertyList&) {
+    std::lock_guard<std::mutex> lock(web_prompt_mutex);
+    ExpireWebPrompt();
+    if (pending_web_prompt.empty()) {
+        return std::unexpected("No pending Web UI prompt");
+    }
+    std::string prompt = std::move(pending_web_prompt);
+    pending_web_prompt.clear();
+    web_prompt_status = WebPromptStatus::Consumed;
+    ESP_LOGI(TAG, "Web prompt consumed by assistant tool (%u bytes)",
+             static_cast<unsigned>(prompt.size()));
+    return prompt;
+}
+
+}  // namespace
+
+bool QueueRobotWebPrompt(std::string prompt) {
+    uint32_t id;
+    {
+        std::lock_guard<std::mutex> lock(web_prompt_mutex);
+        ExpireWebPrompt();
+        if (!pending_web_prompt.empty()) {
+            return false;
+        }
+        pending_web_prompt = std::move(prompt);
+        web_prompt_status = WebPromptStatus::Queued;
+        web_prompt_started_us = esp_timer_get_time();
+        id = ++web_prompt_id;
+    }
+    if (!Application::GetInstance().StartTextBridgeConversation([id](bool ready) {
+            std::lock_guard<std::mutex> lock(web_prompt_mutex);
+            if (id != web_prompt_id || web_prompt_status != WebPromptStatus::Queued) {
+                return;
+            }
+            web_prompt_status = ready ? WebPromptStatus::TriggerSent : WebPromptStatus::Failed;
+            if (!ready) {
+                pending_web_prompt.clear();
+            }
+        })) {
+        std::lock_guard<std::mutex> lock(web_prompt_mutex);
+        if (id == web_prompt_id) {
+            pending_web_prompt.clear();
+            web_prompt_status = WebPromptStatus::Failed;
+        }
+        return false;
+    }
+    return true;
+}
+
+const char* GetRobotWebPromptStatus() {
+    std::lock_guard<std::mutex> lock(web_prompt_mutex);
+    ExpireWebPrompt();
+    switch (web_prompt_status) {
+        case WebPromptStatus::Idle:
+            return "idle";
+        case WebPromptStatus::Queued:
+            return "queued";
+        case WebPromptStatus::TriggerSent:
+            return "trigger_sent";
+        case WebPromptStatus::Consumed:
+            return "consumed";
+        case WebPromptStatus::Failed:
+            return "failed";
+        case WebPromptStatus::Timeout:
+            return "timeout";
+    }
+    return "failed";
+}
 
 // Legacy signed steps select forward/backward; each unit lasts delay_ms milliseconds.
 static ToolResult MoveMotor(const PropertyList& properties) {
@@ -47,17 +139,6 @@ static ToolResult SetMotorDurationUnit(const PropertyList& properties) {
     g_drive->SetSpeed(delay_ms);
 
     return std::string("Motor duration unit set");
-}
-
-// MCP Tool: Send prompt to AI
-// Parameters: prompt (string, required)
-static ToolResult SendPrompt(const PropertyList& properties) {
-    std::string prompt = properties["prompt"].value<std::string>();
-
-    if (!Application::GetInstance().QueueTextPrompt(std::move(prompt))) {
-        return std::unexpected("Device is busy or unavailable");
-    }
-    return std::string("Prompt queued");
 }
 
 // MCP Tool: Toggle chat state
@@ -105,10 +186,12 @@ void RegisterRobotMcpTools(RobotDrive* drive) {
         SetMotorDurationUnit);
 
     // Register AI interaction tools
-    mcp.AddUserOnlyTool("send_prompt", "Send a text prompt to the AI assistant",
-                        PropertyList(std::vector<Property>{
-                            Property("prompt", kPropertyTypeString).SetMaxLength(1000)}),
-                        SendPrompt);
+    mcp.AddTool(
+        "self.web_chat.consume_pending",
+        "When the short wake/detect text is exactly 'web_chat', call this tool before replying. "
+        "The tool result is the user's real message from the robot web page. Answer that "
+        "message, not the trigger word. Only call this for a pending web chat message.",
+        PropertyList(), ConsumeWebPrompt);
 
     mcp.AddUserOnlyTool("toggle_chat", "Toggle the chat state (start/stop conversation)",
                         PropertyList(), ToggleChat);

@@ -5,21 +5,22 @@
 #include "config.h"
 #include "display/lcd_display.h"
 #include "led/single_led.h"
-#include "oled_clock_font.h"
-#include "robot_mcp_tools.h"
+#include "oled_display_controller.h"
 #include "robot_drive.h"
+#include "robot_mcp_tools.h"
 #include "system_reset.h"
 #include "web_server.h"
 #include "wifi_board.h"
 
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
-#include <esp_timer.h>
+#include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
 #include <esp_sntp.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -62,6 +63,10 @@ private:
     int second_display_rotation_ = 0;
     TaskHandle_t time_display_task_handle_ = nullptr;
     SemaphoreHandle_t second_display_mutex_ = nullptr;
+    mrkenddo::OledDisplayController oled_display_controller_;
+    mrkenddo::OledDisplaySettings second_display_settings_;
+    int32_t second_display_contrast_ = 255;
+    bool second_display_invert_ = false;
 
     struct OledConfig {
         char address[3];
@@ -70,6 +75,12 @@ private:
         int32_t width;
         int32_t height;
         int32_t rotation = 0;
+        int32_t mode = static_cast<int32_t>(mrkenddo::OledDisplayMode::Clock);
+        char text[sizeof(mrkenddo::OledDisplaySettings::text)] = {};
+        int32_t speed = 2;
+        int32_t font_size = 0;
+        int32_t contrast = 255;
+        bool invert = false;
     };
 
     void InitializeSpi() {
@@ -137,7 +148,12 @@ private:
                config.sda >= 0 && config.scl >= 0 && config.sda < SOC_GPIO_PIN_COUNT &&
                config.scl < SOC_GPIO_PIN_COUNT && config.sda != config.scl && config.width >= 64 &&
                config.width <= 256 && config.width % 8 == 0 && config.height >= 16 &&
-               config.height <= 64 && config.height % 8 == 0;
+               config.height <= 64 && config.height % 8 == 0 &&
+               mrkenddo::OledDisplayController::IsValidMode(config.mode) &&
+               mrkenddo::OledDisplayController::IsValidSpeed(config.speed) &&
+               mrkenddo::OledDisplayController::IsValidFontSize(config.font_size) &&
+               config.contrast >= 0 && config.contrast <= 255 &&
+               std::strlen(config.text) < sizeof(config.text);
     }
 
     OledConfig LoadOledConfig() const {
@@ -156,13 +172,45 @@ private:
                 (rotation == 0 || rotation == 180)) {
                 config.rotation = rotation;
             }
+
+            int32_t mode = static_cast<int32_t>(mrkenddo::OledDisplayMode::Clock);
+            if (nvs_get_i32(handle, "mode", &mode) == ESP_OK &&
+                mrkenddo::OledDisplayController::IsValidMode(mode)) {
+                config.mode = mode;
+            }
+            size_t text_length = sizeof(config.text);
+            if (nvs_get_str(handle, "text", config.text, &text_length) != ESP_OK) {
+                config.text[0] = '\0';
+            }
+            int32_t speed = config.speed;
+            if (nvs_get_i32(handle, "speed", &speed) == ESP_OK &&
+                mrkenddo::OledDisplayController::IsValidSpeed(speed)) {
+                config.speed = speed;
+            }
+            int32_t font_size = config.font_size;
+            if (nvs_get_i32(handle, "font_size", &font_size) == ESP_OK &&
+                mrkenddo::OledDisplayController::IsValidFontSize(font_size)) {
+                config.font_size = font_size;
+            }
+            int32_t contrast = config.contrast;
+            if (nvs_get_i32(handle, "contrast", &contrast) == ESP_OK && contrast >= 0 &&
+                contrast <= 255) {
+                config.contrast = contrast;
+            }
+            uint8_t invert = 0;
+            if (nvs_get_u8(handle, "invert", &invert) == ESP_OK && invert <= 1) {
+                config.invert = invert != 0;
+            }
             nvs_close(handle);
             if (!complete || !ValidateOledConfig(config)) {
                 ESP_LOGW(TAG, "Cau hinh OLED trong NVS khong hop le, dung mac dinh");
                 config = DefaultOledConfig();
             } else {
-                ESP_LOGI(TAG, "Da tai cau hinh OLED: addr=%s, sda=%d, scl=%d, width=%d, height=%d",
-                         config.address, config.sda, config.scl, config.width, config.height);
+                ESP_LOGI(TAG,
+                         "Da tai cau hinh OLED: addr=%s, sda=%d, scl=%d, width=%d, height=%d, "
+                         "mode=%d",
+                         config.address, config.sda, config.scl, config.width, config.height,
+                         config.mode);
             }
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGW(TAG, "Khong the doc cau hinh OLED tu NVS: %s; dung mac dinh",
@@ -172,6 +220,7 @@ private:
     }
 
     void DestroySecondDisplayPanel() {
+        oled_display_controller_.Disable();
         free(second_display_framebuffer_);
         second_display_framebuffer_ = nullptr;
         second_display_framebuffer_size_ = 0;
@@ -188,79 +237,84 @@ private:
         }
     }
 
-    void SetSecondOledPixel(int x, int y) {
-        if (x < 0 || y < 0 || x >= second_display_width_ || y >= second_display_height_) {
-            return;
+    void SetActiveOledConfig(const OledConfig& config) {
+        second_display_rotation_ = config.rotation;
+        second_display_settings_.mode = static_cast<mrkenddo::OledDisplayMode>(config.mode);
+        mrkenddo::OledDisplayController::NormalizeText(config.text, second_display_settings_.text,
+                                                       sizeof(second_display_settings_.text));
+        second_display_settings_.speed = config.speed;
+        second_display_settings_.font_size = config.font_size;
+        second_display_contrast_ = config.contrast;
+        second_display_invert_ = config.invert;
+    }
+
+    esp_err_t ApplyOledPanelSettings() {
+        if (second_panel_ == nullptr) {
+            return ESP_ERR_INVALID_STATE;
         }
-        if (second_display_rotation_ == 180) {
-            x = second_display_width_ - 1 - x;
-            y = second_display_height_ - 1 - y;
+        esp_err_t ret = esp_lcd_panel_invert_color(second_panel_, second_display_invert_);
+        if (ret != ESP_OK) {
+            return ret;
         }
-        size_t offset = static_cast<size_t>(x) +
-                        static_cast<size_t>(y / 8) * static_cast<size_t>(second_display_width_);
-        if (offset < second_display_framebuffer_size_) {
-            second_display_framebuffer_[offset] |= static_cast<uint8_t>(1U << (y % 8));
+        uint8_t contrast = static_cast<uint8_t>(second_display_contrast_);
+        // SSD1306's contrast command is common to both the 0x3C and 0x3D
+        // modules supported by this board. Keep it here instead of adding a
+        // second display driver just for a one-byte setting.
+        return esp_lcd_panel_io_tx_param(second_panel_io_, 0x81, &contrast, sizeof(contrast));
+    }
+
+    const char* GetOledDeviceStateLabel() const {
+        switch (Application::GetInstance().GetDeviceState()) {
+            case kDeviceStateStarting:
+                return "STARTING";
+            case kDeviceStateWifiConfiguring:
+                return "WIFI SETUP";
+            case kDeviceStateIdle:
+                return "IDLE";
+            case kDeviceStateConnecting:
+                return "CONNECTING";
+            case kDeviceStateListening:
+                return "LISTENING";
+            case kDeviceStateSpeaking:
+                return "SPEAKING";
+            case kDeviceStateNotifying:
+                return "NOTIFY";
+            case kDeviceStateUpgrading:
+                return "UPDATING";
+            case kDeviceStateActivating:
+                return "ACTIVATING";
+            case kDeviceStateAudioTesting:
+                return "AUDIO TEST";
+            case kDeviceStateFatalError:
+                return "ERROR";
+            case kDeviceStateUnknown:
+            default:
+                return "UNKNOWN";
         }
     }
 
-    bool RenderSecondOledClockLocked() {
+    bool RenderSecondOledLocked() {
         if (second_panel_ == nullptr || second_display_framebuffer_ == nullptr) {
             return false;
         }
 
-        char clock_text[] = "--:--:--";
-        time_t now = time(nullptr);
-        tm local_time = {};
-        if (now >= 1577836800 && localtime_r(&now, &local_time) != nullptr) {
-            std::snprintf(clock_text, sizeof(clock_text), "%02d:%02d:%02d", local_time.tm_hour,
-                          local_time.tm_min, local_time.tm_sec);
-        }
+        char status_line_1[80] = {};
+        char status_line_2[32] = {};
+        const auto& wifi = WifiManager::GetInstance();
+        std::snprintf(status_line_1, sizeof(status_line_1), "WIFI %s",
+                      wifi.IsConnected() ? wifi.GetIpAddress().c_str() : "OFFLINE");
+        std::snprintf(status_line_2, sizeof(status_line_2), "%s", GetOledDeviceStateLabel());
 
-        constexpr int kClockCharacters = sizeof(clock_text) - 1;
-        constexpr int kGlyphSpacing = 1;
-        int scale = 1;
-        for (int candidate = 8; candidate >= 1; --candidate) {
-            int text_width = kClockCharacters * mrkenddo::oled_clock_font::kGlyphWidth * candidate +
-                             (kClockCharacters - 1) * kGlyphSpacing;
-            int text_height = mrkenddo::oled_clock_font::kGlyphHeight * candidate;
-            if (text_width <= second_display_width_ && text_height <= second_display_height_) {
-                scale = candidate;
-                break;
-            }
-        }
-
-        int text_width = kClockCharacters * mrkenddo::oled_clock_font::kGlyphWidth * scale +
-                         (kClockCharacters - 1) * kGlyphSpacing;
-        int text_height = mrkenddo::oled_clock_font::kGlyphHeight * scale;
-        int start_x = (second_display_width_ - text_width) / 2;
-        int start_y = (second_display_height_ - text_height) / 2;
-
-        std::memset(second_display_framebuffer_, 0, second_display_framebuffer_size_);
-        for (int character_index = 0; character_index < kClockCharacters; ++character_index) {
-            const uint8_t* glyph = mrkenddo::oled_clock_font::GetGlyph(clock_text[character_index]);
-            int glyph_x =
-                start_x +
-                character_index * (mrkenddo::oled_clock_font::kGlyphWidth * scale + kGlyphSpacing);
-            for (int row = 0; row < mrkenddo::oled_clock_font::kGlyphHeight; ++row) {
-                for (int column = 0; column < mrkenddo::oled_clock_font::kGlyphWidth; ++column) {
-                    if ((glyph[row] &
-                         (1U << (mrkenddo::oled_clock_font::kGlyphWidth - 1 - column))) != 0) {
-                        for (int y_scale = 0; y_scale < scale; ++y_scale) {
-                            for (int x_scale = 0; x_scale < scale; ++x_scale) {
-                                SetSecondOledPixel(glyph_x + column * scale + x_scale,
-                                                   start_y + row * scale + y_scale);
-                            }
-                        }
-                    }
-                }
-            }
+        if (!oled_display_controller_.Render(second_display_settings_, status_line_1, status_line_2,
+                                             time(nullptr))) {
+            return false;
         }
 
         esp_err_t ret =
             esp_lcd_panel_draw_bitmap(second_panel_, 0, 0, second_display_width_,
                                       second_display_height_, second_display_framebuffer_);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Khong the ve dong ho OLED: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Khong the ve noi dung OLED: %s", esp_err_to_name(ret));
             return false;
         }
         return true;
@@ -360,6 +414,14 @@ private:
             return false;
         }
 
+        SetActiveOledConfig(config);
+        ret = ApplyOledPanelSettings();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Khong the ap dung cau hinh OLED: %s", esp_err_to_name(ret));
+            DestroySecondDisplayPanel();
+            return false;
+        }
+
         ret = esp_lcd_panel_disp_on_off(second_panel_, true);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the bat man hinh: %s", esp_err_to_name(ret));
@@ -380,11 +442,14 @@ private:
         second_display_width_ = config.width;
         second_display_height_ = config.height;
         second_display_rotation_ = config.rotation;
-        if (!RenderSecondOledClockLocked()) {
+        oled_display_controller_.Configure(second_display_framebuffer_,
+                                           second_display_framebuffer_size_, second_display_width_,
+                                           second_display_height_, second_display_rotation_);
+        if (!RenderSecondOledLocked()) {
             DestroySecondDisplayPanel();
             return false;
         }
-        ESP_LOGI(TAG, "Da khoi tao dong ho tren OLED");
+        ESP_LOGI(TAG, "Da khoi tao OLED mode=%d", config.mode);
         return true;
     }
 
@@ -392,16 +457,24 @@ private:
         MrkenDDoRobot* robot = static_cast<MrkenDDoRobot*>(pvParameters);
 
         while (true) {
+            int delay_ms = 1000;
             if (robot->second_display_mutex_ != nullptr) {
                 xSemaphoreTake(robot->second_display_mutex_, portMAX_DELAY);
-                bool display_ready = robot->RenderSecondOledClockLocked();
+                bool display_ready = robot->RenderSecondOledLocked();
+                if (robot->second_display_settings_.mode == mrkenddo::OledDisplayMode::Marquee) {
+                    int speed = std::clamp<int>(robot->second_display_settings_.speed, 1, 5);
+                    delay_ms = std::max(50, 260 / speed);
+                } else if (robot->second_display_settings_.mode ==
+                           mrkenddo::OledDisplayMode::Status) {
+                    delay_ms = 500;
+                }
                 xSemaphoreGive(robot->second_display_mutex_);
                 if (!display_ready) {
-                    ESP_LOGD(TAG, "OLED thu hai chua san sang de hien thi dong ho");
+                    ESP_LOGD(TAG, "OLED thu hai chua san sang de hien thi");
                 }
             }
 
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
         }
     }
 
@@ -503,6 +576,25 @@ private:
     }
 
 public:
+    void ApplyOledDisplaySettings() {
+        if (second_display_mutex_ == nullptr) {
+            ESP_LOGE(TAG, "Mutex OLED chua san sang");
+            return;
+        }
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        OledConfig config = LoadOledConfig();
+        SetActiveOledConfig(config);
+        if (second_panel_ != nullptr) {
+            esp_err_t ret = ApplyOledPanelSettings();
+            if (ret == ESP_OK) {
+                RenderSecondOledLocked();
+            } else {
+                ESP_LOGE(TAG, "Khong the ap dung lai cau hinh OLED: %s", esp_err_to_name(ret));
+            }
+        }
+        xSemaphoreGive(second_display_mutex_);
+    }
+
     void ReinitializeSecondOledDisplay() {
         ESP_LOGI(TAG, "Khoi tao lai man hinh OLED thu hai");
 
@@ -567,10 +659,11 @@ public:
           volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot bat dau");
         esp_timer_create_args_t ip_display_timer_args = {
-            .callback = [](void* arg) {
-                auto* board = static_cast<MrkenDDoRobot*>(arg);
-                Application::GetInstance().Schedule([board]() { board->ShowIpAddress(); });
-            },
+            .callback =
+                [](void* arg) {
+                    auto* board = static_cast<MrkenDDoRobot*>(arg);
+                    Application::GetInstance().Schedule([board]() { board->ShowIpAddress(); });
+                },
             .arg = this,
             .dispatch_method = ESP_TIMER_TASK,
             .name = "show_ip_address",
@@ -582,8 +675,9 @@ public:
         nvs_handle_t display_handle;
         if (nvs_open("tft_config", NVS_READWRITE, &display_handle) == ESP_OK) {
             int32_t stored_rotation = DISPLAY_DEFAULT_ROTATION;
-            bool has_valid_rotation = nvs_get_i32(display_handle, "rotation", &stored_rotation) == ESP_OK &&
-                                      IsValidTftRotation(stored_rotation);
+            bool has_valid_rotation =
+                nvs_get_i32(display_handle, "rotation", &stored_rotation) == ESP_OK &&
+                IsValidTftRotation(stored_rotation);
             if (has_valid_rotation) {
                 tft_rotation = stored_rotation;
             }
@@ -734,6 +828,13 @@ extern "C" void ReinitializeOledDisplay() {
     Application::GetInstance().Schedule([]() {
         if (g_robot_board != nullptr) {
             g_robot_board->ReinitializeSecondOledDisplay();
+        }
+    });
+}
+extern "C" void ApplyOledDisplaySettings() {
+    Application::GetInstance().Schedule([]() {
+        if (g_robot_board != nullptr) {
+            g_robot_board->ApplyOledDisplaySettings();
         }
     });
 }

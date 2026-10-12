@@ -1,7 +1,9 @@
 #include "web_server.h"
 #include "config.h"
+#include "oled_display_controller.h"
 #include "robot_drive.h"
 #include "robot_mcp_tools.h"
+#include "web_ui.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,15 +14,19 @@
 
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <application.h>
 #include <cJSON.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <soc/soc_caps.h>
+#include <wifi_manager.h>
 
 #define TAG "WEB_SERVER"
 
-// Embedded HTML page
-static const char* INDEX_HTML =
+// Embedded HTML page. The previous inline page is kept below only as a
+// reference while the board-local dashboard lives in web_ui.h.
+#if 0
+static const char* INDEX_HTML_LEGACY =
     "<!DOCTYPE html>\n"
     "<html>\n"
     "<head>\n"
@@ -338,6 +344,9 @@ static const char* INDEX_HTML =
     "    </script>\n"
     "</body>\n"
     "</html>\n";
+#endif
+
+static const char* INDEX_HTML = mrkenddo::web_ui::kIndexHtml;
 
 namespace {
 
@@ -441,6 +450,20 @@ bool GetInteger(const cJSON* object, const char* name, int min_value, int max_va
     return true;
 }
 
+bool GetString(const cJSON* object, const char* name, char* value, size_t value_size,
+               bool required = true) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, name);
+    if (item == nullptr) {
+        return !required;
+    }
+    if (!cJSON_IsString(item) || item->valuestring == nullptr ||
+        std::strlen(item->valuestring) >= value_size) {
+        return false;
+    }
+    std::snprintf(value, value_size, "%s", item->valuestring);
+    return true;
+}
+
 bool ParseOledAddress(const cJSON* item, int* address) {
     if (item == nullptr || !cJSON_IsString(item) || item->valuestring == nullptr ||
         item->valuestring[0] == '\0' || std::strlen(item->valuestring) > 2) {
@@ -497,6 +520,9 @@ bool WebServer::Start(int port) {
         {"/api/oled_config", HTTP_POST, ApiOledConfigHandler, this},
         {"/api/oled_config", HTTP_GET, ApiOledConfigHandler, this},
         {"/api/oled_test", HTTP_POST, ApiOledTestHandler, this},
+        {"/api/oled_message", HTTP_POST, ApiOledMessageHandler, this},
+        {"/api/oled_clear", HTTP_POST, ApiOledClearHandler, this},
+        {"/api/status", HTTP_GET, ApiStatusHandler, this},
         {"/api/tft_config", HTTP_GET, ApiTftConfigHandler, this},
         {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
     };
@@ -772,6 +798,12 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     int32_t width = defaults.width;
     int32_t height = defaults.height;
     int32_t rotation = 0;
+    int32_t mode = static_cast<int32_t>(mrkenddo::OledDisplayMode::Clock);
+    char text[sizeof(mrkenddo::OledDisplaySettings::text)] = {};
+    int32_t speed = 2;
+    int32_t font_size = 0;
+    int32_t contrast = 255;
+    bool invert = false;
     if (req->method == HTTP_GET) {
         nvs_handle_t handle;
         esp_err_t err = nvs_open("oled_config", NVS_READONLY, &handle);
@@ -792,6 +824,24 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
             if (nvs_get_i32(handle, "rotation", &rotation) != ESP_OK ||
                 (rotation != 0 && rotation != 180))
                 rotation = 0;
+            if (nvs_get_i32(handle, "mode", &mode) != ESP_OK ||
+                !mrkenddo::OledDisplayController::IsValidMode(mode))
+                mode = static_cast<int32_t>(mrkenddo::OledDisplayMode::Clock);
+            size_t text_length = sizeof(text);
+            if (nvs_get_str(handle, "text", text, &text_length) != ESP_OK)
+                text[0] = '\0';
+            if (nvs_get_i32(handle, "speed", &speed) != ESP_OK ||
+                !mrkenddo::OledDisplayController::IsValidSpeed(speed))
+                speed = 2;
+            if (nvs_get_i32(handle, "font_size", &font_size) != ESP_OK ||
+                !mrkenddo::OledDisplayController::IsValidFontSize(font_size))
+                font_size = 0;
+            if (nvs_get_i32(handle, "contrast", &contrast) != ESP_OK || contrast < 0 ||
+                contrast > 255)
+                contrast = 255;
+            uint8_t invert_value = 0;
+            if (nvs_get_u8(handle, "invert", &invert_value) == ESP_OK && invert_value <= 1)
+                invert = invert_value != 0;
             nvs_close(handle);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read NVS");
@@ -813,6 +863,12 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
             cJSON_AddNumberToObject(response, "width", width);
             cJSON_AddNumberToObject(response, "height", height);
             cJSON_AddNumberToObject(response, "rotation", rotation);
+            cJSON_AddNumberToObject(response, "mode", mode);
+            cJSON_AddStringToObject(response, "text", text);
+            cJSON_AddNumberToObject(response, "speed", speed);
+            cJSON_AddNumberToObject(response, "font_size", font_size);
+            cJSON_AddNumberToObject(response, "contrast", contrast);
+            cJSON_AddBoolToObject(response, "invert", invert);
         }
         return SendJson(req, response);
     }
@@ -827,6 +883,12 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     int parsed_width = 0;
     int parsed_height = 0;
     int parsed_rotation = 0;
+    int parsed_mode = static_cast<int>(mrkenddo::OledDisplayMode::Clock);
+    int parsed_speed = 2;
+    int parsed_font_size = 0;
+    int parsed_contrast = 255;
+    char parsed_text[sizeof(text)] = {};
+    bool parsed_invert = false;
     bool valid = ParseOledAddress(cJSON_GetObjectItem(root, "addr"), &parsed_address) &&
                  GetInteger(root, "sda", 0, SOC_GPIO_PIN_COUNT - 1, &parsed_sda) &&
                  GetInteger(root, "scl", 0, SOC_GPIO_PIN_COUNT - 1, &parsed_scl) &&
@@ -834,7 +896,17 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
                  GetInteger(root, "height", 16, 64, &parsed_height) && parsed_width % 8 == 0 &&
                  parsed_height % 8 == 0 && ValidOledPins(parsed_sda, parsed_scl) &&
                  GetInteger(root, "rotation", 0, 180, &parsed_rotation, false) &&
-                 (parsed_rotation == 0 || parsed_rotation == 180);
+                 (parsed_rotation == 0 || parsed_rotation == 180) &&
+                 GetInteger(root, "mode", 0, 3, &parsed_mode, false) &&
+                 GetString(root, "text", parsed_text, sizeof(parsed_text), false) &&
+                 GetInteger(root, "speed", 1, 5, &parsed_speed, false) &&
+                 GetInteger(root, "font_size", 0, 2, &parsed_font_size, false) &&
+                 GetInteger(root, "contrast", 0, 255, &parsed_contrast, false);
+    const cJSON* invert_item = cJSON_GetObjectItemCaseSensitive(root, "invert");
+    if (valid && invert_item != nullptr) {
+        valid = cJSON_IsBool(invert_item);
+        parsed_invert = cJSON_IsTrue(invert_item);
+    }
     if (!valid) {
         cJSON_Delete(root);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid OLED configuration");
@@ -868,6 +940,18 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     }
     if (err == ESP_OK)
         err = nvs_set_i32(handle, "rotation", parsed_rotation);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "mode", parsed_mode);
+    if (err == ESP_OK)
+        err = nvs_set_str(handle, "text", parsed_text);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "speed", parsed_speed);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "font_size", parsed_font_size);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "contrast", parsed_contrast);
+    if (err == ESP_OK)
+        err = nvs_set_u8(handle, "invert", parsed_invert ? 1 : 0);
     if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
@@ -894,6 +978,111 @@ esp_err_t WebServer::ApiOledTestHandler(httpd_req_t* req) {
     if (response != nullptr) {
         cJSON_AddStringToObject(response, "result", "Display reinitialization scheduled");
         cJSON_AddStringToObject(response, "note", "Check if the clock is visible on display");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiOledMessageHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr) {
+        return ESP_FAIL;
+    }
+    char text[sizeof(mrkenddo::OledDisplaySettings::text)] = {};
+    int speed = 2;
+    int font_size = 0;
+    bool valid = GetString(root, "text", text, sizeof(text)) &&
+                 GetInteger(root, "speed", 1, 5, &speed, false) &&
+                 GetInteger(root, "font_size", 0, 2, &font_size, false);
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid OLED message");
+        return ESP_FAIL;
+    }
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open("oled_config", NVS_READWRITE, &handle);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "mode", static_cast<int32_t>(mrkenddo::OledDisplayMode::Marquee));
+    if (err == ESP_OK)
+        err = nvs_set_str(handle, "text", text);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "speed", speed);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "font_size", font_size);
+    if (err == ESP_OK)
+        err = nvs_commit(handle);
+    if (handle != 0)
+        nvs_close(handle);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save OLED message");
+        return ESP_FAIL;
+    }
+    ApplyOledDisplaySettings();
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr)
+        cJSON_AddStringToObject(response, "result", "OLED marquee scheduled");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiOledClearHandler(httpd_req_t* req) {
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open("oled_config", NVS_READWRITE, &handle);
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "mode", static_cast<int32_t>(mrkenddo::OledDisplayMode::Off));
+    if (err == ESP_OK)
+        err = nvs_commit(handle);
+    if (handle != 0)
+        nvs_close(handle);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to clear OLED");
+        return ESP_FAIL;
+    }
+    ApplyOledDisplaySettings();
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr)
+        cJSON_AddStringToObject(response, "result", "OLED cleared");
+    return SendJson(req, response);
+}
+
+const char* DeviceStateName(DeviceState state) {
+    switch (state) {
+        case kDeviceStateStarting:
+            return "starting";
+        case kDeviceStateWifiConfiguring:
+            return "wifi_configuring";
+        case kDeviceStateIdle:
+            return "idle";
+        case kDeviceStateConnecting:
+            return "connecting";
+        case kDeviceStateListening:
+            return "listening";
+        case kDeviceStateSpeaking:
+            return "speaking";
+        case kDeviceStateNotifying:
+            return "notifying";
+        case kDeviceStateUpgrading:
+            return "upgrading";
+        case kDeviceStateActivating:
+            return "activating";
+        case kDeviceStateAudioTesting:
+            return "audio_testing";
+        case kDeviceStateFatalError:
+            return "fatal_error";
+        case kDeviceStateUnknown:
+        default:
+            return "unknown";
+    }
+}
+
+esp_err_t WebServer::ApiStatusHandler(httpd_req_t* req) {
+    const auto& wifi = WifiManager::GetInstance();
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddBoolToObject(response, "wifi_connected", wifi.IsConnected());
+        cJSON_AddStringToObject(response, "ip",
+                                wifi.IsConnected() ? wifi.GetIpAddress().c_str() : "-");
+        cJSON_AddStringToObject(response, "state",
+                                DeviceStateName(Application::GetInstance().GetDeviceState()));
+        cJSON_AddNumberToObject(response, "free_heap", esp_get_free_heap_size());
     }
     return SendJson(req, response);
 }

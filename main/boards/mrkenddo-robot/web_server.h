@@ -9,6 +9,7 @@ class RobotDrive;
 
 // C wrapper function for OLED reinitialization (defined in mrkenddo_robot.cc)
 extern "C" void ReinitializeOledDisplay();
+extern "C" void ApplyOledDisplaySettings();
 extern "C" void ApplyTftRotation(int rotation);
 
 class WebServer {
@@ -28,6 +29,9 @@ private:
     static esp_err_t ApiConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledTestHandler(httpd_req_t* req);
+    static esp_err_t ApiOledMessageHandler(httpd_req_t* req);
+    static esp_err_t ApiOledClearHandler(httpd_req_t* req);
+    static esp_err_t ApiStatusHandler(httpd_req_t* req);
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
 
     httpd_handle_t server_;

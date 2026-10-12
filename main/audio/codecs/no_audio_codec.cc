@@ -249,8 +249,14 @@ int NoAudioCodec::Read(int16_t* dest, int samples) {
 
     samples = bytes_read / sizeof(int32_t);
     for (int i = 0; i < samples; i++) {
-        int32_t value = bit32_buffer[i] >> 12;
-        dest[i] = (value > INT16_MAX) ? INT16_MAX : (value < -INT16_MAX) ? -INT16_MAX : (int16_t)value;
+        // Standard I2S RX stores the INMP441's 24-bit sample in the high 24
+        // bits of a 32-bit word. Convert it to signed PCM16 by dropping the
+        // eight unused low bits and the remaining eight bits of precision.
+        // Shifting by 12 (the old code) amplified the microphone by 16x and
+        // caused ordinary speech to clip before VAD/Opus processing.
+        int32_t value = bit32_buffer[i] >> 16;
+        dest[i] = (value > INT16_MAX) ? INT16_MAX
+                                      : (value < INT16_MIN) ? INT16_MIN : (int16_t)value;
     }
     return samples;
 }

@@ -14,6 +14,7 @@
 
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
+#include <esp_timer.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
@@ -48,6 +49,7 @@ private:
     RobotDrive* drive_ = nullptr;
     WebServer* web_server_;
     bool web_server_started_ = false;
+    esp_timer_handle_t ip_display_timer_ = nullptr;
 
     // Second OLED display
     i2c_master_bus_handle_t second_display_i2c_bus_ = nullptr;
@@ -446,10 +448,25 @@ private:
         if (wifi.IsConnected()) {
             std::string ip = "IP: " + wifi.GetIpAddress();
             ESP_LOGI(TAG, "IP Webserver: %s", wifi.GetIpAddress().c_str());
-            GetDisplay()->ShowNotification(ip);
+            // The activation flow can replace the connected notification
+            // immediately. Use a longer duration so the address remains
+            // readable while the web server becomes ready.
+            GetDisplay()->ShowNotification(ip, 10000);
         } else {
             ESP_LOGW(TAG, "WiFi chua ket noi trong ShowIpAddress");
         }
+    }
+
+    void ScheduleIpAddressDisplay() {
+        if (ip_display_timer_ == nullptr) {
+            return;
+        }
+
+        // Show it once more after activation has normally finished. This is
+        // intentionally delayed because HandleActivationDoneEvent replaces
+        // the notification while the protocol is being initialized.
+        esp_timer_stop(ip_display_timer_);
+        ESP_ERROR_CHECK(esp_timer_start_once(ip_display_timer_, 5000000));
     }
 
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
@@ -468,10 +485,13 @@ private:
                 if (event == NetworkEvent::Connected) {
                     ESP_LOGI(TAG, "WiFi da ket noi, dang khoi dong web server");
                     Application::GetInstance().Schedule([this]() {
-                        if (!web_server_started_ && web_server_ != nullptr) {
+                        if (web_server_ != nullptr) {
+                            if (!web_server_started_) {
+                                ESP_LOGI(TAG, "Dang khoi dong web server tren cong 80");
+                                web_server_started_ = web_server_->Start(80);
+                            }
                             ShowIpAddress();
-                            ESP_LOGI(TAG, "Dang khoi dong web server tren cong 80");
-                            web_server_started_ = web_server_->Start(80);
+                            ScheduleIpAddressDisplay();
                         }
                     });
                 }
@@ -531,6 +551,17 @@ public:
           volume_up_button_(VOLUME_UP_BUTTON_GPIO),
           volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot bat dau");
+        esp_timer_create_args_t ip_display_timer_args = {
+            .callback = [](void* arg) {
+                auto* board = static_cast<MrkenDDoRobot*>(arg);
+                Application::GetInstance().Schedule([board]() { board->ShowIpAddress(); });
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "show_ip_address",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&ip_display_timer_args, &ip_display_timer_));
         second_display_mutex_ = xSemaphoreCreateMutex();
         InitializeSpi();
         InitializeSt7789Display();
@@ -592,6 +623,11 @@ public:
             vTaskDelete(time_display_task_handle_);
             time_display_task_handle_ = nullptr;
         }
+        if (ip_display_timer_ != nullptr) {
+            esp_timer_stop(ip_display_timer_);
+            esp_timer_delete(ip_display_timer_);
+            ip_display_timer_ = nullptr;
+        }
         if (web_server_) {
             delete web_server_;
         }
@@ -619,8 +655,9 @@ public:
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
                                                AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK,
-                                               AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK,
-                                               AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
+                                               AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT,
+                                               AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS,
+                                               AUDIO_I2S_MIC_GPIO_DIN, AUDIO_I2S_MIC_SLOT_MASK);
         return &audio_codec;
     }
 

@@ -3,6 +3,7 @@
 
 #include <driver/gpio.h>
 #include <driver/i2c_types.h>
+#include <driver/i2s_std.h>
 
 // Audio configuration (adjust based on your hardware)
 #define AUDIO_INPUT_SAMPLE_RATE  16000
@@ -15,6 +16,9 @@
 #define AUDIO_I2S_MIC_GPIO_WS   GPIO_NUM_4
 #define AUDIO_I2S_MIC_GPIO_SCK  GPIO_NUM_5
 #define AUDIO_I2S_MIC_GPIO_DIN  GPIO_NUM_6
+// INMP441 L/R tied to GND selects the left I2S slot. Keep this pin tied to a
+// fixed rail; leaving L/R floating can make the microphone appear intermittent.
+#define AUDIO_I2S_MIC_SLOT_MASK I2S_STD_SLOT_LEFT
 
 // Speaker I2S pins
 #define AUDIO_I2S_SPK_GPIO_DOUT GPIO_NUM_7

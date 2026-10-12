@@ -6,7 +6,7 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 
 | Chức năng | GPIO / cấu hình |
 | --- | --- |
-| Micro I2S WS/SCK/DIN | 4 / 5 / 6 |
+| Micro I2S WS/SCK/DIN | 4 / 5 / 6; INMP441 L/R nối GND, slot trái |
 | Loa I2S DOUT/BCLK/LRCK | 7 / 15 / 16 |
 | LED / BOOT / âm lượng tăng-giảm | 48 / 0 / 38 / 39 |
 | L298N IN1/IN2 (motor A) | 11 / 12 |

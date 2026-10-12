@@ -141,8 +141,8 @@ static const char* INDEX_HTML =
     "        <div class=\"section\"><h2>Main TFT rotation</h2>"
     "<div class=\"config-row\"><label>Rotation</label>"
     "<select id=\"tft_rotation\"><option value=\"0\">0°</option>"
-    "<option value=\"90\">90°</option><option value=\"180\">180°</option>"
-    "<option value=\"270\">270° (-90°)</option></select></div>"
+    "<option value=\"90\" selected>90° (recommended)</option>"
+    "<option value=\"180\">180°</option><option value=\"270\">270°</option></select></div>"
     "<button class=\"btn-save\" onclick=\"saveTftRotation()\">Apply TFT rotation</button>"
     "<div class=\"status\" id=\"tftStatus\"></div></div>\n"
     "    </div>\n"
@@ -900,13 +900,13 @@ esp_err_t WebServer::ApiOledTestHandler(httpd_req_t* req) {
 
 esp_err_t WebServer::ApiTftConfigHandler(httpd_req_t* req) {
     if (req->method == HTTP_GET) {
-        int32_t rotation = 0;
+        int32_t rotation = DISPLAY_DEFAULT_ROTATION;
         nvs_handle_t handle;
         esp_err_t err = nvs_open("tft_config", NVS_READONLY, &handle);
         if (err == ESP_OK) {
             if (nvs_get_i32(handle, "rotation", &rotation) != ESP_OK ||
                 (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)) {
-                rotation = 0;
+                rotation = DISPLAY_DEFAULT_ROTATION;
             }
             nvs_close(handle);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {

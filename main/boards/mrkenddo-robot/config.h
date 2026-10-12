@@ -53,15 +53,24 @@
 #define DISPLAY_CLK_PIN       GPIO_NUM_17  // SCL/SCLK
 #define DISPLAY_BACKLIGHT_PIN GPIO_NUM_9   // Backlight control
 
-// ST7789 display configuration
+// ST7789 240x240 display configuration
 #define LCD_TYPE_ST7789_SERIAL
 #define DISPLAY_WIDTH   240
 #define DISPLAY_HEIGHT  240
 #define DISPLAY_MIRROR_X false
 #define DISPLAY_MIRROR_Y false
 #define DISPLAY_SWAP_XY false
+// The panel is mounted clockwise 90 degrees. With the ST7789 hardware
+// rotation mapping used by esp_lvgl_port, LVGL 90 degrees compensates for
+// that physical clockwise rotation.
+#define DISPLAY_DEFAULT_ROTATION 90
 #define DISPLAY_INVERT_COLOR    false
 #define DISPLAY_RGB_ORDER  LCD_RGB_ELEMENT_ORDER_RGB
+// This 240x240 ST7789 panel exposes its active window with an 80-pixel
+// horizontal gap in the controller RAM. The gap must be set on the panel,
+// separately from LVGL's display offset.
+#define DISPLAY_PANEL_GAP_X 80
+#define DISPLAY_PANEL_GAP_Y 0
 #define DISPLAY_OFFSET_X  0
 #define DISPLAY_OFFSET_Y  0
 #define DISPLAY_BACKLIGHT_OUTPUT_INVERT false

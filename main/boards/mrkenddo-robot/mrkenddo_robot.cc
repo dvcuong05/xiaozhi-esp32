@@ -108,8 +108,12 @@ private:
         esp_lcd_panel_reset(panel);
         esp_lcd_panel_init(panel);
         esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR);
+        ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, DISPLAY_PANEL_GAP_X, DISPLAY_PANEL_GAP_Y));
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+
+        ESP_LOGI(TAG, "TFT panel geometry %dx%d, RAM gap (%d,%d)", DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                 DISPLAY_PANEL_GAP_X, DISPLAY_PANEL_GAP_Y);
 
         display_ = new SpiLcdDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                      DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
@@ -541,10 +545,21 @@ public:
             lv_obj_invalidate(lv_display_get_screen_active(lcd));
             lv_obj_invalidate(lv_display_get_layer_top(lcd));
             lv_obj_invalidate(lv_display_get_layer_sys(lcd));
+            // Runtime changes happen while the display is using partial
+            // refresh. Flush the invalidated frame immediately so pixels
+            // rendered with the previous MADCTL orientation are not left on
+            // the panel beside the newly rotated content.
+            lv_refr_now(lcd);
             ESP_LOGI(TAG, "TFT rotation applied: %d degrees", degrees);
         }
         lvgl_port_unlock();
     }
+
+    static bool IsValidTftRotation(int rotation) {
+        return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
+    }
+
+    static constexpr int32_t kTftRotationConfigVersion = 4;
 
     MrkenDDoRobot()
         : boot_button_(BOOT_BUTTON_GPIO),
@@ -563,16 +578,52 @@ public:
         };
         ESP_ERROR_CHECK(esp_timer_create(&ip_display_timer_args, &ip_display_timer_));
         second_display_mutex_ = xSemaphoreCreateMutex();
-        InitializeSpi();
-        InitializeSt7789Display();
+        int32_t tft_rotation = DISPLAY_DEFAULT_ROTATION;
         nvs_handle_t display_handle;
-        if (nvs_open("tft_config", NVS_READONLY, &display_handle) == ESP_OK) {
-            int32_t rotation = 0;
-            if (nvs_get_i32(display_handle, "rotation", &rotation) == ESP_OK) {
-                SetTftRotation(rotation);
+        if (nvs_open("tft_config", NVS_READWRITE, &display_handle) == ESP_OK) {
+            int32_t stored_rotation = DISPLAY_DEFAULT_ROTATION;
+            bool has_valid_rotation = nvs_get_i32(display_handle, "rotation", &stored_rotation) == ESP_OK &&
+                                      IsValidTftRotation(stored_rotation);
+            if (has_valid_rotation) {
+                tft_rotation = stored_rotation;
+            }
+
+            // Firmware before this version documented 270 degrees as the
+            // default for this physical mounting. In the actual ST7789
+            // hardware mapping that produces the opposite quarter-turn, so
+            // migrate that old default once. A later explicit user choice is
+            // preserved because the version marker is then already current.
+            int32_t rotation_version = 0;
+            bool needs_rotation_migration =
+                nvs_get_i32(display_handle, "rotation_v", &rotation_version) != ESP_OK ||
+                rotation_version < kTftRotationConfigVersion;
+            if (needs_rotation_migration) {
+                bool migration_ok = true;
+                if (has_valid_rotation && stored_rotation == 270) {
+                    tft_rotation = DISPLAY_DEFAULT_ROTATION;
+                    migration_ok = nvs_set_i32(display_handle, "rotation", tft_rotation) == ESP_OK;
+                    if (migration_ok) {
+                        ESP_LOGW(TAG, "Migrated old TFT rotation 270 to %d degrees", tft_rotation);
+                    }
+                }
+                if (migration_ok) {
+                    migration_ok = nvs_set_i32(display_handle, "rotation_v",
+                                               kTftRotationConfigVersion) == ESP_OK;
+                }
+                if (migration_ok && nvs_commit(display_handle) != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to commit TFT rotation migration");
+                }
             }
             nvs_close(display_handle);
         }
+
+        InitializeSpi();
+        InitializeSt7789Display();
+        // SpiLcdDisplay creates the LVGL display before Application::Initialize
+        // creates any widgets. Apply the saved rotation at this point so the
+        // first frame is rendered in one coordinate system; changing it after
+        // SetupUI() leaves partial-refresh regions from the old orientation.
+        SetTftRotation(tft_rotation);
         if (second_display_mutex_ != nullptr) {
             OledConfig config = LoadOledConfig();
             if (!InitializeSecondDisplayI2c(config) || !InitializeSecondOledDisplay(config)) {

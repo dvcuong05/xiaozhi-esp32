@@ -88,13 +88,17 @@ static const char* INDEX_HTML =
     "        <div class=\"section\">\n"
     "            <h2>Motor Configuration</h2>\n"
     "            <div class=\"config-row\">\n"
-    "                <label>Steps per move:</label>\n"
+    "                <label>Move units (duration = units × ms):</label>\n"
     "                <input type=\"number\" id=\"steps\" value=\"512\" min=\"100\" max=\"30000\">\n"
     "            </div>\n"
     "            <div class=\"config-row\">\n"
-    "                <label>Delay (ms, lower=faster):</label>\n"
+    "                <label>Milliseconds per unit:</label>\n"
     "                <input type=\"number\" id=\"delay\" value=\"1\" min=\"1\" max=\"100\">\n"
     "            </div>\n"
+    "            <div class=\"config-row\"><label>Reverse left motor</label>"
+    "<input type=\"checkbox\" id=\"left_inv\"></div>\n"
+    "            <div class=\"config-row\"><label>Reverse right motor</label>"
+    "<input type=\"checkbox\" id=\"right_inv\" checked></div>\n"
     "            <button class=\"btn-save\" onclick=\"saveConfig()\">Save Configuration</button>\n"
     "            <div class=\"status\" id=\"configStatus\"></div>\n"
     "        </div>\n"
@@ -123,11 +127,21 @@ static const char* INDEX_HTML =
     "                <input type=\"number\" id=\"oled_height\" value=\"32\" min=\"16\" "
     "max=\"64\">\n"
     "            </div>\n"
+    "            <div class=\"config-row\"><label>OLED rotation</label>"
+    "<select id=\"oled_rotation\"><option value=\"0\">0°</option>"
+    "<option value=\"180\">180°</option></select></div>\n"
     "            <button class=\"btn-save\" onclick=\"saveOledConfig()\">Save OLED "
     "Config</button>\n"
     "            <button class=\"btn-test\" onclick=\"testOled()\">Test Display</button>\n"
     "            <div class=\"status\" id=\"oledStatus\"></div>\n"
     "        </div>\n"
+    "        <div class=\"section\"><h2>Main TFT rotation</h2>"
+    "<div class=\"config-row\"><label>Rotation</label>"
+    "<select id=\"tft_rotation\"><option value=\"0\">0°</option>"
+    "<option value=\"90\">90°</option><option value=\"180\">180°</option>"
+    "<option value=\"270\">270° (-90°)</option></select></div>"
+    "<button class=\"btn-save\" onclick=\"saveTftRotation()\">Apply TFT rotation</button>"
+    "<div class=\"status\" id=\"tftStatus\"></div></div>\n"
     "    </div>\n"
     "\n"
     "    <script>\n"
@@ -140,6 +154,8 @@ static const char* INDEX_HTML =
     "                    if (data.steps) document.getElementById('steps').value = data.steps;\n"
     "                    if (data.delay_ms) document.getElementById('delay').value = "
     "data.delay_ms;\n"
+    "                    document.getElementById('left_inv').checked = data.left_inverted;\n"
+    "                    document.getElementById('right_inv').checked = data.right_inverted;\n"
     "                }\n"
     "            } catch (e) {\n"
     "                console.log('Could not load config, using defaults');\n"
@@ -156,10 +172,15 @@ static const char* INDEX_HTML =
     "data.width;\n"
     "                    if (data.height) document.getElementById('oled_height').value = "
     "data.height;\n"
+    "                    document.getElementById('oled_rotation').value = data.rotation;\n"
     "                }\n"
     "            } catch (e) {\n"
     "                console.log('Could not load OLED config, using defaults');\n"
     "            }\n"
+    "            try { const res = await fetch('/api/tft_config'); if (res.ok) {"
+    " const data = await res.json();"
+    " document.getElementById('tft_rotation').value = data.rotation; } }"
+    " catch (e) { console.log('Could not load TFT config'); }\n"
     "        }\n"
     "        \n"
     "        loadConfig();\n"
@@ -179,10 +200,28 @@ static const char* INDEX_HTML =
     "                    headers: { 'Content-Type': 'application/json' },\n"
     "                    body: JSON.stringify({ prompt: prompt })\n"
     "                });\n"
-    "                const data = await res.json();\n"
-    "                response.textContent = data.result || data.error || 'Sent';\n"
-    "                status.textContent = '';\n"
+    "                if (!res.ok) throw new Error(await res.text());\n"
+    "                response.textContent = 'Queued for XiaoZhi...';\n"
     "                document.getElementById('prompt').value = '';\n"
+    "                let replied = false;\n"
+    "                for (let i = 0; i < 40; i++) {\n"
+    "                    await new Promise(resolve => setTimeout(resolve, 500));\n"
+    "                    const check = await fetch('/api/prompt_status');\n"
+    "                    if (!check.ok) throw new Error('Cannot read prompt status');\n"
+    "                    const data = await check.json();\n"
+    "                    if (data.status === 'failed') throw new Error('Device could not "
+    "send prompt');\n"
+    "                    if (data.status === 'responding') {\n"
+    "                        response.textContent = 'XiaoZhi is responding on the device';\n"
+    "                        replied = true;\n"
+    "                        break;\n"
+    "                    }\n"
+    "                    response.textContent = data.status === 'sent' ? "
+    "'Sent to server; waiting for response...' : 'Connecting to XiaoZhi...';\n"
+    "                }\n"
+    "                if (!replied) response.textContent = "
+    "'Sent, but no response after 20 seconds; check server support/logs';\n"
+    "                status.textContent = '';\n"
     "            } catch (e) {\n"
     "                response.textContent = 'Error: ' + e.message;\n"
     "                status.textContent = '';\n"
@@ -196,13 +235,11 @@ static const char* INDEX_HTML =
     "            status.textContent = 'Moving ' + direction + '...';\n"
     "            \n"
     "            try {\n"
-    "                const moveSteps = direction === 'forward' ? steps : \n"
-    "                                  direction === 'backward' ? -steps :\n"
-    "                                  direction === 'left' ? -steps/2 : steps/2;\n"
     "                const res = await fetch('/api/move', {\n"
     "                    method: 'POST',\n"
     "                    headers: { 'Content-Type': 'application/json' },\n"
-    "                    body: JSON.stringify({ steps: moveSteps, delay_ms: delay })\n"
+    "                    body: JSON.stringify({ direction: direction, steps: steps, delay_ms: "
+    "delay })\n"
     "                });\n"
     "                const data = await res.json();\n"
     "                status.textContent = data.result || data.error;\n"
@@ -230,13 +267,16 @@ static const char* INDEX_HTML =
     "            const status = document.getElementById('configStatus');\n"
     "            const steps = document.getElementById('steps').value;\n"
     "            const delay = document.getElementById('delay').value;\n"
+    "            const leftInverted = document.getElementById('left_inv').checked;\n"
+    "            const rightInverted = document.getElementById('right_inv').checked;\n"
     "            status.textContent = 'Saving...';\n"
     "            \n"
     "            try {\n"
     "                const res = await fetch('/api/config', {\n"
     "                    method: 'POST',\n"
     "                    headers: { 'Content-Type': 'application/json' },\n"
-    "                    body: JSON.stringify({ steps: parseInt(steps), delay_ms: parseInt(delay) "
+    "                    body: JSON.stringify({ steps: parseInt(steps), delay_ms: parseInt(delay), "
+    "left_inverted: leftInverted, right_inverted: rightInverted "
     "})\n"
     "                });\n"
     "                const data = await res.json();\n"
@@ -265,7 +305,8 @@ static const char* INDEX_HTML =
     "                        sda: parseInt(sda), \n"
     "                        scl: parseInt(scl), \n"
     "                        width: parseInt(width), \n"
-    "                        height: parseInt(height) \n"
+    "                        height: parseInt(height),\n"
+    "                        rotation: parseInt(document.getElementById('oled_rotation').value) \n"
     "                    })\n"
     "                });\n"
     "                const data = await res.json();\n"
@@ -288,6 +329,15 @@ static const char* INDEX_HTML =
     "            } catch (e) {\n"
     "                status.textContent = 'Error: ' + e.message;\n"
     "            }\n"
+    "        }\n"
+    "        async function saveTftRotation() {\n"
+    "            const status = document.getElementById('tftStatus');\n"
+    "            try { const res = await fetch('/api/tft_config', { method: 'POST',"
+    " headers: { 'Content-Type': 'application/json' },"
+    " body: JSON.stringify({ rotation: parseInt(document.getElementById('tft_rotation').value) }) "
+    "});"
+    " status.textContent = res.ok ? (await res.json()).result : await res.text(); }"
+    " catch (e) { status.textContent = 'Error: ' + e.message; }\n"
     "        }\n"
     "    </script>\n"
     "</body>\n"
@@ -443,6 +493,7 @@ bool WebServer::Start(int port) {
     httpd_uri_t uris[] = {
         {"/", HTTP_GET, RootHandler, this},
         {"/api/prompt", HTTP_POST, ApiPromptHandler, this},
+        {"/api/prompt_status", HTTP_GET, ApiPromptStatusHandler, this},
         {"/api/move", HTTP_POST, ApiMoveHandler, this},
         {"/api/stop", HTTP_POST, ApiStopHandler, this},
         {"/api/config", HTTP_POST, ApiConfigHandler, this},
@@ -506,28 +557,46 @@ esp_err_t WebServer::ApiPromptHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
-    cJSON* message_json = cJSON_CreateObject();
-    if (message_json == nullptr ||
-        cJSON_AddStringToObject(message_json, "type", "text") == nullptr ||
-        cJSON_AddStringToObject(message_json, "text", prompt_json->valuestring) == nullptr) {
-        cJSON_Delete(message_json);
-        cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create JSON");
-        return ESP_FAIL;
-    }
-    char* message_str = cJSON_PrintUnformatted(message_json);
-    cJSON_Delete(message_json);
+    bool queued = Application::GetInstance().QueueTextPrompt(prompt_json->valuestring);
     cJSON_Delete(root);
-    if (message_str == nullptr) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to serialize JSON");
+    if (!queued) {
+        httpd_resp_set_status(req, "409 Conflict");
+        httpd_resp_send(req, "Device is busy or unavailable", HTTPD_RESP_USE_STRLEN);
         return ESP_FAIL;
     }
-    Application::GetInstance().SendMcpMessage(std::string(message_str));
-    cJSON_free(message_str);
-
+    httpd_resp_set_status(req, "202 Accepted");
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "result", "Prompt sent");
+        cJSON_AddStringToObject(response, "result", "Prompt queued");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiPromptStatusHandler(httpd_req_t* req) {
+    const char* status = "idle";
+    switch (Application::GetInstance().GetTextPromptStatus()) {
+        case TextPromptStatus::Idle:
+            status = "idle";
+            break;
+        case TextPromptStatus::Queued:
+            status = "queued";
+            break;
+        case TextPromptStatus::Connecting:
+            status = "connecting";
+            break;
+        case TextPromptStatus::Sent:
+            status = "sent";
+            break;
+        case TextPromptStatus::Responding:
+            status = "responding";
+            break;
+        case TextPromptStatus::Failed:
+            status = "failed";
+            break;
+    }
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", status);
     }
     return SendJson(req, response);
 }
@@ -545,10 +614,9 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
     }
     int steps = 0;
     int delay_ms = 0;
-    bool valid =
-        GetInteger(root, "steps", -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps, &steps) &&
-        GetInteger(root, "delay_ms", RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs,
-                   &delay_ms, false);
+    bool valid = GetInteger(root, "steps", -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps, &steps) &&
+                 GetInteger(root, "delay_ms", RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs,
+                            &delay_ms, false);
     // Keep the historical optional delay_ms API, but reject a malformed value
     // when the field is present.
     if (valid && cJSON_GetObjectItem(root, "delay_ms") != nullptr) {
@@ -561,8 +629,8 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     const cJSON* direction_item = cJSON_GetObjectItemCaseSensitive(root, "direction");
-    RobotDrive::Direction direction = steps < 0 ? RobotDrive::Direction::Backward
-                                                  : RobotDrive::Direction::Forward;
+    RobotDrive::Direction direction =
+        steps < 0 ? RobotDrive::Direction::Backward : RobotDrive::Direction::Forward;
     if (direction_item != nullptr) {
         if (!cJSON_IsString(direction_item) || direction_item->valuestring == nullptr ||
             steps <= 0) {
@@ -571,19 +639,22 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
             return ESP_FAIL;
         }
         const char* value = direction_item->valuestring;
-        if (std::strcmp(value, "forward") == 0) direction = RobotDrive::Direction::Forward;
-        else if (std::strcmp(value, "backward") == 0) direction = RobotDrive::Direction::Backward;
-        else if (std::strcmp(value, "left") == 0) direction = RobotDrive::Direction::Left;
-        else if (std::strcmp(value, "right") == 0) direction = RobotDrive::Direction::Right;
+        if (std::strcmp(value, "forward") == 0)
+            direction = RobotDrive::Direction::Forward;
+        else if (std::strcmp(value, "backward") == 0)
+            direction = RobotDrive::Direction::Backward;
+        else if (std::strcmp(value, "left") == 0)
+            direction = RobotDrive::Direction::Left;
+        else if (std::strcmp(value, "right") == 0)
+            direction = RobotDrive::Direction::Right;
         else {
             cJSON_Delete(root);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid direction");
             return ESP_FAIL;
         }
     }
-    bool started = direction_item == nullptr
-                       ? server->drive_->Step(steps, delay_ms)
-                       : server->drive_->Move(direction, steps, delay_ms);
+    bool started = direction_item == nullptr ? server->drive_->Step(steps, delay_ms)
+                                             : server->drive_->Move(direction, steps, delay_ms);
     cJSON_Delete(root);
     if (!started) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Motor command failed");
@@ -626,8 +697,10 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
                 steps = kDefaultMotorSteps;
                 delay_ms = kDefaultMotorDelayMs;
             }
-            if (nvs_get_u8(handle, "left_inv", &left_inv) != ESP_OK || left_inv > 1) left_inv = 0;
-            if (nvs_get_u8(handle, "right_inv", &right_inv) != ESP_OK || right_inv > 1) right_inv = 1;
+            if (nvs_get_u8(handle, "left_inv", &left_inv) != ESP_OK || left_inv > 1)
+                left_inv = 0;
+            if (nvs_get_u8(handle, "right_inv", &right_inv) != ESP_OK || right_inv > 1)
+                right_inv = 1;
             nvs_close(handle);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGE(TAG, "Khong the mo NVS dong co: %s", esp_err_to_name(err));
@@ -635,8 +708,7 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
             return ESP_FAIL;
         }
         steps = std::clamp<int32_t>(steps, 1, RobotDrive::kMaxSteps);
-        delay_ms =
-            std::clamp<int32_t>(delay_ms, RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs);
+        delay_ms = std::clamp<int32_t>(delay_ms, RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs);
         cJSON* response = cJSON_CreateObject();
         if (response != nullptr) {
             cJSON_AddNumberToObject(response, "steps", steps);
@@ -668,22 +740,35 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid motor inversion");
         return ESP_FAIL;
     }
-    if (left_item != nullptr) left_inv = cJSON_IsTrue(left_item);
-    if (right_item != nullptr) right_inv = cJSON_IsTrue(right_item);
-    cJSON_Delete(root);
-
     nvs_handle_t handle = 0;
     esp_err_t err = nvs_open("motor_config", NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open NVS");
+        cJSON_Delete(root);
         return ESP_FAIL;
     }
+    // Older clients may omit polarity flags. Keep the saved polarity in that case.
+    if (left_item == nullptr) {
+        if (nvs_get_u8(handle, "left_inv", &left_inv) != ESP_OK || left_inv > 1)
+            left_inv = 0;
+    } else {
+        left_inv = cJSON_IsTrue(left_item);
+    }
+    if (right_item == nullptr) {
+        if (nvs_get_u8(handle, "right_inv", &right_inv) != ESP_OK || right_inv > 1)
+            right_inv = 1;
+    } else {
+        right_inv = cJSON_IsTrue(right_item);
+    }
+    cJSON_Delete(root);
     err = nvs_set_i32(handle, "steps", saved_steps);
     if (err == ESP_OK) {
         err = nvs_set_i32(handle, "delay_ms", saved_delay_ms);
     }
-    if (err == ESP_OK) err = nvs_set_u8(handle, "left_inv", left_inv);
-    if (err == ESP_OK) err = nvs_set_u8(handle, "right_inv", right_inv);
+    if (err == ESP_OK)
+        err = nvs_set_u8(handle, "left_inv", left_inv);
+    if (err == ESP_OK)
+        err = nvs_set_u8(handle, "right_inv", right_inv);
     if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
@@ -713,6 +798,7 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     int32_t scl = defaults.scl;
     int32_t width = defaults.width;
     int32_t height = defaults.height;
+    int32_t rotation = 0;
     if (req->method == HTTP_GET) {
         nvs_handle_t handle;
         esp_err_t err = nvs_open("oled_config", NVS_READONLY, &handle);
@@ -730,6 +816,9 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
                 width = defaults.width;
                 height = defaults.height;
             }
+            if (nvs_get_i32(handle, "rotation", &rotation) != ESP_OK ||
+                (rotation != 0 && rotation != 180))
+                rotation = 0;
             nvs_close(handle);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read NVS");
@@ -750,6 +839,7 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
             cJSON_AddNumberToObject(response, "scl", scl);
             cJSON_AddNumberToObject(response, "width", width);
             cJSON_AddNumberToObject(response, "height", height);
+            cJSON_AddNumberToObject(response, "rotation", rotation);
         }
         return SendJson(req, response);
     }
@@ -763,12 +853,15 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     int parsed_scl = 0;
     int parsed_width = 0;
     int parsed_height = 0;
+    int parsed_rotation = 0;
     bool valid = ParseOledAddress(cJSON_GetObjectItem(root, "addr"), &parsed_address) &&
                  GetInteger(root, "sda", 0, SOC_GPIO_PIN_COUNT - 1, &parsed_sda) &&
                  GetInteger(root, "scl", 0, SOC_GPIO_PIN_COUNT - 1, &parsed_scl) &&
                  GetInteger(root, "width", 64, 256, &parsed_width) &&
                  GetInteger(root, "height", 16, 64, &parsed_height) && parsed_width % 8 == 0 &&
-                 parsed_height % 8 == 0 && ValidOledPins(parsed_sda, parsed_scl);
+                 parsed_height % 8 == 0 && ValidOledPins(parsed_sda, parsed_scl) &&
+                 GetInteger(root, "rotation", 0, 180, &parsed_rotation, false) &&
+                 (parsed_rotation == 0 || parsed_rotation == 180);
     if (!valid) {
         cJSON_Delete(root);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid OLED configuration");
@@ -800,6 +893,8 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
     if (err == ESP_OK) {
         err = nvs_set_i32(handle, "height", parsed_height);
     }
+    if (err == ESP_OK)
+        err = nvs_set_i32(handle, "rotation", parsed_rotation);
     if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
@@ -814,9 +909,9 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
 
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "result",
-                                "OLED configuration saved. Press Test Display to apply.");
+        cJSON_AddStringToObject(response, "result", "OLED configuration saved and applying");
     }
+    ReinitializeOledDisplay();
     return SendJson(req, response);
 }
 
@@ -827,5 +922,57 @@ esp_err_t WebServer::ApiOledTestHandler(httpd_req_t* req) {
         cJSON_AddStringToObject(response, "result", "Display reinitialization scheduled");
         cJSON_AddStringToObject(response, "note", "Check if the clock is visible on display");
     }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiTftConfigHandler(httpd_req_t* req) {
+    if (req->method == HTTP_GET) {
+        int32_t rotation = 0;
+        nvs_handle_t handle;
+        esp_err_t err = nvs_open("tft_config", NVS_READONLY, &handle);
+        if (err == ESP_OK) {
+            if (nvs_get_i32(handle, "rotation", &rotation) != ESP_OK ||
+                (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)) {
+                rotation = 0;
+            }
+            nvs_close(handle);
+        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read NVS");
+            return ESP_FAIL;
+        }
+        cJSON* response = cJSON_CreateObject();
+        if (response != nullptr)
+            cJSON_AddNumberToObject(response, "rotation", rotation);
+        return SendJson(req, response);
+    }
+
+    cJSON* root = ParseBody(req);
+    if (root == nullptr)
+        return ESP_FAIL;
+    int rotation = 0;
+    bool valid = GetInteger(root, "rotation", 0, 270, &rotation) && rotation % 90 == 0;
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid TFT rotation");
+        return ESP_FAIL;
+    }
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("tft_config", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open NVS");
+        return ESP_FAIL;
+    }
+    err = nvs_set_i32(handle, "rotation", rotation);
+    if (err == ESP_OK)
+        err = nvs_commit(handle);
+    nvs_close(handle);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save NVS");
+        return ESP_FAIL;
+    }
+    ApplyTftRotation(rotation);
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr)
+        cJSON_AddStringToObject(response, "result", "TFT rotation scheduled");
     return SendJson(req, response);
 }

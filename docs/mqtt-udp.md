@@ -166,6 +166,11 @@ Field reference:
    }
    ```
 
+The device can also publish a `listen` message with `state: "detect"` and a
+JSON-escaped `text` field after the UDP conversation channel is open. This is
+used for typed prompts only when the backend supports text input; it is not an
+MCP payload.
+
 4. **Goodbye**
    ```json
    {

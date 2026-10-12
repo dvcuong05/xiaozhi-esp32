@@ -570,6 +570,9 @@ void Application::InitializeProtocol() {
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
+            if (text_prompt_status_.load() == TextPromptStatus::Sent) {
+                text_prompt_status_.store(TextPromptStatus::Failed);
+            }
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -624,6 +627,9 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
+                    if (text_prompt_status_.load() == TextPromptStatus::Sent) {
+                        text_prompt_status_.store(TextPromptStatus::Responding);
+                    }
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
@@ -1328,6 +1334,47 @@ void Application::SendMcpMessage(const std::string& payload) {
             mcp_broadcast_callback_(payload);
         }
     });
+}
+
+bool Application::QueueTextPrompt(std::string text) {
+    if (text.empty() || event_group_ == nullptr || GetDeviceState() != kDeviceStateIdle) {
+        return false;
+    }
+    bool expected = false;
+    if (!text_prompt_pending_.compare_exchange_strong(expected, true)) {
+        return false;
+    }
+    text_prompt_status_.store(TextPromptStatus::Queued);
+    Schedule([this, text = std::move(text)]() {
+        if (GetDeviceState() != kDeviceStateIdle || protocol_ == nullptr) {
+            ESP_LOGW(TAG, "Text prompt rejected: device is not idle");
+            text_prompt_status_.store(TextPromptStatus::Failed);
+            text_prompt_pending_.store(false);
+            return;
+        }
+        text_prompt_status_.store(TextPromptStatus::Connecting);
+        if (!protocol_->IsAudioChannelOpened() && !protocol_->OpenAudioChannel()) {
+            ESP_LOGW(TAG, "Text prompt failed: cannot open audio channel");
+            text_prompt_status_.store(TextPromptStatus::Failed);
+            text_prompt_pending_.store(false);
+            return;
+        }
+        // A typed request must not automatically enable microphone capture
+        // after TTS finishes, unlike a voice-initiated conversation.
+        ListeningMode previous_mode = listening_mode_;
+        listening_mode_ = kListeningModeManualStop;
+        if (!protocol_->SendUserText(text)) {
+            ESP_LOGW(TAG, "Text prompt failed: transport send error");
+            listening_mode_ = previous_mode;
+            protocol_->CloseAudioChannel();
+            text_prompt_status_.store(TextPromptStatus::Failed);
+        } else {
+            ESP_LOGI(TAG, "Text prompt delivered to conversation transport");
+            text_prompt_status_.store(TextPromptStatus::Sent);
+        }
+        text_prompt_pending_.store(false);
+    });
+    return true;
 }
 
 void Application::SetAecMode(AecMode mode) {

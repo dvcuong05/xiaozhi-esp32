@@ -79,6 +79,27 @@ void Protocol::SendWakeWordDetected(const std::string& wake_word) {
     SendText(json);
 }
 
+bool Protocol::SendUserText(const std::string& text) {
+    // Unlike a wake word, arbitrary user text must be JSON-escaped.
+    cJSON* message = cJSON_CreateObject();
+    if (message == nullptr ||
+        cJSON_AddStringToObject(message, "session_id", session_id_.c_str()) == nullptr ||
+        cJSON_AddStringToObject(message, "type", "listen") == nullptr ||
+        cJSON_AddStringToObject(message, "state", "detect") == nullptr ||
+        cJSON_AddStringToObject(message, "text", text.c_str()) == nullptr) {
+        cJSON_Delete(message);
+        return false;
+    }
+    char* serialized = cJSON_PrintUnformatted(message);
+    cJSON_Delete(message);
+    if (serialized == nullptr) {
+        return false;
+    }
+    bool sent = SendText(serialized);
+    cJSON_free(serialized);
+    return sent;
+}
+
 void Protocol::SendStartListening(ListeningMode mode) {
     std::string message = "{\"session_id\":\"" + session_id_ + "\"";
     message += ",\"type\":\"listen\",\"state\":\"start\"";

@@ -505,7 +505,9 @@ public:
     }
 
     void SetTftRotation(int degrees) {
-        if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) return;
+        if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
+            return;
+        }
         if (!lvgl_port_lock(1000)) {
             ESP_LOGE(TAG, "Khong the khoa LVGL de xoay TFT");
             return;
@@ -513,6 +515,13 @@ public:
         lv_display_t* lcd = lv_display_get_default();
         if (lcd != nullptr) {
             lv_display_set_rotation(lcd, static_cast<lv_display_rotation_t>(degrees / 90));
+            // LVGL's resolution update invalidates the system layer, but the
+            // ST7789 retains old pixels outside the next partial refresh.
+            // Redraw the entire active screen after changing MADCTL.
+            lv_obj_invalidate(lv_display_get_screen_active(lcd));
+            lv_obj_invalidate(lv_display_get_layer_top(lcd));
+            lv_obj_invalidate(lv_display_get_layer_sys(lcd));
+            ESP_LOGI(TAG, "TFT rotation applied: %d degrees", degrees);
         }
         lvgl_port_unlock();
     }
@@ -642,6 +651,8 @@ extern "C" void ReinitializeOledDisplay() {
 }
 extern "C" void ApplyTftRotation(int rotation) {
     Application::GetInstance().Schedule([rotation]() {
-        if (g_robot_board != nullptr) g_robot_board->SetTftRotation(rotation);
+        if (g_robot_board != nullptr) {
+            g_robot_board->SetTftRotation(rotation);
+        }
     });
 }

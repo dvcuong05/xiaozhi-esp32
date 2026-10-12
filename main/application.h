@@ -12,6 +12,7 @@
 #include <memory>
 #include <functional>
 #include <cstdint>
+#include <atomic>
 #include <vector>
 
 #include "protocol.h"
@@ -43,6 +44,8 @@ enum AecMode {
     kAecOnDeviceSide,
     kAecOnServerSide,
 };
+
+enum class TextPromptStatus { Idle, Queued, Connecting, Sent, Responding, Failed };
 
 class Application {
 public:
@@ -113,6 +116,8 @@ public:
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
+    bool QueueTextPrompt(std::string text);
+    TextPromptStatus GetTextPromptStatus() const { return text_prompt_status_.load(); }
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
@@ -145,6 +150,8 @@ private:
     std::unique_ptr<Ota> ota_;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
+    std::atomic<bool> text_prompt_pending_{false};
+    std::atomic<TextPromptStatus> text_prompt_status_{TextPromptStatus::Idle};
 
     bool has_server_time_ = false;
     bool aborted_ = false;

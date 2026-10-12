@@ -27,7 +27,7 @@
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_38
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_39
 
-// L298N Stepper Motor pins
+// L298N dual DC motor driver: IN1/IN2 = motor A, IN3/IN4 = motor B
 #define STEPPER_INT1_GPIO       GPIO_NUM_11
 #define STEPPER_INT2_GPIO       GPIO_NUM_12
 #define STEPPER_INT3_GPIO       GPIO_NUM_13

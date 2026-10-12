@@ -1,15 +1,14 @@
 #include "robot_mcp_tools.h"
 #include <esp_log.h>
 
-static RobotDrive* g_stepper_motor = nullptr;
+static RobotDrive* g_drive = nullptr;
 
 static const char* TAG = "RobotMCP";
 
-// MCP Tool: Move stepper motor
-// Parameters: steps (int, required), delay_ms (int, optional, 0 = configured speed)
-static ToolResult MoveStepperMotor(const PropertyList& properties) {
-    if (g_stepper_motor == nullptr) {
-        return std::unexpected("Stepper motor not initialized");
+// Legacy signed steps select forward/backward; each unit lasts delay_ms milliseconds.
+static ToolResult MoveMotor(const PropertyList& properties) {
+    if (g_drive == nullptr) {
+        return std::unexpected("Motor drive not initialized");
     }
 
     int steps = properties["steps"].value<int>();
@@ -19,38 +18,35 @@ static ToolResult MoveStepperMotor(const PropertyList& properties) {
         delay_ms = properties["delay_ms"].value<int>();
     }
 
-    ESP_LOGI(TAG, "Moving stepper motor: steps=%d, delay=%dms", steps, delay_ms);
-    if (!g_stepper_motor->Step(steps, delay_ms)) {
+    ESP_LOGI(TAG, "Moving DC motors: units=%d, delay=%dms", steps, delay_ms);
+    if (!g_drive->Step(steps, delay_ms)) {
         return std::unexpected("Motor command failed");
     }
     return std::string("Motor command started");
 }
 
-// MCP Tool: Stop stepper motor
-static ToolResult StopStepperMotor(const PropertyList& properties) {
-    if (g_stepper_motor == nullptr) {
-        return std::unexpected("Stepper motor not initialized");
+static ToolResult StopMotor(const PropertyList& properties) {
+    if (g_drive == nullptr) {
+        return std::unexpected("Motor drive not initialized");
     }
 
-    ESP_LOGI(TAG, "Stopping stepper motor");
-    g_stepper_motor->Stop();
+    ESP_LOGI(TAG, "Stopping DC motors");
+    g_drive->Stop();
 
     return std::string("Motor stopped");
 }
 
-// MCP Tool: Set stepper motor speed
-// Parameters: delay_ms (int, required)
-static ToolResult SetStepperSpeed(const PropertyList& properties) {
-    if (g_stepper_motor == nullptr) {
-        return std::unexpected("Stepper motor not initialized");
+static ToolResult SetMotorDurationUnit(const PropertyList& properties) {
+    if (g_drive == nullptr) {
+        return std::unexpected("Motor drive not initialized");
     }
 
     int delay_ms = properties["delay_ms"].value<int>();
 
-    ESP_LOGI(TAG, "Setting stepper motor speed: delay=%dms", delay_ms);
-    g_stepper_motor->SetSpeed(delay_ms);
+    ESP_LOGI(TAG, "Setting motor duration unit: %dms", delay_ms);
+    g_drive->SetSpeed(delay_ms);
 
-    return std::string("Speed set successfully");
+    return std::string("Motor duration unit set");
 }
 
 // MCP Tool: Send prompt to AI
@@ -58,29 +54,10 @@ static ToolResult SetStepperSpeed(const PropertyList& properties) {
 static ToolResult SendPrompt(const PropertyList& properties) {
     std::string prompt = properties["prompt"].value<std::string>();
 
-    ESP_LOGI(TAG, "Sending prompt to AI: %s", prompt.c_str());
-
-    // Send the prompt through the MCP protocol
-    auto& app = Application::GetInstance();
-
-    // Create a JSON message for the prompt
-    CJsonUniquePtr json(cJSON_CreateObject());
-    if (json == nullptr) {
-        return std::unexpected("Failed to create JSON");
+    if (!Application::GetInstance().QueueTextPrompt(std::move(prompt))) {
+        return std::unexpected("Device is busy or unavailable");
     }
-
-    cJSON_AddStringToObject(json.get(), "type", "text");
-    cJSON_AddStringToObject(json.get(), "text", prompt.c_str());
-
-    CJsonStringUniquePtr json_str(cJSON_PrintUnformatted(json.get()));
-    if (json_str == nullptr) {
-        return std::unexpected("Failed to serialize JSON");
-    }
-
-    // Send through MCP
-    app.SendMcpMessage(std::string(json_str.get()));
-
-    return std::string("Prompt sent successfully");
+    return std::string("Prompt queued");
 }
 
 // MCP Tool: Toggle chat state
@@ -107,24 +84,25 @@ static ToolResult StopListening(const PropertyList& properties) {
     return std::string("Listening stopped");
 }
 
-void RegisterRobotMcpTools(RobotDrive* stepper_motor) {
-    g_stepper_motor = stepper_motor;
+void RegisterRobotMcpTools(RobotDrive* drive) {
+    g_drive = drive;
 
     auto& mcp = McpServer::GetInstance();
 
-    // Register stepper motor control tools
-    mcp.AddUserOnlyTool("move_motor", "Move both DC motors forward or backward",
-                        PropertyList(std::vector<Property>{
-                            Property("steps", kPropertyTypeInteger, 0, -10000, 30000),
-                            Property("delay_ms", kPropertyTypeInteger, 0, 0, 100)}),
-                        MoveStepperMotor);
+    // Preserve existing MCP tool names and signed-unit API for callers.
+    mcp.AddUserOnlyTool(
+        "move_motor", "Run both DC motors forward or backward for units * delay_ms milliseconds",
+        PropertyList(std::vector<Property>{Property("steps", kPropertyTypeInteger, 0,
+                                                    -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps),
+                                           Property("delay_ms", kPropertyTypeInteger, 0, 0, 100)}),
+        MoveMotor);
 
-    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(), StopStepperMotor);
+    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(), StopMotor);
 
     mcp.AddUserOnlyTool(
-        "set_motor_speed", "Set the stepper motor speed (delay between steps)",
+        "set_motor_speed", "Set milliseconds per motor movement unit (not PWM speed)",
         PropertyList(std::vector<Property>{Property("delay_ms", kPropertyTypeInteger, 1, 100)}),
-        SetStepperSpeed);
+        SetMotorDurationUnit);
 
     // Register AI interaction tools
     mcp.AddUserOnlyTool("send_prompt", "Send a text prompt to the AI assistant",

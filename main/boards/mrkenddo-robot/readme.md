@@ -47,7 +47,7 @@ Trang điều khiển được nhúng trong firmware tại `/`. Các endpoint JS
 - `POST /api/stop`.
 - `GET/POST /api/config`: đọc/lưu số bước và delay motor trong NVS namespace `motor_config`.
 - `GET/POST /api/oled_config`: đọc/lưu địa chỉ, SDA/SCL, width/height trong NVS namespace `oled_config`.
-- `POST /api/oled_test`: schedule khởi tạo lại OLED và vẽ test pattern.
+- `POST /api/oled_test`: schedule khởi tạo lại OLED và hiển thị đồng hồ.
 
 Body được đọc đủ theo `content_len`, giới hạn 2048 byte; JSON, số nguyên, GPIO, địa chỉ I2C, kích thước OLED và lỗi NVS đều được kiểm tra. HTTP server vẫn là HTTP thường, không có TLS hay xác thực người dùng; firmware chỉ cảnh báo khi khởi động. Chỉ expose cổng này trong mạng tin cậy hoặc tách VLAN/firewall, không forward cổng 80 ra Internet. Thêm authentication/TLS cần một thiết kế credential và API compatibility riêng.
 
@@ -83,7 +83,7 @@ Nếu đang ở đúng target ESP32-S3, build nhanh bằng `cmake --build build 
 
 ## Giới hạn và kiểm thử phần cứng cần làm
 
-- OLED hiện hiển thị test pattern; task thời gian mới chỉ kiểm tra handle, chưa có font renderer hiển thị đồng hồ.
+- OLED dùng font bitmap 5x7 cục bộ, không cần component hay asset font bên ngoài; task hiển thị đồng hồ `HH:MM:SS` mỗi giây. Trước khi SNTP đồng bộ thời gian, màn hình hiển thị `--:--:--`.
 - HTTP không có auth/TLS như nêu trên.
 - Cần kiểm tra thực tế đúng thứ tự coil L298N, chiều quay và nhiệt độ motor; xác nhận `Stop()` dừng trong lúc đang chạy.
 - Cần thử OLED ở địa chỉ 0x3C với cấu hình mặc định và cấu hình NVS hợp lệ/không hợp lệ; thử mất kết nối/khởi tạo I2C lỗi.

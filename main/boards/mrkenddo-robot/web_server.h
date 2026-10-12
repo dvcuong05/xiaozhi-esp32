@@ -5,14 +5,15 @@
 #include <esp_http_server.h>
 #include <string>
 
-class StepperMotor;
+class RobotDrive;
 
 // C wrapper function for OLED reinitialization (defined in mrkenddo_robot.cc)
 extern "C" void ReinitializeOledDisplay();
+extern "C" void ApplyTftRotation(int rotation);
 
 class WebServer {
 public:
-    WebServer(StepperMotor* stepper_motor);
+    WebServer(RobotDrive* drive);
     ~WebServer();
     
     bool Start(int port = 80);
@@ -26,9 +27,10 @@ private:
     static esp_err_t ApiConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledTestHandler(httpd_req_t* req);
+    static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
     
     httpd_handle_t server_;
-    StepperMotor* stepper_motor_;
+    RobotDrive* drive_;
 };
 
 #endif // WEB_SERVER_H

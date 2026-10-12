@@ -1,7 +1,7 @@
 #include "robot_mcp_tools.h"
 #include <esp_log.h>
 
-static StepperMotor* g_stepper_motor = nullptr;
+static RobotDrive* g_stepper_motor = nullptr;
 
 static const char* TAG = "RobotMCP";
 
@@ -20,9 +20,10 @@ static ToolResult MoveStepperMotor(const PropertyList& properties) {
     }
 
     ESP_LOGI(TAG, "Moving stepper motor: steps=%d, delay=%dms", steps, delay_ms);
-    g_stepper_motor->Step(steps, delay_ms);
-
-    return std::string("Motor moved successfully");
+    if (!g_stepper_motor->Step(steps, delay_ms)) {
+        return std::unexpected("Motor command failed");
+    }
+    return std::string("Motor command started");
 }
 
 // MCP Tool: Stop stepper motor
@@ -106,19 +107,19 @@ static ToolResult StopListening(const PropertyList& properties) {
     return std::string("Listening stopped");
 }
 
-void RegisterRobotMcpTools(StepperMotor* stepper_motor) {
+void RegisterRobotMcpTools(RobotDrive* stepper_motor) {
     g_stepper_motor = stepper_motor;
 
     auto& mcp = McpServer::GetInstance();
 
     // Register stepper motor control tools
-    mcp.AddUserOnlyTool("move_motor", "Move the stepper motor forward or backward",
+    mcp.AddUserOnlyTool("move_motor", "Move both DC motors forward or backward",
                         PropertyList(std::vector<Property>{
                             Property("steps", kPropertyTypeInteger, 0, -10000, 30000),
                             Property("delay_ms", kPropertyTypeInteger, 0, 0, 100)}),
                         MoveStepperMotor);
 
-    mcp.AddUserOnlyTool("stop_motor", "Stop the stepper motor", PropertyList(), StopStepperMotor);
+    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(), StopStepperMotor);
 
     mcp.AddUserOnlyTool(
         "set_motor_speed", "Set the stepper motor speed (delay between steps)",

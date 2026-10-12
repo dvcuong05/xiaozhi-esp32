@@ -1,7 +1,7 @@
 #include "web_server.h"
 #include "application.h"
 #include "config.h"
-#include "stepper_motor.h"
+#include "robot_drive.h"
 
 #include <algorithm>
 #include <cmath>
@@ -430,24 +430,13 @@ WebServer* GetServer(httpd_req_t* req) { return static_cast<WebServer*>(req->use
 
 }  // namespace
 
-WebServer::WebServer(StepperMotor* stepper_motor)
-    : server_(nullptr), stepper_motor_(stepper_motor) {}
+WebServer::WebServer(RobotDrive* drive) : server_(nullptr), drive_(drive) {}
 
 WebServer::~WebServer() { Stop(); }
 
 bool WebServer::Start(int port) {
     if (port < 1 || port > 65535 || server_ != nullptr) {
         ESP_LOGE(TAG, "Cong HTTP khong hop le hoac server da chay: %d", port);
-        return false;
-    }
-
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = port;
-    config.lru_purge_enable = true;
-
-    esp_err_t ret = httpd_start(&server_, &config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Khong the khoi dong HTTP server: %s", esp_err_to_name(ret));
         return false;
     }
 
@@ -461,7 +450,21 @@ bool WebServer::Start(int port) {
         {"/api/oled_config", HTTP_POST, ApiOledConfigHandler, this},
         {"/api/oled_config", HTTP_GET, ApiOledConfigHandler, this},
         {"/api/oled_test", HTTP_POST, ApiOledTestHandler, this},
+        {"/api/tft_config", HTTP_GET, ApiTftConfigHandler, this},
+        {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
     };
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = port;
+    config.lru_purge_enable = true;
+    config.max_uri_handlers = sizeof(uris) / sizeof(uris[0]);
+
+    esp_err_t ret = httpd_start(&server_, &config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Khong the khoi dong HTTP server: %s", esp_err_to_name(ret));
+        return false;
+    }
+
     for (auto& uri : uris) {
         ret = httpd_register_uri_handler(server_, &uri);
         if (ret != ESP_OK) {
@@ -531,7 +534,7 @@ esp_err_t WebServer::ApiPromptHandler(httpd_req_t* req) {
 
 esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
     WebServer* server = GetServer(req);
-    if (server == nullptr || server->stepper_motor_ == nullptr) {
+    if (server == nullptr || server->drive_ == nullptr) {
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_send(req, "Motor unavailable", HTTPD_RESP_USE_STRLEN);
         return ESP_FAIL;
@@ -543,13 +546,13 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
     int steps = 0;
     int delay_ms = 0;
     bool valid =
-        GetInteger(root, "steps", -StepperMotor::kMaxSteps, StepperMotor::kMaxSteps, &steps) &&
-        GetInteger(root, "delay_ms", StepperMotor::kMinDelayMs, StepperMotor::kMaxDelayMs,
+        GetInteger(root, "steps", -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps, &steps) &&
+        GetInteger(root, "delay_ms", RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs,
                    &delay_ms, false);
     // Keep the historical optional delay_ms API, but reject a malformed value
     // when the field is present.
     if (valid && cJSON_GetObjectItem(root, "delay_ms") != nullptr) {
-        valid = GetInteger(root, "delay_ms", StepperMotor::kMinDelayMs, StepperMotor::kMaxDelayMs,
+        valid = GetInteger(root, "delay_ms", RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs,
                            &delay_ms);
     }
     if (!valid) {
@@ -557,9 +560,35 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid steps or delay_ms");
         return ESP_FAIL;
     }
+    const cJSON* direction_item = cJSON_GetObjectItemCaseSensitive(root, "direction");
+    RobotDrive::Direction direction = steps < 0 ? RobotDrive::Direction::Backward
+                                                  : RobotDrive::Direction::Forward;
+    if (direction_item != nullptr) {
+        if (!cJSON_IsString(direction_item) || direction_item->valuestring == nullptr ||
+            steps <= 0) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid direction or steps");
+            return ESP_FAIL;
+        }
+        const char* value = direction_item->valuestring;
+        if (std::strcmp(value, "forward") == 0) direction = RobotDrive::Direction::Forward;
+        else if (std::strcmp(value, "backward") == 0) direction = RobotDrive::Direction::Backward;
+        else if (std::strcmp(value, "left") == 0) direction = RobotDrive::Direction::Left;
+        else if (std::strcmp(value, "right") == 0) direction = RobotDrive::Direction::Right;
+        else {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid direction");
+            return ESP_FAIL;
+        }
+    }
+    bool started = direction_item == nullptr
+                       ? server->drive_->Step(steps, delay_ms)
+                       : server->drive_->Move(direction, steps, delay_ms);
     cJSON_Delete(root);
-
-    server->stepper_motor_->Step(steps, delay_ms);
+    if (!started) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Motor command failed");
+        return ESP_FAIL;
+    }
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
         cJSON_AddStringToObject(response, "result", "Moving");
@@ -569,12 +598,12 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
 
 esp_err_t WebServer::ApiStopHandler(httpd_req_t* req) {
     WebServer* server = GetServer(req);
-    if (server == nullptr || server->stepper_motor_ == nullptr) {
+    if (server == nullptr || server->drive_ == nullptr) {
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_send(req, "Motor unavailable", HTTPD_RESP_USE_STRLEN);
         return ESP_FAIL;
     }
-    server->stepper_motor_->Stop();
+    server->drive_->Stop();
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
         cJSON_AddStringToObject(response, "result", "Stopped");
@@ -585,6 +614,8 @@ esp_err_t WebServer::ApiStopHandler(httpd_req_t* req) {
 esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
     int32_t steps = kDefaultMotorSteps;
     int32_t delay_ms = kDefaultMotorDelayMs;
+    uint8_t left_inv = 0;
+    uint8_t right_inv = 1;
     if (req->method == HTTP_GET) {
         nvs_handle_t handle;
         esp_err_t err = nvs_open("motor_config", NVS_READONLY, &handle);
@@ -595,19 +626,23 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
                 steps = kDefaultMotorSteps;
                 delay_ms = kDefaultMotorDelayMs;
             }
+            if (nvs_get_u8(handle, "left_inv", &left_inv) != ESP_OK || left_inv > 1) left_inv = 0;
+            if (nvs_get_u8(handle, "right_inv", &right_inv) != ESP_OK || right_inv > 1) right_inv = 1;
             nvs_close(handle);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGE(TAG, "Khong the mo NVS dong co: %s", esp_err_to_name(err));
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read NVS");
             return ESP_FAIL;
         }
-        steps = std::clamp<int32_t>(steps, 1, StepperMotor::kMaxSteps);
+        steps = std::clamp<int32_t>(steps, 1, RobotDrive::kMaxSteps);
         delay_ms =
-            std::clamp<int32_t>(delay_ms, StepperMotor::kMinDelayMs, StepperMotor::kMaxDelayMs);
+            std::clamp<int32_t>(delay_ms, RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs);
         cJSON* response = cJSON_CreateObject();
         if (response != nullptr) {
             cJSON_AddNumberToObject(response, "steps", steps);
             cJSON_AddNumberToObject(response, "delay_ms", delay_ms);
+            cJSON_AddBoolToObject(response, "left_inverted", left_inv != 0);
+            cJSON_AddBoolToObject(response, "right_inverted", right_inv != 0);
         }
         return SendJson(req, response);
     }
@@ -618,13 +653,23 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
     }
     int saved_steps = 0;
     int saved_delay_ms = 0;
-    if (!GetInteger(root, "steps", 1, StepperMotor::kMaxSteps, &saved_steps) ||
-        !GetInteger(root, "delay_ms", StepperMotor::kMinDelayMs, StepperMotor::kMaxDelayMs,
+    if (!GetInteger(root, "steps", 1, RobotDrive::kMaxSteps, &saved_steps) ||
+        !GetInteger(root, "delay_ms", RobotDrive::kMinDelayMs, RobotDrive::kMaxDelayMs,
                     &saved_delay_ms)) {
         cJSON_Delete(root);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid steps or delay_ms");
         return ESP_FAIL;
     }
+    const cJSON* left_item = cJSON_GetObjectItemCaseSensitive(root, "left_inverted");
+    const cJSON* right_item = cJSON_GetObjectItemCaseSensitive(root, "right_inverted");
+    if ((left_item != nullptr && !cJSON_IsBool(left_item)) ||
+        (right_item != nullptr && !cJSON_IsBool(right_item))) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid motor inversion");
+        return ESP_FAIL;
+    }
+    if (left_item != nullptr) left_inv = cJSON_IsTrue(left_item);
+    if (right_item != nullptr) right_inv = cJSON_IsTrue(right_item);
     cJSON_Delete(root);
 
     nvs_handle_t handle = 0;
@@ -637,6 +682,8 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
     if (err == ESP_OK) {
         err = nvs_set_i32(handle, "delay_ms", saved_delay_ms);
     }
+    if (err == ESP_OK) err = nvs_set_u8(handle, "left_inv", left_inv);
+    if (err == ESP_OK) err = nvs_set_u8(handle, "right_inv", right_inv);
     if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
@@ -645,6 +692,11 @@ esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
         ESP_LOGE(TAG, "Khong the luu cau hinh dong co: %s", esp_err_to_name(err));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save NVS");
         return ESP_FAIL;
+    }
+    WebServer* server = GetServer(req);
+    if (server != nullptr && server->drive_ != nullptr) {
+        server->drive_->SetInversion(left_inv != 0, right_inv != 0);
+        server->drive_->SetSpeed(saved_delay_ms);
     }
 
     cJSON* response = cJSON_CreateObject();
@@ -773,7 +825,7 @@ esp_err_t WebServer::ApiOledTestHandler(httpd_req_t* req) {
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
         cJSON_AddStringToObject(response, "result", "Display reinitialization scheduled");
-        cJSON_AddStringToObject(response, "note", "Check if test pattern is visible on display");
+        cJSON_AddStringToObject(response, "note", "Check if the clock is visible on display");
     }
     return SendJson(req, response);
 }

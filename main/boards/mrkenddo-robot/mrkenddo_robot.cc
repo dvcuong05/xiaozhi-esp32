@@ -1,27 +1,32 @@
-#include "wifi_board.h"
-#include "codecs/no_audio_codec.h"
-#include "display/lcd_display.h"
-#include "system_reset.h"
 #include "application.h"
-#include "button.h"
-#include "config.h"
-#include "led/single_led.h"
 #include "assets/lang_config.h"
-#include "stepper_motor.h"
+#include "button.h"
+#include "codecs/no_audio_codec.h"
+#include "config.h"
+#include "display/lcd_display.h"
+#include "led/single_led.h"
 #include "robot_mcp_tools.h"
+#include "stepper_motor.h"
+#include "system_reset.h"
 #include "web_server.h"
+#include "wifi_board.h"
 
-#include <esp_log.h>
+#include <driver/i2c_master.h>
 #include <driver/spi_common.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
-#include <driver/i2c_master.h>
+#include <esp_log.h>
 #include <esp_sntp.h>
-#include <time.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
-#include <nvs_flash.h>
 #include <nvs.h>
+#include <nvs_flash.h>
+#include <soc/soc_caps.h>
+#include <time.h>
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 #include <wifi_manager.h>
 
@@ -40,12 +45,21 @@ private:
     StepperMotor* stepper_motor_;
     WebServer* web_server_;
     bool web_server_started_ = false;
-    
+
     // Second OLED display
-    i2c_master_bus_handle_t second_display_i2c_bus_;
+    i2c_master_bus_handle_t second_display_i2c_bus_ = nullptr;
     esp_lcd_panel_io_handle_t second_panel_io_ = nullptr;
     esp_lcd_panel_handle_t second_panel_ = nullptr;
     TaskHandle_t time_display_task_handle_ = nullptr;
+    SemaphoreHandle_t second_display_mutex_ = nullptr;
+
+    struct OledConfig {
+        char address[3];
+        int32_t sda;
+        int32_t scl;
+        int32_t width;
+        int32_t height;
+    };
 
     void InitializeSpi() {
         spi_bus_config_t buscfg = {};
@@ -61,7 +75,7 @@ private:
     void InitializeSt7789Display() {
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
-        
+
         ESP_LOGD(TAG, "Thiết lập LCD");
         esp_lcd_panel_io_spi_config_t io_config = {};
         io_config.cs_gpio_num = DISPLAY_CS_PIN;
@@ -79,83 +93,116 @@ private:
         panel_config.rgb_ele_order = DISPLAY_RGB_ORDER;
         panel_config.bits_per_pixel = 16;
         ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io, &panel_config, &panel));
-        
+
         esp_lcd_panel_reset(panel);
         esp_lcd_panel_init(panel);
         esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
-        
-        display_ = new SpiLcdDisplay(panel_io, panel,
-                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, 
-                                    DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+
+        display_ = new SpiLcdDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                     DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
+                                     DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
-    void InitializeSecondDisplayI2c() {
-        ESP_LOGI(TAG, "Khoi tao I2C cho man hinh thu hai");
-        
-        // Load OLED config from NVS
-        char oled_addr[8] = "3C";
-        int32_t oled_sda = 2;
-        int32_t oled_scl = 1;
-        
-        nvs_handle_t nvs_handle;
-        esp_err_t err = nvs_open("oled_config", NVS_READONLY, &nvs_handle);
+    OledConfig DefaultOledConfig() const {
+        OledConfig config = {{'\0', '\0', '\0'},
+                             SECOND_DISPLAY_SDA_PIN,
+                             SECOND_DISPLAY_SCL_PIN,
+                             SECOND_DISPLAY_WIDTH,
+                             SECOND_DISPLAY_HEIGHT};
+        std::snprintf(config.address, sizeof(config.address), "%02X", SECOND_DISPLAY_I2C_ADDRESS);
+        return config;
+    }
+
+    bool ValidateOledConfig(const OledConfig& config) const {
+        char* end = nullptr;
+        long address = std::strtol(config.address, &end, 16);
+        return end != config.address && *end == '\0' && address >= 0x03 && address <= 0x77 &&
+               config.sda >= 0 && config.scl >= 0 && config.sda < SOC_GPIO_PIN_COUNT &&
+               config.scl < SOC_GPIO_PIN_COUNT && config.sda != config.scl && config.width >= 64 &&
+               config.width <= 256 && config.width % 8 == 0 && config.height >= 16 &&
+               config.height <= 64 && config.height % 8 == 0;
+    }
+
+    OledConfig LoadOledConfig() const {
+        OledConfig config = DefaultOledConfig();
+        nvs_handle_t handle;
+        esp_err_t err = nvs_open("oled_config", NVS_READONLY, &handle);
         if (err == ESP_OK) {
-            size_t len = sizeof(oled_addr);
-            nvs_get_str(nvs_handle, "addr", oled_addr, &len);
-            nvs_get_i32(nvs_handle, "sda", &oled_sda);
-            nvs_get_i32(nvs_handle, "scl", &oled_scl);
-            nvs_close(nvs_handle);
-            ESP_LOGI(TAG, "Da tai cau hinh OLED tu NVS: addr=%s, sda=%d, scl=%d", oled_addr, oled_sda, oled_scl);
-        } else {
-            ESP_LOGW(TAG, "Khong tim thay cau hinh OLED, su dung mac dinh");
+            size_t address_length = sizeof(config.address);
+            bool complete = nvs_get_str(handle, "addr", config.address, &address_length) == ESP_OK;
+            complete = nvs_get_i32(handle, "sda", &config.sda) == ESP_OK && complete;
+            complete = nvs_get_i32(handle, "scl", &config.scl) == ESP_OK && complete;
+            complete = nvs_get_i32(handle, "width", &config.width) == ESP_OK && complete;
+            complete = nvs_get_i32(handle, "height", &config.height) == ESP_OK && complete;
+            nvs_close(handle);
+            if (!complete || !ValidateOledConfig(config)) {
+                ESP_LOGW(TAG, "Cau hinh OLED trong NVS khong hop le, dung mac dinh");
+                config = DefaultOledConfig();
+            } else {
+                ESP_LOGI(TAG, "Da tai cau hinh OLED: addr=%s, sda=%d, scl=%d, width=%d, height=%d",
+                         config.address, config.sda, config.scl, config.width, config.height);
+            }
+        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "Khong the doc cau hinh OLED tu NVS: %s; dung mac dinh",
+                     esp_err_to_name(err));
         }
-        
+        return config;
+    }
+
+    void DestroySecondDisplayPanel() {
+        if (second_panel_) {
+            esp_lcd_panel_disp_on_off(second_panel_, false);
+            esp_lcd_panel_del(second_panel_);
+            second_panel_ = nullptr;
+        }
+        if (second_panel_io_) {
+            esp_lcd_panel_io_del(second_panel_io_);
+            second_panel_io_ = nullptr;
+        }
+    }
+
+    bool InitializeSecondDisplayI2c(const OledConfig& config) {
+        ESP_LOGI(TAG, "Khoi tao I2C cho man hinh thu hai");
+
+        if (!ValidateOledConfig(config)) {
+            ESP_LOGE(TAG, "Cau hinh OLED khong hop le");
+            return false;
+        }
+
         i2c_master_bus_config_t bus_config = {
-            .i2c_port = (i2c_port_t)1,  // Use I2C port 1 (different from main display if any)
-            .sda_io_num = (gpio_num_t)oled_sda,
-            .scl_io_num = (gpio_num_t)oled_scl,
+            .i2c_port = SECOND_DISPLAY_I2C_PORT,
+            .sda_io_num = static_cast<gpio_num_t>(config.sda),
+            .scl_io_num = static_cast<gpio_num_t>(config.scl),
             .clk_source = I2C_CLK_SRC_DEFAULT,
             .glitch_ignore_cnt = 7,
             .intr_priority = 0,
             .trans_queue_depth = 0,
-            .flags = {
-                .enable_internal_pullup = 1,
-            },
+            .flags =
+                {
+                    .enable_internal_pullup = 1,
+                },
         };
-        ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &second_display_i2c_bus_));
+        esp_err_t err = i2c_new_master_bus(&bus_config, &second_display_i2c_bus_);
+        if (err != ESP_OK) {
+            second_display_i2c_bus_ = nullptr;
+            ESP_LOGE(TAG, "Khong the tao I2C bus OLED: %s", esp_err_to_name(err));
+            return false;
+        }
+        return true;
     }
 
-    void InitializeSecondOledDisplay() {
-        ESP_LOGI(TAG, "Khoi tao man hinh OLED thu hai 128x32");
-        
-        // Load OLED config from NVS
-        char oled_addr[8] = "3C";
-        int32_t oled_sda = 2;
-        int32_t oled_scl = 1;
-        int32_t oled_width = 128;
-        int32_t oled_height = 32;
-        
-        nvs_handle_t nvs_handle;
-        esp_err_t err = nvs_open("oled_config", NVS_READONLY, &nvs_handle);
-        if (err == ESP_OK) {
-            size_t len = sizeof(oled_addr);
-            nvs_get_str(nvs_handle, "addr", oled_addr, &len);
-            nvs_get_i32(nvs_handle, "sda", &oled_sda);
-            nvs_get_i32(nvs_handle, "scl", &oled_scl);
-            nvs_get_i32(nvs_handle, "width", &oled_width);
-            nvs_get_i32(nvs_handle, "height", &oled_height);
-            nvs_close(nvs_handle);
-            ESP_LOGI(TAG, "Da tai cau hinh OLED tu NVS: addr=%s, sda=%d, scl=%d, width=%d, height=%d", 
-                     oled_addr, oled_sda, oled_scl, oled_width, oled_height);
-        } else {
-            ESP_LOGW(TAG, "Khong tim thay cau hinh OLED, su dung mac dinh");
+    bool InitializeSecondOledDisplay(const OledConfig& config) {
+        ESP_LOGI(TAG, "Khoi tao man hinh OLED thu hai %dx%d", config.width, config.height);
+        if (second_display_i2c_bus_ == nullptr || !ValidateOledConfig(config)) {
+            ESP_LOGE(TAG, "I2C bus hoac cau hinh OLED khong san sang");
+            return false;
         }
-        
+
         // Convert hex address to integer
-        int addr_int = strtol(oled_addr, NULL, 16);
-        
+        int addr_int = static_cast<int>(std::strtol(config.address, nullptr, 16));
+
         esp_lcd_panel_io_i2c_config_t io_config = {
             .dev_addr = (uint8_t)addr_int,
             .scl_speed_hz = 400 * 1000,
@@ -165,16 +212,19 @@ private:
             .lcd_param_bits = 8,
             .on_color_trans_done = nullptr,
             .user_ctx = nullptr,
-            .flags = {
-                .dc_low_on_data = 0,
-                .disable_control_phase = 0,
-            },
+            .flags =
+                {
+                    .dc_low_on_data = 0,
+                    .disable_control_phase = 0,
+                },
         };
 
-        esp_err_t ret = esp_lcd_new_panel_io_i2c(second_display_i2c_bus_, &io_config, &second_panel_io_);
+        esp_err_t ret =
+            esp_lcd_new_panel_io_i2c(second_display_i2c_bus_, &io_config, &second_panel_io_);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the tao panel IO I2C: %s", esp_err_to_name(ret));
-            return;
+            second_panel_io_ = nullptr;
+            return false;
         }
 
         esp_lcd_panel_dev_config_t panel_config = {};
@@ -182,70 +232,81 @@ private:
         panel_config.bits_per_pixel = 1;
 
         esp_lcd_panel_ssd1306_config_t ssd1306_config = {
-            .height = (uint8_t)oled_height,
+            .height = static_cast<uint8_t>(config.height),
         };
         panel_config.vendor_config = &ssd1306_config;
 
         ret = esp_lcd_new_panel_ssd1306(second_panel_io_, &panel_config, &second_panel_);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the tao panel SSD1306: %s", esp_err_to_name(ret));
-            return;
+            DestroySecondDisplayPanel();
+            return false;
         }
-        
+
         ret = esp_lcd_panel_reset(second_panel_);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the reset panel: %s", esp_err_to_name(ret));
-            return;
+            DestroySecondDisplayPanel();
+            return false;
         }
-        
+
         ret = esp_lcd_panel_init(second_panel_);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the khoi tao man hinh thu hai: %s", esp_err_to_name(ret));
-            return;
+            DestroySecondDisplayPanel();
+            return false;
         }
 
         ret = esp_lcd_panel_disp_on_off(second_panel_, true);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Khong the bat man hinh: %s", esp_err_to_name(ret));
-            return;
+            DestroySecondDisplayPanel();
+            return false;
         }
-        
+
         ESP_LOGI(TAG, "Man hinh OLED thu hai khoi tao thanh cong");
-        
+
         // Draw test pattern (alternating pixels to verify display works)
-        uint8_t* test_buffer = (uint8_t*)calloc(oled_width * oled_height / 8, 1);
+        size_t buffer_size = static_cast<size_t>(config.width) * config.height / 8;
+        uint8_t* test_buffer = static_cast<uint8_t*>(calloc(buffer_size, 1));
+        if (test_buffer == nullptr) {
+            ESP_LOGE(TAG, "Khong the cap phat bo dem test OLED");
+            DestroySecondDisplayPanel();
+            return false;
+        }
         // Fill with alternating pattern (0xAA = 10101010 in binary)
-        for (int i = 0; i < oled_width * oled_height / 8; i++) {
+        for (size_t i = 0; i < buffer_size; i++) {
             test_buffer[i] = 0xAA;
         }
-        esp_lcd_panel_draw_bitmap(second_panel_, 0, 0, oled_width, oled_height, test_buffer);
+        ret = esp_lcd_panel_draw_bitmap(second_panel_, 0, 0, config.width, config.height,
+                                        test_buffer);
         free(test_buffer);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Khong the ve test pattern OLED: %s", esp_err_to_name(ret));
+            DestroySecondDisplayPanel();
+            return false;
+        }
         ESP_LOGI(TAG, "Da ve test pattern len man hinh");
+        return true;
     }
 
     static void TimeDisplayTask(void* pvParameters) {
         MrkenDDoRobot* robot = static_cast<MrkenDDoRobot*>(pvParameters);
-        
-        // Static buffer for display bitmap (128x32 pixels = 512 bytes)
-        static uint8_t display_buffer[SECOND_DISPLAY_WIDTH * SECOND_DISPLAY_HEIGHT / 8];
-        memset(display_buffer, 0, sizeof(display_buffer));
-        
+
         while (true) {
-            if (robot->second_panel_) {
-                time_t now;
-                struct tm timeinfo;
-                time(&now);
-                localtime_r(&now, &timeinfo);
-                
-                // Format time string: HH:MM:SS
-                char time_str[16];
-                strftime(time_str, sizeof(time_str), "%H:%M:%S", &timeinfo);
-                
-                // Don't clear display - keep test pattern visible for now
-                // TODO: Add font rendering to display actual time text
+            if (robot->second_display_mutex_ != nullptr) {
+                xSemaphoreTake(robot->second_display_mutex_, portMAX_DELAY);
+                bool display_ready = robot->second_panel_ != nullptr;
+                xSemaphoreGive(robot->second_display_mutex_);
+                if (display_ready) {
+                    // The display remains on the test pattern until a font
+                    // renderer is added. Keep this task from racing a
+                    // reinitialization while still providing a health check.
+                    ESP_LOGD(TAG, "OLED thu hai dang san sang");
+                }
             }
-            
-            vTaskDelay(pdMS_TO_TICKS(1000));  // Update every second
+
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
 
@@ -305,90 +366,129 @@ private:
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
         ESP_LOGI(TAG, "SetNetworkEventCallback duoc goi");
         // Chain the callbacks: first call the passed callback, then our own
-        WifiBoard::SetNetworkEventCallback([this, callback](NetworkEvent event, const std::string& data) {
-            ESP_LOGI(TAG, "Su kien mang: %d", static_cast<int>(event));
-            
-            // Call the original callback (from Application)
-            if (callback) {
-                callback(event, data);
-            }
-            
-            // Handle web server start on connection
-            if (event == NetworkEvent::Connected && !web_server_started_) {
-                ESP_LOGI(TAG, "WiFi da ket noi, dang khoi dong web server");
-                web_server_started_ = true;
-                Application::GetInstance().Schedule([this]() {
-                    ShowIpAddress();
-                    ESP_LOGI(TAG, "Dang khoi dong web server tren cong 80");
-                    web_server_->Start(80);
-                });
-            }
-        });
+        WifiBoard::SetNetworkEventCallback(
+            [this, callback](NetworkEvent event, const std::string& data) {
+                ESP_LOGI(TAG, "Su kien mang: %d", static_cast<int>(event));
+
+                // Call the original callback (from Application)
+                if (callback) {
+                    callback(event, data);
+                }
+
+                // Handle web server start on connection
+                if (event == NetworkEvent::Connected) {
+                    ESP_LOGI(TAG, "WiFi da ket noi, dang khoi dong web server");
+                    Application::GetInstance().Schedule([this]() {
+                        if (!web_server_started_ && web_server_ != nullptr) {
+                            ShowIpAddress();
+                            ESP_LOGI(TAG, "Dang khoi dong web server tren cong 80");
+                            web_server_started_ = web_server_->Start(80);
+                        }
+                    });
+                }
+            });
     }
 
 public:
     void ReinitializeSecondOledDisplay() {
         ESP_LOGI(TAG, "Khoi tao lai man hinh OLED thu hai");
-        
-        // Clean up existing resources
-        if (second_panel_) {
-            esp_lcd_panel_del(second_panel_);
-            second_panel_ = nullptr;
+
+        if (second_display_mutex_ == nullptr) {
+            ESP_LOGE(TAG, "Mutex OLED chua san sang");
+            return;
         }
-        if (second_panel_io_) {
-            esp_lcd_panel_io_del(second_panel_io_);
-            second_panel_io_ = nullptr;
-        }
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        DestroySecondDisplayPanel();
         if (second_display_i2c_bus_) {
             i2c_del_master_bus(second_display_i2c_bus_);
             second_display_i2c_bus_ = nullptr;
         }
-        
-        // Reinitialize I2C bus and display
-        InitializeSecondDisplayI2c();
-        InitializeSecondOledDisplay();
+
+        OledConfig config = LoadOledConfig();
+        if (!InitializeSecondDisplayI2c(config) || !InitializeSecondOledDisplay(config)) {
+            ESP_LOGE(TAG, "Khoi tao lai OLED that bai");
+            if (second_display_i2c_bus_) {
+                i2c_del_master_bus(second_display_i2c_bus_);
+                second_display_i2c_bus_ = nullptr;
+            }
+        }
+        xSemaphoreGive(second_display_mutex_);
     }
-    
-    MrkenDDoRobot() :
-        boot_button_(BOOT_BUTTON_GPIO),
-        volume_up_button_(VOLUME_UP_BUTTON_GPIO),
-        volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
+
+    MrkenDDoRobot()
+        : boot_button_(BOOT_BUTTON_GPIO),
+          volume_up_button_(VOLUME_UP_BUTTON_GPIO),
+          volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot bat dau");
+        second_display_mutex_ = xSemaphoreCreateMutex();
         InitializeSpi();
         InitializeSt7789Display();
-        InitializeSecondDisplayI2c();
-        InitializeSecondOledDisplay();
+        if (second_display_mutex_ != nullptr) {
+            OledConfig config = LoadOledConfig();
+            if (!InitializeSecondDisplayI2c(config) || !InitializeSecondOledDisplay(config)) {
+                ESP_LOGW(TAG, "OLED thu hai khong khoi tao duoc");
+                DestroySecondDisplayPanel();
+                if (second_display_i2c_bus_) {
+                    i2c_del_master_bus(second_display_i2c_bus_);
+                    second_display_i2c_bus_ = nullptr;
+                }
+            }
+        } else {
+            ESP_LOGE(TAG, "Khong the cap phat mutex OLED");
+        }
         InitializeButtons();
         ESP_LOGI(TAG, "Dang khoi tao dong co buoc");
-        stepper_motor_ = new StepperMotor(STEPPER_INT1_GPIO, STEPPER_INT2_GPIO, 
-                                           STEPPER_INT3_GPIO, STEPPER_INT4_GPIO);
+        stepper_motor_ = new StepperMotor(STEPPER_INT1_GPIO, STEPPER_INT2_GPIO, STEPPER_INT3_GPIO,
+                                          STEPPER_INT4_GPIO);
         RegisterRobotMcpTools(stepper_motor_);
         // Set default volume (0-100)
         GetAudioCodec()->SetOutputVolume(40);
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }
-        
+
         // Create web server (start it when WiFi connects)
         ESP_LOGI(TAG, "Dang tao web server");
         web_server_ = new WebServer(stepper_motor_);
-        
+
         // Set global pointer for web server access
         g_robot_board = this;
-        
+
         // Start time display task for second OLED
         ESP_LOGI(TAG, "Khoi dong task hien thi thoi gian");
-        xTaskCreate(TimeDisplayTask, "TimeDisplay", 4096, this, 5, &time_display_task_handle_);
-        
+        if (xTaskCreate(TimeDisplayTask, "TimeDisplay", 4096, this, 5,
+                        &time_display_task_handle_) != pdPASS) {
+            ESP_LOGE(TAG, "Khong the tao task hien thi OLED");
+            time_display_task_handle_ = nullptr;
+        }
+
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot hoan tat");
     }
 
     ~MrkenDDoRobot() {
+        if (g_robot_board == this) {
+            g_robot_board = nullptr;
+        }
+        if (time_display_task_handle_ != nullptr) {
+            vTaskDelete(time_display_task_handle_);
+            time_display_task_handle_ = nullptr;
+        }
         if (web_server_) {
             delete web_server_;
         }
         if (stepper_motor_) {
             delete stepper_motor_;
+        }
+        if (second_display_mutex_ != nullptr) {
+            xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+            DestroySecondDisplayPanel();
+            if (second_display_i2c_bus_) {
+                i2c_del_master_bus(second_display_i2c_bus_);
+                second_display_i2c_bus_ = nullptr;
+            }
+            xSemaphoreGive(second_display_mutex_);
+            vSemaphoreDelete(second_display_mutex_);
+            second_display_mutex_ = nullptr;
         }
     }
 
@@ -399,14 +499,13 @@ public:
 
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
-            AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, 
-            AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
+                                               AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK,
+                                               AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK,
+                                               AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
         return &audio_codec;
     }
 
-    virtual Display* GetDisplay() override {
-        return display_;
-    }
+    virtual Display* GetDisplay() override { return display_; }
 
     virtual Backlight* GetBacklight() override {
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
@@ -416,16 +515,18 @@ public:
         return nullptr;
     }
 
-    StepperMotor* GetStepperMotor() {
-        return stepper_motor_;
-    }
+    StepperMotor* GetStepperMotor() { return stepper_motor_; }
 };
 
 DECLARE_BOARD(MrkenDDoRobot);
 
 // C wrapper function for web server to call OLED reinitialization
 extern "C" void ReinitializeOledDisplay() {
-    if (g_robot_board) {
-        g_robot_board->ReinitializeSecondOledDisplay();
-    }
+    // HTTP callbacks run in the HTTP server task. OLED/I2C lifetime changes
+    // are scheduled on the application task and serialized by the board mutex.
+    Application::GetInstance().Schedule([]() {
+        if (g_robot_board != nullptr) {
+            g_robot_board->ReinitializeSecondOledDisplay();
+        }
+    });
 }

@@ -2,6 +2,7 @@
 #define _BOARD_CONFIG_H_
 
 #include <driver/gpio.h>
+#include <driver/i2c_types.h>
 
 // Audio configuration (adjust based on your hardware)
 #define AUDIO_INPUT_SAMPLE_RATE  16000
@@ -35,6 +36,8 @@
 // Second OLED 128x32 I2C display pins
 #define SECOND_DISPLAY_SDA_PIN  GPIO_NUM_2
 #define SECOND_DISPLAY_SCL_PIN  GPIO_NUM_1
+#define SECOND_DISPLAY_I2C_PORT I2C_NUM_1
+#define SECOND_DISPLAY_I2C_ADDRESS 0x3C
 #define SECOND_DISPLAY_WIDTH    128
 #define SECOND_DISPLAY_HEIGHT   32
 

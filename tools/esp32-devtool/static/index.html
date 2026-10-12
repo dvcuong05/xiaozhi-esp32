@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 DevTool</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Socket.IO CDN — must load before app scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- app.js: declares AppState + socket — must be FIRST app script -->
+    <script src="/static/js/app.js"></script>
+</head>
+<body>
+<div class="app-container">
+
+    <!-- ── Header ─────────────────────────────────────────────────── -->
+    <header>
+        <h1>&#9889; ESP32 DevTool</h1>
+        <nav>
+            <button class="nav-btn active" data-target="ports-tab">Port Visualizer</button>
+            <button class="nav-btn"        data-target="flash-tab">Flasher</button>
+            <button class="nav-btn"        data-target="monitor-tab">Serial Monitor</button>
+            <button class="nav-btn"        data-target="pins-tab">&#128204; Pin Inspector</button>
+        </nav>
+        <div id="conn-indicator" class="conn-dot disconnected" title="WebSocket status"></div>
+    </header>
+
+    <main>
+
+        <!-- ════════════════════════════════════════════
+             TAB 1 — PORT VISUALIZER
+        ════════════════════════════════════════════ -->
+        <section id="ports-tab" class="tab-content active">
+            <div class="toolbar">
+                <div class="filters">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="working">
+                        <span class="dot working"></span> Working
+                    </button>
+                    <button class="filter-btn" data-filter="used">
+                        <span class="dot used"></span> Used
+                    </button>
+                    <button class="filter-btn" data-filter="reserved">
+                        <span class="dot reserved"></span> Reserved
+                    </button>
+                </div>
+                <div class="stats" id="port-stats">Scanning…</div>
+            </div>
+            <div class="port-grid" id="port-grid">
+                <div class="empty-state"><p>Waiting for port data…</p></div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════
+             TAB 2 — FIRMWARE FLASHER
+        ════════════════════════════════════════════ -->
+        <section id="flash-tab" class="tab-content">
+            <div class="card flash-card">
+                <h2>Firmware Flasher</h2>
+
+                <div class="flash-form">
+                    <div class="form-group">
+                        <label>Port</label>
+                        <select id="flash-port-select"></select>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Chip</label>
+                            <select id="flash-chip-select">
+                                <option value="esp32">ESP32</option>
+                                <option value="esp32s3">ESP32-S3</option>
+                                <option value="esp32s3_supermini">ESP32-S3 Super Mini</option>
+                                <option value="esp32c3">ESP32-C3</option>
+                                <option value="esp32c6">ESP32-C6</option>
+                                <option value="esp32p4">ESP32-P4</option>
+                                <option value="esp32s31">ESP32-S3 (cam)</option>
+                                <option value="auto">auto-detect</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Baud Rate</label>
+                            <select id="flash-baud-select">
+                                <option value="115200">115200</option>
+                                <option value="460800" selected>460800</option>
+                                <option value="921600">921600</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Firmware .bin</label>
+                        <div class="file-input-row">
+                            <input type="text" id="flash-firmware-input"
+                                   placeholder="Path to merged firmware .bin …">
+                            <button class="btn" id="btn-browse-build">Browse build/</button>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn btn-primary" id="btn-flash">Start Flash</button>
+                        <button class="btn btn-danger"  id="btn-erase">Erase Flash</button>
+                        <button class="btn"             id="btn-chip-info">Chip Info</button>
+                    </div>
+                </div>
+
+                <div class="terminal-container" id="flash-terminal-container">
+                    <pre id="flash-terminal"># Flash output will appear here…
+</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════
+             TAB 3 — SERIAL MONITOR
+        ════════════════════════════════════════════ -->
+        <section id="monitor-tab" class="tab-content">
+
+            <!-- Top bar: connect controls -->
+            <div class="monitor-toolbar">
+                <div class="form-group row">
+                    <select id="monitor-port-select"></select>
+                    <select id="monitor-baud-select">
+                        <option value="9600">9600</option>
+                        <option value="74880">74880</option>
+                        <option value="115200" selected>115200</option>
+                        <option value="230400">230400</option>
+                        <option value="460800">460800</option>
+                        <option value="921600">921600</option>
+                    </select>
+                    <button class="btn btn-primary" id="btn-monitor-start">Connect</button>
+                    <button class="btn btn-danger"  id="btn-monitor-stop" disabled>Disconnect</button>
+                </div>
+
+                <!-- Filter / tool row -->
+                <div class="monitor-actions">
+                    <input type="text" id="monitor-filter" placeholder="Filter output…" style="width:180px">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="monitor-autoscroll" checked> Auto-scroll
+                    </label>
+                    <button class="btn" id="btn-monitor-clear">Clear</button>
+                    <button class="btn" id="btn-monitor-download">Download log</button>
+                </div>
+            </div>
+
+            <!-- Terminal output -->
+            <div class="terminal-container" style="flex:1;min-height:0">
+                <pre id="monitor-terminal"># Serial output will appear here…
+</pre>
+            </div>
+
+            <!-- Interactive send bar -->
+            <div class="send-bar">
+                <input type="text" id="monitor-send-input"
+                       placeholder="Type command and press Enter to send…"
+                       disabled>
+                <button class="btn btn-primary" id="btn-monitor-send" disabled>Send</button>
+            </div>
+
+        </section>
+
+        <!-- ════════════════════════════════════════════
+             TAB 4 — PIN INSPECTOR
+        ════════════════════════════════════════════ -->
+        <section id="pins-tab" class="tab-content">
+            <div class="pins-layout">
+
+                <!-- Main column: controls + diagram -->
+                <div class="pins-main-col">
+
+                    <!-- Toolbar -->
+                    <div class="pins-toolbar">
+                        <div class="pins-controls">
+                            <div class="form-group inline">
+                                <label>Target Board:</label>
+                                <select id="pins-board-select"></select>
+                            </div>
+                            <div class="form-group inline">
+                                <label>Chip:</label>
+                                <select id="pins-chip-select">
+                                    <option value="esp32s3">ESP32-S3</option>
+                                    <option value="esp32s3_supermini">ESP32-S3 Super Mini</option>
+                                    <option value="esp32">ESP32</option>
+                                    <option value="esp32c3">ESP32-C3</option>
+                                    <option value="esp32c6">ESP32-C6</option>
+                                    <option value="esp32p4">ESP32-P4</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" id="btn-pins-refresh">Scan Board</button>
+                            <button class="btn btn-primary" id="btn-pins-probe-boot" style="background:#238636" title="Reset ESP32 and capture live boot telemetry to confirm physical peripherals">&#9889; Probe Live Hardware</button>
+                            <button class="btn" id="btn-pins-diag-modal" title="Open Deep Hardware Pin Diagnostic">&#129514; Deep Diagnostic</button>
+                        </div>
+
+                        <!-- Capability / Tag Filters -->
+                        <div class="pins-filters">
+                            <button class="pin-filter-btn active" data-filter="all">All Pins</button>
+                            <button class="pin-filter-btn" data-filter="configured">Configured</button>
+                            <button class="pin-filter-btn" data-filter="verified">✓ HW Verified</button>
+                            <button class="pin-filter-btn" data-filter="uart">UART</button>
+                            <button class="pin-filter-btn" data-filter="i2c">I2C</button>
+                            <button class="pin-filter-btn" data-filter="spi">SPI</button>
+                            <button class="pin-filter-btn" data-filter="adc">ADC</button>
+                            <button class="pin-filter-btn" data-filter="touch">Touch</button>
+                            <input type="text" id="pins-search-input" placeholder="Search GPIO, Alt, or Macro..." class="pins-search">
+                        </div>
+
+                        <!-- Summary Status Bar -->
+                        <div class="pins-summary">
+                            <span class="pins-stat-badge working"><span class="dot working"></span> <strong id="stat-working-count">0</strong> Working</span>
+                            <span class="pins-stat-badge verified"><span class="dot verified"></span> <strong id="stat-verified-count">0</strong> HW Verified</span>
+                            <span class="pins-stat-badge used"><span class="dot used"></span> <strong id="stat-used-count">0</strong> Used</span>
+                            <span class="pins-stat-badge unused"><span class="dot unused"></span> <strong id="stat-unused-count">0</strong> Unused</span>
+                            <span class="pins-chip-status" id="pins-chip-connected-status">Checking device...</span>
+                        </div>
+
+                        <!-- Live Hardware Telemetry HUD -->
+                        <div class="pins-telemetry-hud" id="pins-telemetry-hud">
+                            <span class="hud-label">&#128225; HARDWARE TELEMETRY:</span>
+                            <div class="hud-pills" id="hud-pills">
+                                <span class="hud-empty">Click "Probe Live Hardware" to verify physical components</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SVG Diagram Viewport -->
+                    <div class="pins-diagram-container" id="pins-diagram-container">
+                        <div class="pins-loading"><div class="spinner"></div><p>Loading chip pinout...</p></div>
+                    </div>
+
+                </div>
+
+                <!-- Right column: Pin Details Inspector -->
+                <aside class="pins-sidebar card" id="pins-sidebar">
+                    <div class="pins-sidebar-header">
+                        <h3 id="sidebar-pin-name">Select a pin</h3>
+                        <span class="badge" id="sidebar-pin-badge">--</span>
+                    </div>
+                    <div class="pins-sidebar-body" id="sidebar-pin-body">
+                        <p class="text-muted">Click any pin on the chip diagram to inspect its assigned macros, function tags, and firmware code references.</p>
+                    </div>
+                </aside>
+
+            </div>
+
+            <!-- Deep Diagnostic Modal -->
+            <div id="diag-modal" class="modal-backdrop" style="display:none;">
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3>&#129514; Deep Hardware Pin Diagnostic</h3>
+                        <button class="modal-close" id="btn-diag-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p>This engine performs physical electrical verification to detect if wires or components are truly connected:</p>
+                        <div class="diag-features">
+                            <div class="diag-feat-item">
+                                <strong>1. Pull-Up / Pull-Down Resistance Probe:</strong>
+                                <span>Measures whether a pin floats freely or is tied to VCC, GND, buttons, or resistors.</span>
+                            </div>
+                            <div class="diag-feat-item">
+                                <strong>2. I2C Bus Active ACK Scan:</strong>
+                                <span>Checks if peripherals (OLED display at 0x3C, Codec at 0x18, RTC) physically acknowledge.</span>
+                            </div>
+                            <div class="diag-feat-item">
+                                <strong>3. Boot Telemetry Sniffer:</strong>
+                                <span>Parses XiaoZhi kernel boot logs to verify camera, display, audio, buttons, and battery monitor.</span>
+                            </div>
+                        </div>
+                        <div class="diag-actions" style="flex-direction: column; gap: 12px; align-items: stretch;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 8px 14px; border-radius: 6px; border: 1px solid var(--color-border);">
+                                <label style="font-weight: 600; color: var(--color-primary); font-size: 0.95rem;">🎯 Target Chip Architecture:</label>
+                                <select id="diag-modal-chip-select" style="background: var(--color-card); color: var(--color-text); border: 1px solid var(--color-border); padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer;">
+                                    <option value="esp32s3">ESP32-S3</option>
+                                    <option value="esp32s3_supermini">ESP32-S3 Super Mini</option>
+                                    <option value="esp32">ESP32 (Classic)</option>
+                                    <option value="esp32c3">ESP32-C3</option>
+                                    <option value="esp32c6">ESP32-C6</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                                <button class="btn btn-primary" id="btn-diag-run-probe">&#9889; Reset &amp; Probe Boot Telemetry</button>
+                                <button class="btn" id="btn-diag-compile">&#128736; Build Diagnostic Firmware (.bin)</button>
+                            </div>
+                        </div>
+                        <div class="diag-log" id="diag-log" style="display:none;">
+                            <pre id="diag-log-output"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- Feature scripts load AFTER app.js which defines socket + AppState -->
+<script src="/static/js/port-visualizer.js"></script>
+<script src="/static/js/flasher.js"></script>
+<script src="/static/js/monitor.js"></script>
+<script src="/static/js/pin-diagram.js"></script>
+</body>
+</html>

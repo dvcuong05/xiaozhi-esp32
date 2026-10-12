@@ -61,6 +61,7 @@ list(APPEND SOURCES
     "boards/common/power_save_timer.cc"
     "boards/common/press_to_talk_mcp_tool.cc"
     "boards/common/sleep_timer.cc"
+    "boards/common/stepper_motor.cc"
     "boards/common/sy6970.cc"
     "boards/common/system_reset.cc"
 )
@@ -795,6 +796,10 @@ elseif(CONFIG_BOARD_TYPE_ZHENGCHEN_CAM)
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_20_4)
     set(BUILTIN_ICON_FONT font_material_symbols_20_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
+elseif(CONFIG_BOARD_TYPE_MRKENDDO_ROBOT)
+    set(BOARD_DIR "mrkenddo-robot")
+    set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
+    set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 elseif(CONFIG_BOARD_TYPE_ZHENGCHEN_CAM_ML307)
     set(BOARD_DIR "zhengchen/cam-ml307")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_20_4)

@@ -63,9 +63,13 @@ Kiểm tra host/style: `python -m unittest discover -s scripts/tests -v`, `git d
 
 Các tính năng trong kế hoạch hiện tại đã được hiện thực ở mức mã nguồn: điều
 khiển motor và routine qua webserver/MCP, OLED clock/marquee/status, hiển thị
-IP khi boot, mắt robot cyan có animation, boot console, audio starting/wake và
-hiển thị QR thanh toán trên TFT. QR mặc định giữ trên màn hình 30 giây và có
-thể cấu hình thời gian từ 5 đến 120 giây qua MCP.
+IP khi boot, mắt robot cyan có animation, boot console, audio starting/wake,
+Audio Visualizer theo PCM playback và hiển thị QR thanh toán trên TFT. QR mặc
+định giữ trên màn hình 30 giây và có thể cấu hình thời gian từ 5 đến 120 giây
+qua MCP. Visualizer hiện hiển thị cột mức âm thanh; metadata tên bài hát/tác
+giả chưa có trong payload audio hiện tại. Giao diện visualizer dùng palette
+gradient nhiều màu trên nền midnight; màu cyan chỉ giữ cho robot eyes và các
+UI đã được thiết kế riêng theo nhận diện của robot.
 
 Các mục còn trong phần “Cần xác nhận trên phần cứng” là kiểm thử thực tế, không
 phải tính năng chưa triển khai. Cần flash firmware mới trước khi kiểm tra các

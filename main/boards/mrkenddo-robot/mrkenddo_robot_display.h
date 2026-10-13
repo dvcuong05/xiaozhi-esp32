@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <array>
 
 class MrkenDDoRobotDisplay final : public SpiLcdDisplay {
 public:
@@ -21,6 +22,8 @@ public:
     void StartBootSequence() override;
     void FinishBootSequence() override;
     void OnBootEvent(BootStage stage, const char* detail) override;
+    void OnAudioPlaybackFrame(const uint8_t* levels, size_t count) override;
+    void OnAudioPlaybackStopped() override;
     void ShowPaymentQr(int duration_ms = 30000);
 
 protected:
@@ -33,6 +36,11 @@ private:
     lv_timer_t* boot_console_timer_ = nullptr;
     lv_obj_t* payment_qr_overlay_ = nullptr;
     lv_timer_t* payment_qr_timer_ = nullptr;
+    lv_obj_t* audio_visualizer_ = nullptr;
+    std::array<lv_obj_t*, 12> audio_visualizer_bars_ = {};
+    bool audio_visualizer_active_ = false;
+    // Keep boot console/IP presentation uninterrupted by startup audio.
+    bool boot_visualizer_blocked_ = true;
     std::string boot_console_text_;
     size_t boot_console_visible_chars_ = 0;
     bool boot_console_active_ = false;
@@ -41,6 +49,7 @@ private:
     static void OnPaymentQrTimer(lv_timer_t* timer);
     static void DrawPaymentQr(lv_event_t* event);
     void HidePaymentQr();
+    void HideAudioVisualizer();
     void AppendBootConsoleLine(const char* text);
     void HideLegacyEmoji();
     void RenderBootConsole();

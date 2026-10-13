@@ -28,6 +28,10 @@ MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
         lv_obj_delete(payment_qr_overlay_);
         payment_qr_overlay_ = nullptr;
     }
+    if (audio_visualizer_ != nullptr) {
+        lv_obj_delete(audio_visualizer_);
+        audio_visualizer_ = nullptr;
+    }
     robot_eyes_.reset();
     if (boot_console_ != nullptr) {
         lv_obj_delete(boot_console_);
@@ -62,6 +66,38 @@ void MrkenDDoRobotDisplay::SetupUI() {
     lv_obj_clear_flag(payment_qr_overlay_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(payment_qr_overlay_, DrawPaymentQr, LV_EVENT_DRAW_MAIN, this);
     lv_obj_add_flag(payment_qr_overlay_, LV_OBJ_FLAG_HIDDEN);
+
+    audio_visualizer_ = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(audio_visualizer_, width_, height_);
+    lv_obj_center(audio_visualizer_);
+    lv_obj_set_style_bg_color(audio_visualizer_, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_bg_opa(audio_visualizer_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(audio_visualizer_, 0, 0);
+    lv_obj_set_style_radius(audio_visualizer_, 0, 0);
+    lv_obj_set_style_pad_all(audio_visualizer_, 0, 0);
+    lv_obj_clear_flag(audio_visualizer_, LV_OBJ_FLAG_SCROLLABLE);
+
+    constexpr int kBarGap = 4;
+    constexpr int kBarBottom = 24;
+    constexpr uint32_t kBarColors[] = {
+        0x7C3AED, 0x6366F1, 0x3B82F6, 0x06B6D4, 0x14B8A6, 0x22C55E,
+        0x84CC16, 0xEAB308, 0xF59E0B, 0xF97316, 0xEF4444, 0xEC4899,
+    };
+    const int bar_count = static_cast<int>(audio_visualizer_bars_.size());
+    const int bar_width = std::max(4, (width_ - kBarGap * (bar_count + 1)) / bar_count);
+    for (size_t index = 0; index < audio_visualizer_bars_.size(); ++index) {
+        auto* bar = lv_obj_create(audio_visualizer_);
+        audio_visualizer_bars_[index] = bar;
+        lv_obj_set_size(bar, bar_width, 4);
+        lv_obj_set_style_bg_color(bar, lv_color_hex(kBarColors[index]), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(bar, 0, 0);
+        lv_obj_set_style_radius(bar, 3, 0);
+        lv_obj_align(bar, LV_ALIGN_BOTTOM_LEFT,
+                     kBarGap + index * (bar_width + kBarGap), -kBarBottom);
+    }
+
+    lv_obj_add_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void MrkenDDoRobotDisplay::HideLegacyEmoji() {
@@ -123,7 +159,9 @@ void MrkenDDoRobotDisplay::SetEmotion(const char* emotion) {
         robot_eyes_->SetEmotion("neutral");
     }
     HideLegacyEmoji();
-    robot_eyes_->SetVisible(true);
+    if (!audio_visualizer_active_) {
+        robot_eyes_->SetVisible(true);
+    }
 }
 
 void MrkenDDoRobotDisplay::StartBootSequence() {
@@ -136,6 +174,7 @@ void MrkenDDoRobotDisplay::StartBootSequence() {
         return;
     }
 
+    boot_visualizer_blocked_ = true;
     auto* theme = static_cast<LvglTheme*>(current_theme_);
     boot_console_ = lv_obj_create(lv_screen_active());
     lv_obj_set_size(boot_console_, LV_HOR_RES, LV_VER_RES);
@@ -167,7 +206,12 @@ void MrkenDDoRobotDisplay::StartBootSequence() {
 
 void MrkenDDoRobotDisplay::FinishBootSequence() {
     DisplayLockGuard lock(this);
-    if (!lock || !boot_console_active_) {
+    if (!lock) {
+        return;
+    }
+
+    boot_visualizer_blocked_ = false;
+    if (!boot_console_active_) {
         return;
     }
 
@@ -203,6 +247,66 @@ void MrkenDDoRobotDisplay::OnBootEvent(BootStage stage, const char* detail) {
     }
 }
 
+void MrkenDDoRobotDisplay::OnAudioPlaybackFrame(const uint8_t* levels, size_t count) {
+    if (audio_visualizer_ == nullptr || levels == nullptr || boot_visualizer_blocked_) {
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    if (!lock) {
+        return;
+    }
+
+    audio_visualizer_active_ = true;
+    if (boot_console_ != nullptr && boot_console_active_) {
+        lv_obj_add_flag(boot_console_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (robot_eyes_ != nullptr) {
+        robot_eyes_->SetVisible(false);
+    }
+
+    const bool qr_visible = payment_qr_overlay_ != nullptr &&
+                            !lv_obj_has_flag(payment_qr_overlay_, LV_OBJ_FLAG_HIDDEN);
+    if (qr_visible) {
+        lv_obj_add_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_move_foreground(audio_visualizer_);
+        lv_obj_remove_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    constexpr int kBarAreaHeight = 150;
+    for (size_t index = 0; index < audio_visualizer_bars_.size(); ++index) {
+        if (audio_visualizer_bars_[index] == nullptr) {
+            continue;
+        }
+        const uint8_t level = index < count ? levels[index] : 0;
+        const int bar_height = 4 + (kBarAreaHeight * level) / 255;
+        lv_obj_set_height(audio_visualizer_bars_[index], bar_height);
+    }
+    lv_obj_invalidate(audio_visualizer_);
+}
+
+void MrkenDDoRobotDisplay::OnAudioPlaybackStopped() {
+    if (audio_visualizer_ == nullptr) {
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    if (!lock) {
+        return;
+    }
+
+    audio_visualizer_active_ = false;
+    lv_obj_add_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
+    const bool qr_visible = payment_qr_overlay_ != nullptr &&
+                            !lv_obj_has_flag(payment_qr_overlay_, LV_OBJ_FLAG_HIDDEN);
+    if (!qr_visible && boot_console_ != nullptr && boot_console_active_) {
+        lv_obj_remove_flag(boot_console_, LV_OBJ_FLAG_HIDDEN);
+    } else if (!qr_visible && robot_eyes_ != nullptr) {
+        robot_eyes_->SetVisible(true);
+    }
+}
+
 void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     if (boot_console_label_ != nullptr) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
@@ -229,6 +333,9 @@ void MrkenDDoRobotDisplay::ShowPaymentQr(int duration_ms) {
     if (robot_eyes_ != nullptr) {
         robot_eyes_->SetVisible(false);
     }
+    if (audio_visualizer_ != nullptr && audio_visualizer_active_) {
+        lv_obj_add_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_move_foreground(payment_qr_overlay_);
     lv_obj_remove_flag(payment_qr_overlay_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(payment_qr_overlay_);
@@ -247,6 +354,9 @@ void MrkenDDoRobotDisplay::HidePaymentQr() {
     }
     if (boot_console_ != nullptr && boot_console_active_) {
         lv_obj_remove_flag(boot_console_, LV_OBJ_FLAG_HIDDEN);
+    } else if (audio_visualizer_ != nullptr && audio_visualizer_active_) {
+        lv_obj_move_foreground(audio_visualizer_);
+        lv_obj_remove_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
     } else if (robot_eyes_ != nullptr) {
         robot_eyes_->SetVisible(true);
     }

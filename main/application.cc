@@ -215,6 +215,20 @@ void Application::Initialize() {
     };
     callbacks.on_playback_drained = [this]() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED);
+        auto* display = Board::GetInstance().GetDisplay();
+        if (display != nullptr) {
+            Schedule([display]() { display->OnAudioPlaybackStopped(); });
+        }
+    };
+    callbacks.on_playback_frame = [this](
+                                      const std::array<uint8_t, AUDIO_VISUALIZER_BANDS>& levels) {
+        auto* display = Board::GetInstance().GetDisplay();
+        if (display == nullptr) {
+            return;
+        }
+        Schedule([display, levels]() {
+            display->OnAudioPlaybackFrame(levels.data(), levels.size());
+        });
     };
     callbacks.on_playback_progress = [this](uint32_t playback_id, uint32_t media_position_ms) {
         notify_player_.OnPlaybackProgress(playback_id, media_position_ms);

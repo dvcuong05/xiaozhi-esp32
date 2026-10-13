@@ -42,6 +42,13 @@ public:
     virtual ~Display();
 
     virtual void SetStatus(const char* status);
+    // Optional playback visualization hooks. They are no-ops for displays that
+    // do not provide a board-specific visualizer.
+    virtual void OnAudioPlaybackFrame(const uint8_t* levels, size_t count) {
+        (void)levels;
+        (void)count;
+    }
+    virtual void OnAudioPlaybackStopped() {}
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
     virtual void StartBootSequence() {}

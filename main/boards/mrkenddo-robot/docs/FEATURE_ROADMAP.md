@@ -12,6 +12,11 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Build trước khi flash và ghi rõ giới hạn của kiểm thử phần cứng.
 - [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
+## Planned features
+- [x] Audio Visualizer trên TFT: khi có playback audio, màn hình chuyển sang
+    nền midnight với palette gradient tím/xanh/lục/vàng/cam/hồng phản ứng
+    theo mức PCM; khi playback kết thúc, giao diện mắt robot được khôi phục.
+- [ ] MCP nghe nhạc việt hoặc cách build host server nghe nhạc bằng cách ra lệnh mcp tìm nhạc theo tên, tác giả, thể loại
 ## Completed implementation
 
 - [x] Board custom, TFT ST7789, OLED SSD1306, robot drive, microphone,
@@ -38,6 +43,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [x] MCP `self.robot.show_payment_qr` hiển thị QR ngân hàng dạng bitmap 1-bit
       board-local trên TFT; QR có quiet zone, nằm trên cùng UI và tự ẩn sau
       timeout cấu hình được.
+- [x] Audio Visualizer nhận PCM playback và vẽ các cột màu trên TFT; không
+      dùng font trong overlay boot-time để tránh phụ thuộc font assets.
 - [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
       decoder/renderer; thời lượng MCP hỗ trợ 5–120 giây, mặc định 30 giây.
 - [x] Build firmware bằng ESP-IDF 6.1 đã thành công cho ESP32-S3; binary
@@ -56,6 +63,8 @@ Tất cả hạng mục trong kế hoạch hiện tại đã hoàn tất ở m�
 - [x] P1 — QR thanh toán trên TFT với thời gian hiển thị đủ dài để quét.
 - [x] P1 — Routine chạy trong task FreeRTOS riêng, không chặn audio/main loop.
 - [x] P1 — Boot OLED hiển thị tên robot và IP trước khi về mode bình thường.
+- [x] P1 - Audio Visualizer nhận level envelope từ audio playback mà không
+      chặn audio task; UI cập nhật qua main task.
 
 Không còn mục implementation nào đang chờ trong kế hoạch đã chốt. Các thay
 đổi tiếp theo chỉ nên mở roadmap mới sau khi xác định rõ phạm vi và ảnh hưởng

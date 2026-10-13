@@ -1,4 +1,6 @@
 #include "audio_service.h"
+#include <algorithm>
+#include <cstdlib>
 #include <esp_log.h>
 #include <cstring>
 
@@ -346,6 +348,27 @@ void AudioService::AudioOutputTask() {
 
         if (task.playback_id != 0 && callbacks_.on_playback_progress) {
             callbacks_.on_playback_progress(task.playback_id, task.media_position_ms);
+        }
+
+        if (callbacks_.on_playback_frame && !task.pcm.empty()) {
+            std::array<uint8_t, AUDIO_VISUALIZER_BANDS> levels = {};
+            for (size_t band = 0; band < levels.size(); ++band) {
+                const size_t start = task.pcm.size() * band / levels.size();
+                const size_t end = task.pcm.size() * (band + 1) / levels.size();
+                if (start >= end) {
+                    continue;
+                }
+
+                uint64_t amplitude_sum = 0;
+                for (size_t index = start; index < end; ++index) {
+                    amplitude_sum +=
+                        static_cast<uint32_t>(std::abs(static_cast<int32_t>(task.pcm[index])));
+                }
+                const uint64_t average = amplitude_sum / (end - start);
+                levels[band] = static_cast<uint8_t>(
+                    std::min<uint64_t>(255, average * 255 / INT16_MAX));
+            }
+            callbacks_.on_playback_frame(levels);
         }
 
         codec_->OutputData(task.pcm);

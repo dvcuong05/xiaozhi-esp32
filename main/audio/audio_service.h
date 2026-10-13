@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <array>
 #include <memory>
 #include <mutex>
 
@@ -47,6 +48,7 @@
 
 #define AUDIO_POWER_TIMEOUT_MS 15000
 #define AUDIO_POWER_CHECK_INTERVAL_MS 1000
+#define AUDIO_VISUALIZER_BANDS 12
 
 #define AS_EVENT_AUDIO_TESTING_RUNNING (1 << 0)
 #define AS_EVENT_WAKE_WORD_RUNNING (1 << 1)
@@ -86,6 +88,8 @@ struct AudioServiceCallbacks {
     std::function<void(void)> on_audio_testing_queue_full;
     // Fired when the decode/playback queues and their in-flight work are drained.
     std::function<void(void)> on_playback_drained;
+    // A compact per-frame level envelope for board-specific audio visualizers.
+    std::function<void(const std::array<uint8_t, AUDIO_VISUALIZER_BANDS>&)> on_playback_frame;
     std::function<void(uint32_t playback_id, uint32_t media_position_ms)> on_playback_progress;
 };
 

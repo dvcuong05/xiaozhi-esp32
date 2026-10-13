@@ -1,84 +1,94 @@
 # MrKenDDo Robot Feature Roadmap
 
-This is the working checklist for the custom `mrkenddo-robot` firmware. Keep
-board-specific plans, decisions, hardware notes, and validation results here.
+Đây là checklist triển khai cho firmware custom `mrkenddo-robot`. Các mục
+trong kế hoạch hiện tại đã được hiện thực; phần còn lại bên dưới chỉ là kiểm
+thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 
 ## Working rules
 
-- [ ] Run `idf-init` before every firmware build or flash session.
-- [ ] Keep robot-specific changes under `main/boards/mrkenddo-robot/` whenever
-      the feature does not need to be shared by other boards.
-- [ ] Build before flashing and record any physical-hardware limitation.
-- [ ] Update this file whenever a feature is completed, deferred, or changed.
-- [ ] Update readme.MD whenever a feature is completed, deferred, or changed in Vietnamese within explanation flow.
+- [ ] Chạy `idf-init` trước mỗi lần build hoặc flash firmware.
+- [ ] Giữ thay đổi dành riêng cho robot trong `main/boards/mrkenddo-robot/`
+      nếu tính năng không cần chia sẻ cho board khác.
+- [ ] Build trước khi flash và ghi rõ giới hạn của kiểm thử phần cứng.
+- [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
-## Completed
+## Completed implementation
 
-- [x] Custom board definition, display, robot drive, OLED controller, eyes, and
-      web server separated under `mrkenddo-robot`.
-- [x] Web server robot control with motor movement and MCP-backed text prompt.
-- [x] Secondary OLED clock, status, marquee, text normalization, Vietnamese
-      character support, and configuration from the web server.
-- [x] Secondary OLED rotation, contrast, invert, and persistent settings.
-- [x] TFT rotation and panel RAM offset configuration for the 240x240 display.
-- [x] TFT color inversion corrected for the installed panel.
-- [x] Custom cyan robot eyes on a black TFT background; legacy XiaoZhi emoji
-      hidden for the custom board.
-- [x] Robot eye wake animation, blinking, glances, curiosity, and speaking /
-      listening state animations.
-- [x] Boot console typing effect on the TFT with a scrolling-style log area.
-- [x] Boot and robot-eye wake audio assets integrated; typing sound removed.
-- [x] Firmware build and flash verified on the ESP32-S3 robot hardware.
+- [x] Board custom, TFT ST7789, OLED SSD1306, robot drive, microphone,
+      speaker, eyes và web server được tách dưới `mrkenddo-robot`.
+- [x] Web dashboard điều khiển Forward/Backward/Left/Right, Stop, đảo
+      chiều từng motor, cấu hình TFT/OLED và gửi prompt qua MCP queue.
+- [x] Hai routine chuyển động: `Hiếu động` chạy lặp vô hạn tới khi Stop hoặc
+      có lệnh mới; `Dancing` chạy routine ngắn có giới hạn.
+- [x] MCP điều khiển chuyển động, Stop, routine, emotion, OLED mode, IP,
+      status và văn bản tạm thời trên OLED.
+- [x] OLED clock, marquee, status, off; hỗ trợ tiếng Việt bitmap, emoji đơn
+      sắc, xoay 180 độ, contrast, invert và lưu cấu hình NVS.
+- [x] OLED boot hiển thị lời chào `MrKenDDo Robot` và IP local trước khi
+      chuyển về mode đã lưu khi Wi-Fi/robot sẵn sàng.
+- [x] OLED status hiển thị giờ, ngày dạng `dd-MMM`, cột sóng Wi-Fi và trạng
+      thái `IDLE`/`LISTENING`/`SPEAKING`.
+- [x] TFT 240x240 hỗ trợ xoay cấu hình qua webserver và panel offset `(80, 0)`
+      cho phần cứng lắp ngang hiện tại.
+- [x] TFT dùng nền đen, mắt robot cyan `#0abde3`, emotion custom, wake-up,
+      blink, glance, curiosity và animation riêng cho speaking/listening.
+- [x] Boot console trên TFT có hiệu ứng gõ chữ và vùng log cuộn; âm thanh
+      typing đã được loại bỏ để không làm chậm boot hoặc ảnh hưởng hội thoại.
+- [x] Tích hợp audio starting và robot-eye wake; không phát typing sound.
+- [x] MCP `self.robot.show_payment_qr` hiển thị QR ngân hàng dạng bitmap 1-bit
+      board-local trên TFT; QR có quiet zone, nằm trên cùng UI và tự ẩn sau
+      timeout cấu hình được.
+- [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
+      decoder/renderer; thời lượng MCP hỗ trợ 5–120 giây, mặc định 30 giây.
+- [x] Build firmware bằng ESP-IDF 6.1 đã thành công cho ESP32-S3; binary
+      hiện còn khoảng 10% dung lượng app partition.
 
-## Current change to verify
+## Current implementation status
 
-- [ ] ...
+Tất cả hạng mục trong kế hoạch hiện tại đã hoàn tất ở mức mã nguồn:
+
+- [x] P0 — Điều khiển robot và routine từ webserver/MCP.
+- [x] P0 — Gửi câu chữ tùy chọn lên OLED mà không ghi đè marquee đã lưu.
+- [x] P0 — Hiển thị IP, status và đổi OLED mode từ MCP.
+- [x] P1 — Mắt robot sinh động: blink, glance, curiosity, emotion và state
+      animation.
+- [x] P1 — OLED status dùng ngày `dd-MMM` và layout hai cột.
+- [x] P1 — QR thanh toán trên TFT với thời gian hiển thị đủ dài để quét.
+- [x] P1 — Routine chạy trong task FreeRTOS riêng, không chặn audio/main loop.
+- [x] P1 — Boot OLED hiển thị tên robot và IP trước khi về mode bình thường.
+
+Không còn mục implementation nào đang chờ trong kế hoạch đã chốt. Các thay
+đổi tiếp theo chỉ nên mở roadmap mới sau khi xác định rõ phạm vi và ảnh hưởng
+đến bộ nhớ, audio hoặc giao thức MCP.
 
 ## Hardware validation backlog
 
-- [ ] Verify both motors move in the same physical forward direction and the
-      same physical reverse direction.
-- [ ] Verify TFT orientation with the installed horizontal mounting and the
-      current panel offset `(80, 0)`.
-- [ ] Verify OLED orientation and status layout on the actual 128x32 module.
-- [ ] Verify INMP441 capture stability during wake-word detection and speech.
-- [ ] Check boot timing from power-on through Wi-Fi, web server, IP, and ready.
+Đây không phải là feature chưa implement; các mục này cần robot thật để xác
+nhận vì build không thể kiểm tra dây nối, cực tính motor hoặc chất lượng hiển
+thị:
 
-## Planned features
+- [ ] Nâng bánh khỏi mặt đất, xác nhận Forward/Backward và Left/Right, Stop,
+      timeout và cờ đảo chiều motor.
+- [ ] Xác nhận TFT sau khi khởi động lại với offset `(80, 0)` và góc lắp thực tế.
+- [ ] Xác nhận OLED 0/180 độ, layout status và IP trên module 128x32.
+- [ ] Xác nhận INMP441, wake/VAD, loa, ngắt audio và reconnect Wi-Fi/protocol.
+- [ ] Kiểm tra thời gian boot từ power-on tới Wi-Fi, web server, IP và READY.
+- [ ] Quét thử QR ở nhiều khoảng cách và xác nhận QR tự quay lại mắt robot sau
+      timeout.
 
-- [ ] Thêm webserver feature các option moving of robot: Hiếu động (đi chuyển tới lui vài giây, rồi xoay trái phải vài lần và cứ thế), Dancing (tương tự nhưng nhịp điệu nhanh hơn, sôi động hơn)
-- [ ] Mắt robot có hiếu động, liếc trái phải và chớp mắt nhưng chậm quá, nên liếc nhiều sang 2 bên kiểu láo lia quan sát ấy
-- [ ] Phần date dd/mm/yy mình muốn chuyển sang dd-MMM. eg: 32-Dec
-- [ ] Hiện tại các tính năng còn mang tính manual chưa tích hợp sâu với chatbox xiaozhi kiểu như ra lệnh: "di chuyển như tiến về phía trước", "nhảy nhót", "đứng im", "hiện mode đồng hồ màn hình phụ", màn hình chính như "hiện mặt buồn đi", hiện địa chỉ IP (thì robot sẽ show và đọc lên)"...Mình muốn
-mỗi tính năng, mỗi linh kiện pin vào GPIO đều hỗ trợ MCP ra lệnh tích hợp với chatbox xiaozhi (tham khảo nguồn decision notes thử)
+## Future ideas (not part of the completed plan)
 
-## Decisions and notes
+- [ ] Mở rộng MCP cho các GPIO/phụ kiện board-specific mới sau khi có mô tả
+      an toàn và kiểm thử riêng.
+- [ ] Thêm xác thực/TLS cho webserver nếu cần dùng ngoài mạng LAN tin cậy.
 
-- The custom board uses the community XiaoZhi transport and MCP protocol; do
-  not replace the transport with a private web-server protocol without a new
-  design decision.
-- `hudrucan/xiaozhi-desk-robot` is the current reference repository for robot
-  UI and behavior ideas.
-- The secondary OLED boot layout is intentionally independent of the saved
-  OLED mode, including `OFF`, so the local web-server address is always shown.
-- The OLED returns to the saved mode at `READY`, which is also when the custom
-  robot eyes wake on the TFT.
+## Decisions and references
 
-
-## Implementation priority and status
-
-The roadmap is now grouped by risk and dependency so the firmware stays responsive:
-
-- P0 - Done: MCP tools for movement, stop, lively routine, dance, emotion, OLED mode, IP and status.
-- P0 - Done: webserver buttons for the lively and dance routines, including stop and running status.
-- P0 - Done: lively routine repeats continuously until stop or a new movement command; dance remains bounded.
-- P0 - Done: MCP can display a user-provided temporary scrolling sentence on the secondary OLED without replacing the saved marquee text.
-- P1 - Done: faster idle eye glances, blinks and curiosity movement.
-- P1 - Done: OLED status date format `dd-MMM`.
-- P1 - Done: routine execution runs in its own FreeRTOS task and does not block the audio/main loop.
-- P2 - Pending hardware verification: motor direction and routine timing on the assembled robot.
-- P2 - Pending hardware verification: MCP voice commands, OLED mode switching and IP reporting.
-- P2 - Pending hardware verification: TFT/OLED orientation, eye animation and boot timing.
-- P3 - Future: extend MCP coverage to additional board-specific controls only after each GPIO has a safe, documented action.
-
-The P2 items are intentionally kept separate from the implementation status: a successful build cannot verify wiring, motor polarity, display orientation or end-to-end voice behavior.
+- Board vẫn dùng transport và MCP chính thức của XiaoZhi/tenclass.net.
+- `hudrucan/xiaozhi-desk-robot` là repository reference cho ý tưởng UI và
+  hành vi robot; không sao chép GPIO, board identity hoặc giả định backend.
+- Boot OLED độc lập với mode OLED đã lưu, kể cả `OFF`, để luôn có thể hiển thị
+  IP local trong giai đoạn kết nối.
+- Khi READY, OLED quay về mode đã lưu và TFT chuyển sang robot eyes.
+- QR được lưu trong `payment_qr_bitmap.h`; không lưu thông tin tài khoản dạng
+  text trong firmware ngoài dữ liệu bitmap người dùng cung cấp.

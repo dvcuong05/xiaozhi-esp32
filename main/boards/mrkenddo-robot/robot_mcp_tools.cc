@@ -14,6 +14,7 @@ static RobotDrive* g_drive = nullptr;
 static std::function<bool(int)> g_set_oled_mode;
 static std::function<std::string()> g_show_ip;
 static std::function<bool(std::string, int)> g_show_oled_text;
+static std::function<bool(int)> g_show_payment_qr;
 
 static const char* TAG = "RobotMCP";
 
@@ -261,6 +262,17 @@ static ToolResult ShowRobotOledText(const PropertyList& properties) {
     return "Custom OLED text display started";
 }
 
+static ToolResult ShowRobotPaymentQr(const PropertyList& properties) {
+    if (!g_show_payment_qr) {
+        return std::unexpected("Payment QR display is unavailable");
+    }
+    const int duration_ms = properties["duration_ms"].value<int>();
+    if (!g_show_payment_qr(duration_ms)) {
+        return std::unexpected("Could not display the payment QR on the TFT");
+    }
+    return "Payment QR displayed on the TFT";
+}
+
 static ToolResult GetRobotStatus(const PropertyList&) {
     const auto& wifi = WifiManager::GetInstance();
     const bool connected = wifi.IsConnected();
@@ -296,11 +308,13 @@ static ToolResult StopListening(const PropertyList& properties) {
 
 void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_mode,
                            std::function<std::string()> show_ip,
-                           std::function<bool(std::string, int)> show_oled_text) {
+                           std::function<bool(std::string, int)> show_oled_text,
+                           std::function<bool(int)> show_payment_qr) {
     g_drive = drive;
     g_set_oled_mode = std::move(set_oled_mode);
     g_show_ip = std::move(show_ip);
     g_show_oled_text = std::move(show_oled_text);
+    g_show_payment_qr = std::move(show_payment_qr);
 
     auto& mcp = McpServer::GetInstance();
 
@@ -378,6 +392,10 @@ void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_
                 PropertyList(
                     {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000)}),
                 ShowRobotOledText);
+    mcp.AddTool("self.robot.show_payment_qr",
+                "Show the configured bank payment QR code on the TFT for scanning",
+                PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
+                ShowRobotPaymentQr);
     mcp.AddTool("self.robot.get_status", "Get robot Wi-Fi, IP, and movement status", PropertyList(),
                 GetRobotStatus);
 

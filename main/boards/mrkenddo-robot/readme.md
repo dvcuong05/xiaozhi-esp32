@@ -59,6 +59,18 @@ Kiểm tra host/style: `python -m unittest discover -s scripts/tests -v`, `git d
 - Kiểm tra góc OLED 0/180 và TFT 0/90/180/270, sau khi khởi động lại, cả khi NVS có cấu hình lỗi. TFT 240×240 vẫn vuông ở mọi góc.
 - Kiểm tra micro, loa, wake/VAD, phát/ngắt audio, reconnect Wi-Fi/protocol và WebSocket/MQTT-UDP; kiểm tra partition và OTA trên board thật. Build thành công không thay thế kiểm thử phần cứng.
 
+## Trạng thái kế hoạch
+
+Các tính năng trong kế hoạch hiện tại đã được hiện thực ở mức mã nguồn: điều
+khiển motor và routine qua webserver/MCP, OLED clock/marquee/status, hiển thị
+IP khi boot, mắt robot cyan có animation, boot console, audio starting/wake và
+hiển thị QR thanh toán trên TFT. QR mặc định giữ trên màn hình 30 giây và có
+thể cấu hình thời gian từ 5 đến 120 giây qua MCP.
+
+Các mục còn trong phần “Cần xác nhận trên phần cứng” là kiểm thử thực tế, không
+phải tính năng chưa triển khai. Cần flash firmware mới trước khi kiểm tra các
+thay đổi trên robot.
+
 ## MCP va routine robot
 
 Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac lenh tu nhien:
@@ -70,7 +82,10 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.robot.set_oled_mode`: chon `clock`, `marquee`, `status` hoac `off` va luu mode vao NVS.
 - `self.robot.show_ip` va `self.robot.get_status`: hien/tra ve IP local va trang thai Wi-Fi, IP, routine.
 - `self.robot.show_oled_text`: hien mot cau tuy chon bang marquee tren OLED trong thoi gian tam thoi, khong ghi de noi dung da luu. Vi du: "Hien tren OLED: Xin chao moi nguoi".
+- `self.robot.show_payment_qr`: hien ma QR tai khoan ngan hang tren TFT trong thoi gian tam thoi. Vi du: "Hien ma QR thanh toan".
 
 Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong task rieng, tu dong dung sau khi hoan thanh, bi huy boi Stop, hoac bi thay the boi lenh di chuyen thu cong. Hay nang robot khoi mat dat khi test.
 
 Mode status cua OLED hien ngay theo dang `dd-MMM` (vi du `14-Oct`) thay cho `dd/mm/yy`.
+
+> Ma QR thanh toan duoc luu board-local dang bitmap 1-bit 37x37 trong `payment_qr_bitmap.h`, du lieu anh chi khoang 185 byte va khong can thu vien QR runtime. QR hien tren TFT trong 30 giay, sau do tu quay lai giao dien mat robot.

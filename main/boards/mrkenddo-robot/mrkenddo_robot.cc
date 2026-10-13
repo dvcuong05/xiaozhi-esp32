@@ -700,6 +700,16 @@ public:
         return true;
     }
 
+    bool ShowPaymentQrFromMcp(int duration_ms) {
+        if (display_ == nullptr || duration_ms < 5000 || duration_ms > 120000) {
+            return false;
+        }
+        Application::GetInstance().Schedule([this, duration_ms]() {
+            static_cast<MrkenDDoRobotDisplay*>(display_)->ShowPaymentQr(duration_ms);
+        });
+        return true;
+    }
+
     void ApplyOledDisplaySettings() {
         if (second_display_mutex_ == nullptr) {
             ESP_LOGE(TAG, "Mutex OLED chua san sang");
@@ -864,7 +874,8 @@ public:
             [this]() { return ShowIpAddressFromMcp(); },
             [this](std::string text, int duration_ms) {
                 return ShowOledTextFromMcp(std::move(text), duration_ms);
-            });
+            },
+            [this](int duration_ms) { return ShowPaymentQrFromMcp(duration_ms); });
         // Set default volume (0-100)
         GetAudioCodec()->SetOutputVolume(40);
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {

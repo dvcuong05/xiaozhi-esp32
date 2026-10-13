@@ -64,7 +64,7 @@
 // rotation mapping used by esp_lvgl_port, LVGL 90 degrees compensates for
 // that physical clockwise rotation.
 #define DISPLAY_DEFAULT_ROTATION 90
-#define DISPLAY_INVERT_COLOR    false
+#define DISPLAY_INVERT_COLOR    true
 #define DISPLAY_RGB_ORDER  LCD_RGB_ELEMENT_ORDER_RGB
 // This 240x240 ST7789 panel exposes its active window with an 80-pixel
 // horizontal gap in the controller RAM. The gap must be set on the panel,

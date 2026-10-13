@@ -1134,6 +1134,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         ESP_LOGW(TAG, "SetEmotion('%s') called before SetupUI() - emotion will not be displayed!",
                  emotion);
     }
+
     if (emoji_image_ == nullptr) {
         if (setup_ui_called_) {
             ESP_LOGW(TAG,
@@ -1243,6 +1244,8 @@ void LcdDisplay::SetTheme(Theme* theme) {
     // Set parent text color
     lv_obj_set_style_text_font(screen, text_font, 0);
     lv_obj_set_style_text_color(screen, lvgl_theme->text_color(), 0);
+
+    OnThemeTextFontChanged(text_font);
 
     // Set background image
     if (lvgl_theme->background_image() != nullptr) {

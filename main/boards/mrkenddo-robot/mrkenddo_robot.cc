@@ -3,8 +3,8 @@
 #include "button.h"
 #include "codecs/no_audio_codec.h"
 #include "config.h"
-#include "display/lcd_display.h"
 #include "led/single_led.h"
+#include "mrkenddo_robot_display.h"
 #include "oled_display_controller.h"
 #include "robot_drive.h"
 #include "robot_mcp_tools.h"
@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #include <wifi_manager.h>
 
@@ -67,6 +68,15 @@ private:
     mrkenddo::OledDisplaySettings second_display_settings_;
     int32_t second_display_contrast_ = 255;
     bool second_display_invert_ = false;
+    bool boot_display_active_ = true;
+    bool oled_ip_display_active_ = false;
+    int64_t oled_ip_display_until_us_ = 0;
+    char oled_ip_address_[16] = {};
+    bool oled_text_display_active_ = false;
+    int64_t oled_text_display_until_us_ = 0;
+    char oled_text_display_[sizeof(mrkenddo::OledDisplaySettings::text)] = {};
+    BootStage boot_stage_ = BootStage::SystemInitializing;
+    char boot_stage_detail_[kBootEventDetailSize] = {};
 
     struct OledConfig {
         char address[3];
@@ -126,9 +136,9 @@ private:
         ESP_LOGI(TAG, "TFT panel geometry %dx%d, RAM gap (%d,%d)", DISPLAY_WIDTH, DISPLAY_HEIGHT,
                  DISPLAY_PANEL_GAP_X, DISPLAY_PANEL_GAP_Y);
 
-        display_ = new SpiLcdDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
-                                     DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
-                                     DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        display_ = new MrkenDDoRobotDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                            DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
+                                            DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
     OledConfig DefaultOledConfig() const {
@@ -240,8 +250,8 @@ private:
     void SetActiveOledConfig(const OledConfig& config) {
         second_display_rotation_ = config.rotation;
         second_display_settings_.mode = static_cast<mrkenddo::OledDisplayMode>(config.mode);
-        mrkenddo::OledDisplayController::NormalizeText(config.text, second_display_settings_.text,
-                                                       sizeof(second_display_settings_.text));
+        std::snprintf(second_display_settings_.text, sizeof(second_display_settings_.text), "%s",
+                      config.text);
         second_display_settings_.speed = config.speed;
         second_display_settings_.font_size = config.font_size;
         second_display_contrast_ = config.contrast;
@@ -298,16 +308,47 @@ private:
             return false;
         }
 
-        char status_line_1[80] = {};
-        char status_line_2[32] = {};
         const auto& wifi = WifiManager::GetInstance();
-        std::snprintf(status_line_1, sizeof(status_line_1), "WIFI %s",
-                      wifi.IsConnected() ? wifi.GetIpAddress().c_str() : "OFFLINE");
-        std::snprintf(status_line_2, sizeof(status_line_2), "%s", GetOledDeviceStateLabel());
+        const bool ip_display_active =
+            oled_ip_display_active_ && esp_timer_get_time() < oled_ip_display_until_us_;
+        if (oled_ip_display_active_ && !ip_display_active) {
+            oled_ip_display_active_ = false;
+            oled_ip_address_[0] = '\0';
+        }
+        const bool text_display_active =
+            oled_text_display_active_ && esp_timer_get_time() < oled_text_display_until_us_;
+        if (oled_text_display_active_ && !text_display_active) {
+            oled_text_display_active_ = false;
+            oled_text_display_[0] = '\0';
+        }
+        if (boot_display_active_ || ip_display_active) {
+            char network_line[96] = {};
+            const char* address =
+                ip_display_active
+                    ? oled_ip_address_
+                    : (wifi.IsConnected() ? wifi.GetIpAddress().c_str() : "CONNECTING...");
+            std::snprintf(network_line, sizeof(network_line), "IP: %s", address);
+            if (!oled_display_controller_.RenderBoot("MrKenDDo Robot", network_line)) {
+                return false;
+            }
+        } else {
+            char status_line_1[80] = {};
+            char status_line_2[32] = {};
+            std::snprintf(status_line_1, sizeof(status_line_1), "WIFI %s",
+                          wifi.IsConnected() ? wifi.GetIpAddress().c_str() : "OFFLINE");
+            std::snprintf(status_line_2, sizeof(status_line_2), "%s", GetOledDeviceStateLabel());
 
-        if (!oled_display_controller_.Render(second_display_settings_, status_line_1, status_line_2,
-                                             time(nullptr))) {
-            return false;
+            mrkenddo::OledDisplaySettings display_settings = second_display_settings_;
+            if (text_display_active) {
+                display_settings.mode = mrkenddo::OledDisplayMode::Marquee;
+                std::snprintf(display_settings.text, sizeof(display_settings.text), "%s",
+                              oled_text_display_);
+            }
+            if (!oled_display_controller_.Render(display_settings, status_line_1, status_line_2,
+                                                 time(nullptr),
+                                                 wifi.IsConnected() ? wifi.GetRssi() : 0)) {
+                return false;
+            }
         }
 
         esp_err_t ret =
@@ -461,7 +502,11 @@ private:
             if (robot->second_display_mutex_ != nullptr) {
                 xSemaphoreTake(robot->second_display_mutex_, portMAX_DELAY);
                 bool display_ready = robot->RenderSecondOledLocked();
-                if (robot->second_display_settings_.mode == mrkenddo::OledDisplayMode::Marquee) {
+                const bool temporary_text_active =
+                    robot->oled_text_display_active_ &&
+                    esp_timer_get_time() < robot->oled_text_display_until_us_;
+                if (temporary_text_active ||
+                    robot->second_display_settings_.mode == mrkenddo::OledDisplayMode::Marquee) {
                     int speed = std::clamp<int>(robot->second_display_settings_.speed, 1, 5);
                     delay_ms = std::max(50, 260 / speed);
                 } else if (robot->second_display_settings_.mode ==
@@ -523,8 +568,11 @@ private:
         ESP_LOGI(TAG, "Ham ShowIpAddress duoc goi");
         auto& wifi = WifiManager::GetInstance();
         if (wifi.IsConnected()) {
-            std::string ip = "IP: " + wifi.GetIpAddress();
-            ESP_LOGI(TAG, "IP Webserver: %s", wifi.GetIpAddress().c_str());
+            const std::string address = wifi.GetIpAddress();
+            std::string ip = "IP: " + address;
+            ESP_LOGI(TAG, "IP Webserver: %s", address.c_str());
+            Application::GetInstance().ReportBootEvent(BootStage::IpAcquired, address);
+            ShowIpOnOled(address);
             // The activation flow can replace the connected notification
             // immediately. Use a longer duration so the address remains
             // readable while the web server becomes ready.
@@ -532,6 +580,39 @@ private:
         } else {
             ESP_LOGW(TAG, "WiFi chua ket noi trong ShowIpAddress");
         }
+    }
+
+    void ShowIpOnOled(const std::string& address) {
+        if (second_display_mutex_ == nullptr || address.empty()) {
+            return;
+        }
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        std::snprintf(oled_ip_address_, sizeof(oled_ip_address_), "%s", address.c_str());
+        oled_ip_display_active_ = true;
+        oled_ip_display_until_us_ = esp_timer_get_time() + 10000000;
+        RenderSecondOledLocked();
+        xSemaphoreGive(second_display_mutex_);
+        ESP_LOGI(TAG, "Showing local IP on secondary OLED for 10 seconds: %s", address.c_str());
+    }
+
+    void ShowTextOnOled(const std::string& text, int duration_ms) {
+        if (second_display_mutex_ == nullptr || text.empty()) {
+            return;
+        }
+        char normalized[sizeof(mrkenddo::OledDisplaySettings::text)] = {};
+        mrkenddo::OledDisplayController::NormalizeText(text.c_str(), normalized,
+                                                       sizeof(normalized));
+        if (normalized[0] == '\0') {
+            return;
+        }
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        std::snprintf(oled_text_display_, sizeof(oled_text_display_), "%s", normalized);
+        oled_text_display_active_ = true;
+        oled_text_display_until_us_ =
+            esp_timer_get_time() + static_cast<int64_t>(duration_ms) * 1000;
+        RenderSecondOledLocked();
+        xSemaphoreGive(second_display_mutex_);
+        ESP_LOGI(TAG, "Showing custom text on secondary OLED for %d ms", duration_ms);
     }
 
     void ScheduleIpAddressDisplay() {
@@ -576,6 +657,49 @@ private:
     }
 
 public:
+    bool SetOledModeFromMcp(int mode) {
+        if (!mrkenddo::OledDisplayController::IsValidMode(mode) ||
+            second_display_mutex_ == nullptr) {
+            return false;
+        }
+
+        nvs_handle_t handle;
+        if (nvs_open("oled_config", NVS_READWRITE, &handle) != ESP_OK) {
+            return false;
+        }
+        const esp_err_t set_result = nvs_set_i32(handle, "mode", mode);
+        const esp_err_t commit_result = set_result == ESP_OK ? nvs_commit(handle) : set_result;
+        nvs_close(handle);
+        if (commit_result != ESP_OK) {
+            return false;
+        }
+        ApplyOledDisplaySettings();
+        return true;
+    }
+
+    std::string ShowIpAddressFromMcp() {
+        auto& wifi = WifiManager::GetInstance();
+        if (!wifi.IsConnected()) {
+            return {};
+        }
+        const std::string address = wifi.GetIpAddress();
+        const std::string message = "IP: " + address;
+        Application::GetInstance().Schedule([this, address]() { ShowIpOnOled(address); });
+        GetDisplay()->ShowNotification(message, 10000);
+        ESP_LOGI(TAG, "MCP requested local IP: %s", address.c_str());
+        return address;
+    }
+
+    bool ShowOledTextFromMcp(std::string text, int duration_ms) {
+        if (text.empty() || duration_ms < 1000 || duration_ms > 30000 ||
+            second_display_mutex_ == nullptr) {
+            return false;
+        }
+        Application::GetInstance().Schedule(
+            [this, text = std::move(text), duration_ms]() { ShowTextOnOled(text, duration_ms); });
+        return true;
+    }
+
     void ApplyOledDisplaySettings() {
         if (second_display_mutex_ == nullptr) {
             ESP_LOGE(TAG, "Mutex OLED chua san sang");
@@ -735,7 +859,12 @@ public:
         ESP_LOGI(TAG, "Dang khoi tao hai dong co DC");
         drive_ = new RobotDrive(STEPPER_INT1_GPIO, STEPPER_INT2_GPIO, STEPPER_INT3_GPIO,
                                 STEPPER_INT4_GPIO);
-        RegisterRobotMcpTools(drive_);
+        RegisterRobotMcpTools(
+            drive_, [this](int mode) { return SetOledModeFromMcp(mode); },
+            [this]() { return ShowIpAddressFromMcp(); },
+            [this](std::string text, int duration_ms) {
+                return ShowOledTextFromMcp(std::move(text), duration_ms);
+            });
         // Set default volume (0-100)
         GetAudioCodec()->SetOutputVolume(40);
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
@@ -807,6 +936,44 @@ public:
     }
 
     virtual Display* GetDisplay() override { return display_; }
+
+    virtual void OnApplicationReady() override {}
+
+    virtual void OnBootEvent(const BootEvent& event) override {
+        if (second_display_mutex_ == nullptr) {
+            return;
+        }
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        boot_stage_ = event.stage;
+        std::snprintf(boot_stage_detail_, sizeof(boot_stage_detail_), "%s", event.detail);
+        if (event.stage == BootStage::Ready || event.stage == BootStage::Error) {
+            boot_display_active_ = false;
+        }
+        RenderSecondOledLocked();
+        xSemaphoreGive(second_display_mutex_);
+    }
+
+    virtual std::string_view GetBootSound(BootStage stage) override {
+        switch (stage) {
+            case BootStage::SystemInitializing:
+                return Lang::Sounds::OGG_ROBOT_STARTING;
+            case BootStage::WifiScanning:
+                return Lang::Sounds::OGG_VIBRATION;
+            case BootStage::WifiConnecting:
+                return Lang::Sounds::OGG_POPUP;
+            case BootStage::IpAcquired:
+                return Lang::Sounds::OGG_SUCCESS;
+            case BootStage::Ready:
+                return Lang::Sounds::OGG_ROBOT_EYES_WAKE;
+            case BootStage::Error:
+                return Lang::Sounds::OGG_EXCLAMATION;
+            case BootStage::WifiConnected:
+            case BootStage::CheckingVersion:
+            case BootStage::LoggingIn:
+                return {};
+        }
+        return {};
+    }
 
     virtual Backlight* GetBacklight() override {
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {

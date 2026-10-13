@@ -16,10 +16,18 @@
 #include <esp_log.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
 #define TAG "Application"
+
+namespace {
+
+constexpr int kDefaultBootAudioVolume = 45;
+constexpr int kBootAudioConfigVersion = 2;
+
+}  // namespace
 
 Application::Application() : notify_player_(audio_service_) {
     event_group_ = xEventGroupCreate();
@@ -58,6 +66,126 @@ Application::~Application() {
 
 bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
 
+void Application::LoadBootAudioConfig() {
+    Settings settings("boot_sequence", false);
+    boot_audio_enabled_ = settings.GetBool("enabled", true);
+    int32_t stored_volume = settings.GetInt("volume", kDefaultBootAudioVolume);
+    const int32_t config_version = settings.GetInt("version", 0);
+    if (config_version < kBootAudioConfigVersion && config_version == 0 && stored_volume == 22) {
+        // Version 1 used 22 as the default, which is too quiet for the robot's
+        // startup presentation. Preserve an explicit non-default user choice.
+        Settings migration("boot_sequence", true);
+        migration.SetInt("volume", kDefaultBootAudioVolume);
+        migration.SetInt("version", kBootAudioConfigVersion);
+        stored_volume = kDefaultBootAudioVolume;
+    }
+    boot_audio_volume_ = std::clamp<int32_t>(stored_volume, 0, 100);
+}
+
+void Application::SetBootAudioConfig(bool enabled, int volume) {
+    boot_audio_enabled_ = enabled;
+    boot_audio_volume_ = std::clamp(volume, 0, 100);
+    if (!boot_audio_enabled_) {
+        RestoreBootAudioVolume();
+    }
+}
+
+void Application::ReportBootEvent(BootStage stage, const std::string& detail) {
+    BootEvent event;
+    event.stage = stage;
+    std::snprintf(event.detail, sizeof(event.detail), "%s", detail.c_str());
+
+    {
+        std::lock_guard<std::mutex> lock(boot_event_mutex_);
+        event.sequence = ++boot_event_sequence_;
+        if (boot_event_ring_count_ == boot_event_ring_.size()) {
+            boot_event_ring_head_ = (boot_event_ring_head_ + 1) % boot_event_ring_.size();
+            --boot_event_ring_count_;
+        }
+        const size_t tail =
+            (boot_event_ring_head_ + boot_event_ring_count_) % boot_event_ring_.size();
+        boot_event_ring_[tail] = event;
+        ++boot_event_ring_count_;
+    }
+    xEventGroupSetBits(event_group_, MAIN_EVENT_BOOT_EVENT);
+}
+
+void Application::EnsureBootAudioVolume() {
+    if (!boot_audio_enabled_ || boot_audio_volume_active_) {
+        return;
+    }
+    auto* codec = Board::GetInstance().GetAudioCodec();
+    if (codec == nullptr) {
+        return;
+    }
+    boot_audio_restore_volume_ = codec->output_volume();
+    codec->SetOutputVolume(boot_audio_volume_);
+    boot_audio_volume_active_ = true;
+}
+
+void Application::RestoreBootAudioVolume() {
+    if (!boot_audio_volume_active_) {
+        return;
+    }
+    auto* codec = Board::GetInstance().GetAudioCodec();
+    if (codec != nullptr) {
+        codec->SetOutputVolume(boot_audio_restore_volume_);
+    }
+    boot_audio_volume_active_ = false;
+}
+
+void Application::PlayBootStageSound(const BootEvent& event) {
+    if (!boot_audio_enabled_) {
+        if (event.stage == BootStage::Ready || event.stage == BootStage::Error) {
+            boot_sequence_active_ = false;
+        }
+        return;
+    }
+    if (!boot_sequence_active_ && event.stage != BootStage::Ready &&
+        event.stage != BootStage::Error) {
+        return;
+    }
+
+    const uint32_t stage_bit = 1U << static_cast<uint8_t>(event.stage);
+    if ((boot_audio_stage_mask_ & stage_bit) != 0) {
+        return;
+    }
+
+    const std::string_view sound = Board::GetInstance().GetBootSound(event.stage);
+
+    boot_audio_stage_mask_ |= stage_bit;
+    if (!sound.empty()) {
+        EnsureBootAudioVolume();
+        audio_service_.PlaySound(sound);
+    }
+    if (event.stage == BootStage::Ready || event.stage == BootStage::Error) {
+        boot_sequence_active_ = false;
+    }
+}
+
+void Application::HandleBootEvents() {
+    while (true) {
+        BootEvent event;
+        {
+            std::lock_guard<std::mutex> lock(boot_event_mutex_);
+            if (boot_event_ring_count_ == 0) {
+                break;
+            }
+            event = boot_event_ring_[boot_event_ring_head_];
+            boot_event_ring_head_ = (boot_event_ring_head_ + 1) % boot_event_ring_.size();
+            --boot_event_ring_count_;
+        }
+
+        auto& board = Board::GetInstance();
+        auto* display = board.GetDisplay();
+        if (display != nullptr) {
+            display->OnBootEvent(event.stage, event.detail);
+        }
+        board.OnBootEvent(event);
+        PlayBootStageSound(event);
+    }
+}
+
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
@@ -93,6 +221,11 @@ void Application::Initialize() {
     };
     audio_service_.SetCallbacks(callbacks);
 
+    LoadBootAudioConfig();
+    display->StartBootSequence();
+    board.OnApplicationReady();
+    ReportBootEvent(BootStage::SystemInitializing, "MRKENDDO ROBOT");
+
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_STATE_CHANGED);
@@ -112,10 +245,12 @@ void Application::Initialize() {
 
         switch (event) {
             case NetworkEvent::Scanning:
+                ReportBootEvent(BootStage::WifiScanning, "Scanning access points");
                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::Connecting: {
+                ReportBootEvent(BootStage::WifiConnecting, data);
                 if (data.empty()) {
                     // Cellular network - registering without carrier info yet
                     display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
@@ -129,6 +264,7 @@ void Application::Initialize() {
                 break;
             }
             case NetworkEvent::Connected: {
+                ReportBootEvent(BootStage::WifiConnected, data);
                 std::string msg = Lang::Strings::CONNECTED_TO;
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
@@ -182,7 +318,7 @@ void Application::Run() {
         MAIN_EVENT_VAD_CHANGE | MAIN_EVENT_CLOCK_TICK | MAIN_EVENT_ERROR |
         MAIN_EVENT_NETWORK_CONNECTED | MAIN_EVENT_NETWORK_DISCONNECTED | MAIN_EVENT_TOGGLE_CHAT |
         MAIN_EVENT_START_LISTENING | MAIN_EVENT_STOP_LISTENING | MAIN_EVENT_ACTIVATION_DONE |
-        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED;
+        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED | MAIN_EVENT_BOOT_EVENT;
 
     while (true) {
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
@@ -223,6 +359,14 @@ void Application::Run() {
                 pending_listening_start_ = false;
                 StartListeningAudio();
             }
+            if (boot_audio_volume_active_ && !boot_sequence_active_ &&
+                audio_service_.IsPlaybackIdle()) {
+                RestoreBootAudioVolume();
+            }
+        }
+
+        if (bits & MAIN_EVENT_BOOT_EVENT) {
+            HandleBootEvents();
         }
 
         if (bits & MAIN_EVENT_TOGGLE_CHAT) {
@@ -352,24 +496,19 @@ void Application::HandleActivationDoneEvent() {
     // that alert with the "ready" UI/sound — the main loop can process both
     // events back-to-back because the activation task is lower priority.
     const bool has_error = !last_error_message_.empty();
+    auto display = Board::GetInstance().GetDisplay();
     if (!has_error) {
-        auto display = Board::GetInstance().GetDisplay();
         std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
         display->ShowNotification(message.c_str());
-        display->SetChatMessage("system", "");
+        ReportBootEvent(BootStage::Ready, "XiaoZhi ready");
+    } else {
+        ReportBootEvent(BootStage::Error, last_error_message_);
     }
 
     // Release OTA object after activation is complete
     ota_.reset();
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
-
-    if (!has_error) {
-        Schedule([this]() {
-            // Play the success sound to indicate the device is ready
-            audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
-        });
-    }
 }
 
 void Application::ActivationTask() {
@@ -445,8 +584,6 @@ void Application::CheckAssetsVersion() {
 
     // Apply assets
     assets.Apply();
-    display->SetChatMessage("system", "");
-    display->SetEmotion("robot_2");
 }
 
 void Application::CheckNewVersion() {
@@ -457,6 +594,7 @@ void Application::CheckNewVersion() {
     auto& board = Board::GetInstance();
     while (true) {
         auto display = board.GetDisplay();
+        ReportBootEvent(BootStage::CheckingVersion, "OTA/version service");
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
 
         auto check = ota_->CheckVersion();
@@ -543,6 +681,7 @@ void Application::InitializeProtocol() {
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
 
+    ReportBootEvent(BootStage::LoggingIn, "Connecting to XiaoZhi");
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
     if (ota_->HasMqttConfig()) {
@@ -554,7 +693,10 @@ void Application::InitializeProtocol() {
         protocol_ = std::make_unique<MqttProtocol>();
     }
 
-    protocol_->OnConnected([this]() { DismissAlert(); });
+    protocol_->OnConnected([this]() {
+        ReportBootEvent(BootStage::LoggingIn, "Transport connected");
+        DismissAlert();
+    });
 
     protocol_->OnNetworkError([this](const std::string& message) {
         last_error_message_ = message;
@@ -1037,6 +1179,8 @@ void Application::HandleStateChangedEvent() {
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
+            boot_sequence_active_ = false;
+            RestoreBootAudioVolume();
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 
@@ -1064,6 +1208,8 @@ void Application::HandleStateChangedEvent() {
             }
             break;
         case kDeviceStateSpeaking:
+            boot_sequence_active_ = false;
+            RestoreBootAudioVolume();
             display->SetStatus(Lang::Strings::SPEAKING);
 
             if (listening_mode_ != kListeningModeRealtime) {

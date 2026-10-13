@@ -26,6 +26,8 @@ private:
     static esp_err_t ApiPromptStatusHandler(httpd_req_t* req);
     static esp_err_t ApiMoveHandler(httpd_req_t* req);
     static esp_err_t ApiStopHandler(httpd_req_t* req);
+    static esp_err_t ApiRoutineHandler(httpd_req_t* req);
+    static esp_err_t ApiMotionStatusHandler(httpd_req_t* req);
     static esp_err_t ApiConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledTestHandler(httpd_req_t* req);
@@ -33,6 +35,7 @@ private:
     static esp_err_t ApiOledClearHandler(httpd_req_t* req);
     static esp_err_t ApiStatusHandler(httpd_req_t* req);
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
 
     httpd_handle_t server_;
     RobotDrive* drive_;

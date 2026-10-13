@@ -13,8 +13,10 @@
 #include <functional>
 #include <cstdint>
 #include <vector>
+#include <array>
 
 #include "protocol.h"
+#include "boot_sequence.h"
 #include "ota.h"
 #include "audio_service.h"
 #include "device_state.h"
@@ -36,6 +38,7 @@
 #define MAIN_EVENT_STOP_LISTENING       (1 << 11)
 #define MAIN_EVENT_STATE_CHANGED        (1 << 12)
 #define MAIN_EVENT_PLAYBACK_DRAINED     (1 << 13)
+#define MAIN_EVENT_BOOT_EVENT           (1 << 14)
 
 
 enum AecMode {
@@ -119,6 +122,10 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+    void ReportBootEvent(BootStage stage, const std::string& detail = "");
+    void SetBootAudioConfig(bool enabled, int volume);
+    bool BootAudioEnabled() const { return boot_audio_enabled_; }
+    int BootAudioVolume() const { return boot_audio_volume_; }
     
     /**
      * Reset protocol resources (thread-safe)
@@ -153,6 +160,17 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     bool text_bridge_active_ = false;
+    bool boot_audio_enabled_ = true;
+    int boot_audio_volume_ = 45;
+    bool boot_audio_volume_active_ = false;
+    int boot_audio_restore_volume_ = 0;
+    bool boot_sequence_active_ = true;
+    uint32_t boot_event_sequence_ = 0;
+    uint32_t boot_audio_stage_mask_ = 0;
+    std::array<BootEvent, 32> boot_event_ring_{};
+    size_t boot_event_ring_head_ = 0;
+    size_t boot_event_ring_count_ = 0;
+    std::mutex boot_event_mutex_;
     int64_t text_bridge_started_us_ = 0;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
@@ -175,6 +193,11 @@ private:
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void StopNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);
+    void HandleBootEvents();
+    void PlayBootStageSound(const BootEvent& event);
+    void EnsureBootAudioVolume();
+    void RestoreBootAudioVolume();
+    void LoadBootAudioConfig();
 
     // Activation task (runs in background)
     void ActivationTask();

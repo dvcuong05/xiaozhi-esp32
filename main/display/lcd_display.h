@@ -36,6 +36,7 @@ protected:
     void InitializeLcdThemes();
     virtual bool Lock(int timeout_ms = 0) override;
     virtual void Unlock() override;
+    virtual void OnThemeTextFontChanged(const lv_font_t* text_font) { (void)text_font; }
 
 protected:
     // Add protected constructor

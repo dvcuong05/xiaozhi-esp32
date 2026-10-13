@@ -3,6 +3,7 @@
 
 #include "emoji_collection.h"
 #include "text_glyph.h"
+#include "boot_sequence.h"
 
 #ifndef CONFIG_USE_EMOTE_MESSAGE_STYLE
 #define HAVE_LVGL 1
@@ -43,6 +44,12 @@ public:
     virtual void SetStatus(const char* status);
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
+    virtual void StartBootSequence() {}
+    virtual void FinishBootSequence() {}
+    virtual void OnBootEvent(BootStage stage, const char* detail) {
+        (void)stage;
+        (void)detail;
+    }
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
     virtual void ClearChatMessages();

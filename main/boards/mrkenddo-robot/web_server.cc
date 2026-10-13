@@ -18,6 +18,7 @@
 #include <cJSON.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <settings.h>
 #include <soc/soc_caps.h>
 #include <wifi_manager.h>
 
@@ -515,6 +516,8 @@ bool WebServer::Start(int port) {
         {"/api/prompt_status", HTTP_GET, ApiPromptStatusHandler, this},
         {"/api/move", HTTP_POST, ApiMoveHandler, this},
         {"/api/stop", HTTP_POST, ApiStopHandler, this},
+        {"/api/routine", HTTP_POST, ApiRoutineHandler, this},
+        {"/api/motion_status", HTTP_GET, ApiMotionStatusHandler, this},
         {"/api/config", HTTP_POST, ApiConfigHandler, this},
         {"/api/config", HTTP_GET, ApiConfigHandler, this},
         {"/api/oled_config", HTTP_POST, ApiOledConfigHandler, this},
@@ -525,6 +528,8 @@ bool WebServer::Start(int port) {
         {"/api/status", HTTP_GET, ApiStatusHandler, this},
         {"/api/tft_config", HTTP_GET, ApiTftConfigHandler, this},
         {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
+        {"/api/boot_config", HTTP_GET, ApiBootConfigHandler, this},
+        {"/api/boot_config", HTTP_POST, ApiBootConfigHandler, this},
     };
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -677,6 +682,62 @@ esp_err_t WebServer::ApiStopHandler(httpd_req_t* req) {
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
         cJSON_AddStringToObject(response, "result", "Stopped");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiRoutineHandler(httpd_req_t* req) {
+    WebServer* server = GetServer(req);
+    if (server == nullptr || server->drive_ == nullptr) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_send(req, "Motor unavailable", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    cJSON* root = ParseBody(req);
+    if (root == nullptr) {
+        return ESP_FAIL;
+    }
+    const cJSON* routine = cJSON_GetObjectItemCaseSensitive(root, "routine");
+    if (!cJSON_IsString(routine) || routine->valuestring == nullptr) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid routine");
+        return ESP_FAIL;
+    }
+
+    RobotDrive::Routine routine_type;
+    if (std::strcmp(routine->valuestring, "lively") == 0) {
+        routine_type = RobotDrive::Routine::Lively;
+    } else if (std::strcmp(routine->valuestring, "dance") == 0) {
+        routine_type = RobotDrive::Routine::Dance;
+    } else {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Routine must be lively or dance");
+        return ESP_FAIL;
+    }
+
+    const bool started = server->drive_->StartRoutine(routine_type);
+    cJSON_Delete(root);
+    if (!started) {
+        httpd_resp_set_status(req, "409 Conflict");
+        httpd_resp_send(req, "Robot is already moving", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "result", "Routine started");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiMotionStatusHandler(httpd_req_t* req) {
+    WebServer* server = GetServer(req);
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddBoolToObject(
+            response, "routine_running",
+            server != nullptr && server->drive_ != nullptr && server->drive_->IsRoutineRunning());
     }
     return SendJson(req, response);
 }
@@ -1136,5 +1197,46 @@ esp_err_t WebServer::ApiTftConfigHandler(httpd_req_t* req) {
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr)
         cJSON_AddStringToObject(response, "result", "TFT rotation scheduled");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiBootConfigHandler(httpd_req_t* req) {
+    Settings settings("boot_sequence", req->method == HTTP_POST);
+    bool enabled = settings.GetBool("enabled", true);
+    int volume = std::clamp<int32_t>(settings.GetInt("volume", 45), 0, 100);
+
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (root == nullptr) {
+            return ESP_FAIL;
+        }
+
+        cJSON* enabled_json = cJSON_GetObjectItem(root, "enabled");
+        int parsed_volume = volume;
+        bool valid =
+            cJSON_IsBool(enabled_json) && GetInteger(root, "volume", 0, 100, &parsed_volume);
+        if (valid) {
+            enabled = cJSON_IsTrue(enabled_json);
+            volume = parsed_volume;
+            settings.SetBool("enabled", enabled);
+            settings.SetInt("volume", volume);
+            settings.SetInt("version", 2);
+        }
+        cJSON_Delete(root);
+        if (!valid) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid boot audio configuration");
+            return ESP_FAIL;
+        }
+        Application::GetInstance().SetBootAudioConfig(enabled, volume);
+    }
+
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddBoolToObject(response, "enabled", enabled);
+        cJSON_AddNumberToObject(response, "volume", volume);
+        if (req->method == HTTP_POST) {
+            cJSON_AddStringToObject(response, "result", "Boot sequence configuration saved");
+        }
+    }
     return SendJson(req, response);
 }

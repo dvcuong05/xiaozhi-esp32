@@ -6,6 +6,7 @@
 #include <mqtt.h>
 #include <udp.h>
 #include <string>
+#include <string_view>
 #include <functional>
 #include <network_interface.h>
 
@@ -13,6 +14,7 @@
 #include "backlight.h"
 #include "camera.h"
 #include "assets.h"
+#include "boot_sequence.h"
 
 /**
  * Network events for unified callback
@@ -72,6 +74,16 @@ public:
     virtual AudioCodec* GetAudioCodec() = 0;
     virtual bool GetTemperature(float& esp32temp);
     virtual Display* GetDisplay();
+    // Optional hook after the display/audio stack is ready and before networking starts.
+    virtual void OnApplicationReady() {}
+    // Optional board-local consumer for the shared boot event stream.
+    virtual void OnBootEvent(const BootEvent& event) { (void)event; }
+    // Optional board-provided boot sounds. Empty views disable the sound on boards
+    // that do not opt into a boot presentation.
+    virtual std::string_view GetBootSound(BootStage stage) {
+        (void)stage;
+        return {};
+    }
     virtual Camera* GetCamera();
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void StartNetwork() = 0;

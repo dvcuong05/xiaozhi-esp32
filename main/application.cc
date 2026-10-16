@@ -27,9 +27,14 @@ namespace {
 constexpr int kDefaultBootAudioVolume = 45;
 constexpr int kBootAudioConfigVersion = 2;
 
+bool IsStreamPlaybackState(DeviceState state) {
+    return state == kDeviceStateRadio || state == kDeviceStateNotifying;
+}
+
 }  // namespace
 
-Application::Application() : notify_player_(audio_service_) {
+Application::Application()
+    : notify_player_(audio_service_), continuous_stream_player_(audio_service_) {
     event_group_ = xEventGroupCreate();
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
@@ -57,6 +62,7 @@ Application::Application() : notify_player_(audio_service_) {
 
 Application::~Application() {
     notify_player_.Stop();
+    continuous_stream_player_.Stop();
     if (clock_timer_handle_ != nullptr) {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
@@ -220,18 +226,22 @@ void Application::Initialize() {
             Schedule([display]() { display->OnAudioPlaybackStopped(); });
         }
     };
-    callbacks.on_playback_frame = [this](
-                                      const std::array<uint8_t, AUDIO_VISUALIZER_BANDS>& levels) {
-        auto* display = Board::GetInstance().GetDisplay();
-        if (display == nullptr) {
-            return;
-        }
-        Schedule([display, levels]() {
-            display->OnAudioPlaybackFrame(levels.data(), levels.size());
-        });
-    };
+    callbacks.on_playback_frame =
+        [this](const std::array<uint8_t, AUDIO_VISUALIZER_BANDS>& levels) {
+            auto* display = Board::GetInstance().GetDisplay();
+            if (display == nullptr) {
+                return;
+            }
+            Schedule([display, levels]() {
+                display->OnAudioPlaybackFrame(levels.data(), levels.size());
+            });
+        };
     callbacks.on_playback_progress = [this](uint32_t playback_id, uint32_t media_position_ms) {
-        notify_player_.OnPlaybackProgress(playback_id, media_position_ms);
+        if (GetDeviceState() == kDeviceStateRadio) {
+            continuous_stream_player_.OnPlaybackProgress(playback_id, media_position_ms);
+        } else {
+            notify_player_.OnPlaybackProgress(playback_id, media_position_ms);
+        }
     };
     audio_service_.SetCallbacks(callbacks);
 
@@ -338,7 +348,9 @@ void Application::Run() {
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
 
         if (bits & MAIN_EVENT_ERROR) {
-            if (GetDeviceState() == kDeviceStateNotifying) {
+            if (GetDeviceState() == kDeviceStateRadio) {
+                StopRadio();
+            } else if (GetDeviceState() == kDeviceStateNotifying) {
                 StopNotification();
             }
             SetDeviceState(kDeviceStateIdle);
@@ -363,7 +375,9 @@ void Application::Run() {
         }
 
         if (bits & MAIN_EVENT_PLAYBACK_DRAINED) {
-            if (audio_service_.IsPlaybackIdle()) {
+            if (audio_service_.IsPlaybackIdle() && GetDeviceState() == kDeviceStateRadio) {
+                continuous_stream_player_.OnPlaybackDrained();
+            } else if (audio_service_.IsPlaybackIdle()) {
                 notify_player_.OnPlaybackDrained();
             }
             // Deferred listening start (auto mode): the playback queue has
@@ -484,8 +498,12 @@ void Application::HandleNetworkConnectedEvent() {
 void Application::HandleNetworkDisconnectedEvent() {
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
-    if (state == kDeviceStateNotifying) {
-        StopNotification();
+    if (IsStreamPlaybackState(state)) {
+        if (state == kDeviceStateRadio) {
+            StopRadio();
+        } else {
+            StopNotification();
+        }
     }
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
         state == kDeviceStateSpeaking) {
@@ -734,12 +752,26 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelClosed([this, &board]() {
+        // Closing the MQTT conversation channel is independent from the HTTP
+        // radio stream. The server may send `goodbye` as soon as the assistant
+        // finishes speaking, so never let that callback terminate radio mode.
+        if (GetDeviceState() == kDeviceStateRadio) {
+            ESP_LOGI(TAG, "Audio channel closed while radio is active; keeping radio playback");
+            return;
+        }
+
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
+            // A radio start may have been queued while the audio channel was
+            // closing. Do not let this stale callback overwrite radio state.
+            if (GetDeviceState() == kDeviceStateRadio) {
+                return;
+            }
             text_bridge_active_ = false;
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
+            TryStartPendingRadio();
         });
     });
 
@@ -750,7 +782,18 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
-        if (strcmp(type->valuestring, "notify") == 0) {
+        if (strcmp(type->valuestring, "radio.start") == 0) {
+            auto audio_url = cJSON_GetObjectItem(root, "audio_url");
+            if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
+                ESP_LOGW(TAG, "Radio start message requires audio_url");
+                return;
+            }
+            Schedule([this, url = std::string(audio_url->valuestring)]() mutable {
+                StartRadio(std::move(url));
+            });
+        } else if (strcmp(type->valuestring, "radio.stop") == 0) {
+            Schedule([this]() { StopRadio(); });
+        } else if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
                 ESP_LOGW(TAG, "Notify message requires audio_url");
@@ -876,10 +919,9 @@ void Application::InitializeProtocol() {
             if (cJSON_IsObject(payload)) {
                 CJsonStringUniquePtr payload_json(cJSON_PrintUnformatted(payload));
                 if (payload_json) {
-                    Schedule(
-                        [this, display, payload_str = std::string(payload_json.get())]() {
-                            display->SetChatMessage("system", payload_str.c_str());
-                        });
+                    Schedule([this, display, payload_str = std::string(payload_json.get())]() {
+                        display->SetChatMessage("system", payload_str.c_str());
+                    });
                 }
             } else {
                 ESP_LOGW(TAG, "Invalid custom message format: missing payload");
@@ -948,8 +990,12 @@ void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
-        StopNotification();
+    if (IsStreamPlaybackState(state)) {
+        if (state == kDeviceStateRadio) {
+            StopRadio();
+        } else {
+            StopNotification();
+        }
         state = kDeviceStateIdle;
     }
 
@@ -1012,8 +1058,12 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 void Application::HandleStartListeningEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
-        StopNotification();
+    if (IsStreamPlaybackState(state)) {
+        if (state == kDeviceStateRadio) {
+            StopRadio();
+        } else {
+            StopNotification();
+        }
         state = kDeviceStateIdle;
     }
 
@@ -1048,8 +1098,12 @@ void Application::HandleStartListeningEvent() {
 void Application::HandleStopListeningEvent() {
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateNotifying) {
-        StopNotification();
+    if (IsStreamPlaybackState(state)) {
+        if (state == kDeviceStateRadio) {
+            StopRadio();
+        } else {
+            StopNotification();
+        }
     } else if (state == kDeviceStateAudioTesting) {
         audio_service_.EnableAudioTesting(false);
         SetDeviceState(kDeviceStateWifiConfiguring);
@@ -1073,8 +1127,12 @@ void Application::HandleWakeWordDetectedEvent() {
 
     if (state == kDeviceStateIdle) {
         BeginWakeWordInvoke(wake_word);
-    } else if (state == kDeviceStateNotifying) {
-        StopNotification();
+    } else if (IsStreamPlaybackState(state)) {
+        if (state == kDeviceStateRadio) {
+            StopRadio();
+        } else {
+            StopNotification();
+        }
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
@@ -1186,6 +1244,7 @@ void Application::HandleStateChangedEvent() {
             }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
+            TryStartPendingRadio();
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
@@ -1203,6 +1262,7 @@ void Application::HandleStateChangedEvent() {
                 pending_listening_start_ = false;
                 audio_service_.EnableVoiceProcessing(false);
                 audio_service_.EnableWakeWordDetection(false);
+                TryStartPendingRadio();
                 break;
             }
 
@@ -1220,6 +1280,7 @@ void Application::HandleStateChangedEvent() {
             } else {
                 ConfigureWakeWordForListening();
             }
+            TryStartPendingRadio();
             break;
         case kDeviceStateSpeaking:
             boot_sequence_active_ = false;
@@ -1232,6 +1293,11 @@ void Application::HandleStateChangedEvent() {
                 audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             }
             audio_service_.ResetDecoder();
+            break;
+        case kDeviceStateRadio:
+            display->SetStatus("Radio");
+            audio_service_.EnableVoiceProcessing(false);
+            audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             break;
         case kDeviceStateNotifying:
             display->SetStatus(Lang::Strings::SPEAKING);
@@ -1279,7 +1345,8 @@ void Application::ConfigureWakeWordForListening() {
 }
 
 void Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
-    if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy()) {
+    if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
+        continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Ignoring notify message while device is busy");
         return;
     }
@@ -1324,6 +1391,48 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
     }
 }
 
+void Application::RequestNotification(std::string audio_url,
+                                      std::vector<NotifySubtitle> subtitles) {
+    Schedule([this, audio_url = std::move(audio_url), subtitles = std::move(subtitles)]() mutable {
+        StartNotification(std::move(audio_url), std::move(subtitles));
+    });
+}
+
+void Application::RequestStopNotification() {
+    Schedule([this]() { StopNotification(); });
+}
+
+void Application::RequestRadio(std::string audio_url) {
+    Schedule([this, audio_url = std::move(audio_url)]() mutable {
+        if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
+            ESP_LOGI(TAG, "Ignoring duplicate radio start; radio is already active");
+            return;
+        }
+
+        pending_radio_url_ = std::move(audio_url);
+        ESP_LOGI(TAG, "Radio start queued while device is in %s",
+                 DeviceStateMachine::GetStateName(GetDeviceState()));
+        TryStartPendingRadio();
+    });
+}
+
+void Application::RequestStopRadio() {
+    Schedule([this]() {
+        // A stop request also cancels a start that is waiting for the current
+        // assistant conversation to finish.
+        pending_radio_url_.clear();
+        if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
+            StopRadio();
+        } else {
+            ESP_LOGI(TAG, "Ignoring radio stop; radio is not active");
+        }
+    });
+}
+
+bool Application::IsRadioActive() const {
+    return GetDeviceState() == kDeviceStateRadio && continuous_stream_player_.IsBusy();
+}
+
 void Application::StopNotification() {
     notify_player_.Stop();
     audio_service_.ResetDecoder();
@@ -1342,6 +1451,113 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
     ESP_LOGI(TAG, "Notification playback %lu %s", static_cast<unsigned long>(playback_id),
              success ? "completed" : "failed");
     StopNotification();
+}
+
+void Application::TryStartPendingRadio() {
+    if (pending_radio_url_.empty()) {
+        return;
+    }
+
+    const auto state = GetDeviceState();
+    if (state == kDeviceStateListening && protocol_ && protocol_->IsAudioChannelOpened()) {
+        // A listening conversation has no assistant audio left to preserve.
+        // Close it now so the channel-close callback can move us to idle and
+        // start the pending radio request.
+        ESP_LOGI(TAG, "Closing listening conversation before starting pending radio");
+        protocol_->CloseAudioChannel();
+        return;
+    }
+
+    if (state == kDeviceStateListening) {
+        // Some web/text conversations have already closed their MQTT channel
+        // before the state callback reaches here. In that case there will be
+        // no channel-close callback left to advance the state, so transition
+        // explicitly before starting the independent radio session.
+        ESP_LOGI(TAG, "Ending listening conversation before starting pending radio");
+        if (!SetDeviceState(kDeviceStateIdle)) {
+            return;
+        }
+    }
+
+    if (GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+
+    auto audio_url = std::move(pending_radio_url_);
+    pending_radio_url_.clear();
+    StartRadio(std::move(audio_url));
+}
+
+void Application::StartRadio(std::string audio_url) {
+    if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
+        continuous_stream_player_.IsBusy()) {
+        ESP_LOGW(TAG, "Delaying radio start while device is busy (%s)",
+                 DeviceStateMachine::GetStateName(GetDeviceState()));
+        pending_radio_url_ = std::move(audio_url);
+        return;
+    }
+
+    auto& board = Board::GetInstance();
+    // Radio is a separate playback mode. Close any leftover XiaoZhi
+    // conversation channel before switching modes so delayed MQTT audio
+    // packets cannot be mistaken for the next conversation.
+    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+        protocol_->CloseAudioChannel();
+    }
+    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    audio_service_.EnableVoiceProcessing(false);
+    audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
+    audio_service_.ReleaseWakeWordResources();
+    while (audio_service_.PopPacketFromSendQueue()) {
+    }
+
+    if (!SetDeviceState(kDeviceStateRadio)) {
+        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        return;
+    }
+
+    audio_service_.ResetDecoder();
+    uint32_t playback_id = ++radio_playback_id_;
+    if (playback_id == 0) {
+        playback_id = ++radio_playback_id_;
+    }
+
+    bool started =
+        continuous_stream_player_.Start(
+            std::move(audio_url), playback_id, [this](uint32_t id, bool success) {
+                Schedule([this, id, success]() { HandleRadioFinished(id, success); });
+            });
+    if (!started) {
+        ESP_LOGE(TAG, "Failed to start radio playback");
+        StopRadio();
+    }
+}
+
+void Application::StopRadio() {
+    pending_radio_url_.clear();
+    if (GetDeviceState() != kDeviceStateRadio && !continuous_stream_player_.IsBusy()) {
+        return;
+    }
+
+    continuous_stream_player_.Stop();
+    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+        protocol_->CloseAudioChannel();
+    }
+    audio_service_.ResetDecoder();
+    Board::GetInstance().GetDisplay()->SetChatMessage("assistant", "");
+    Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+    if (GetDeviceState() == kDeviceStateRadio) {
+        SetDeviceState(kDeviceStateIdle);
+    }
+}
+
+void Application::HandleRadioFinished(uint32_t playback_id, bool success) {
+    if (GetDeviceState() != kDeviceStateRadio || radio_playback_id_ != playback_id) {
+        return;
+    }
+    ESP_LOGI(TAG, "Radio playback %lu %s", static_cast<unsigned long>(playback_id),
+             success ? "completed" : "failed");
+    StopRadio();
 }
 
 void Application::Schedule(std::function<void()>&& callback) {
@@ -1371,7 +1587,9 @@ ListeningMode Application::GetDefaultListeningMode() const {
 
 void Application::Reboot() {
     ESP_LOGI(TAG, "Rebooting...");
-    if (GetDeviceState() == kDeviceStateNotifying) {
+    if (GetDeviceState() == kDeviceStateRadio) {
+        StopRadio();
+    } else if (GetDeviceState() == kDeviceStateNotifying) {
         StopNotification();
     }
     // Disconnect the audio channel
@@ -1392,7 +1610,9 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     std::string upgrade_url = url;
     std::string version_info = version.empty() ? "(Manual upgrade)" : version;
 
-    if (GetDeviceState() == kDeviceStateNotifying) {
+    if (GetDeviceState() == kDeviceStateRadio) {
+        StopRadio();
+    } else if (GetDeviceState() == kDeviceStateNotifying) {
         StopNotification();
     }
 
@@ -1459,9 +1679,12 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
                 BeginWakeWordInvoke(wake_word);
             }
         });
-    } else if (state == kDeviceStateNotifying) {
+    } else if (IsStreamPlaybackState(state)) {
         Schedule([this, wake_word]() {
-            if (GetDeviceState() == kDeviceStateNotifying) {
+            if (GetDeviceState() == kDeviceStateRadio) {
+                StopRadio();
+                BeginWakeWordInvoke(wake_word);
+            } else if (GetDeviceState() == kDeviceStateNotifying) {
                 StopNotification();
                 BeginWakeWordInvoke(wake_word);
             }
@@ -1595,7 +1818,9 @@ void Application::PlaySound(const std::string_view& sound) { audio_service_.Play
 
 void Application::ResetProtocol() {
     Schedule([this]() {
-        if (GetDeviceState() == kDeviceStateNotifying) {
+        if (GetDeviceState() == kDeviceStateRadio) {
+            StopRadio();
+        } else if (GetDeviceState() == kDeviceStateNotifying) {
             StopNotification();
         }
         // Close audio channel if opened

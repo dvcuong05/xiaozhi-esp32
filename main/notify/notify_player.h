@@ -17,6 +17,13 @@ struct NotifySubtitle {
     std::string text;
 };
 
+// Playback policy shared by finite notifications and long-lived streaming
+// sources (radio, music, and future media providers).
+struct StreamPlaybackOptions {
+    bool continuous = false;
+    uint32_t reconnect_delay_ms = 1000;
+};
+
 class NotifyPlayer {
 public:
     using SubtitleCallback = std::function<void(uint32_t playback_id, const std::string& text)>;
@@ -26,7 +33,8 @@ public:
     ~NotifyPlayer();
 
     bool Start(std::string audio_url, std::vector<NotifySubtitle> subtitles, uint32_t playback_id,
-               SubtitleCallback subtitle_callback, FinishedCallback finished_callback);
+               SubtitleCallback subtitle_callback, FinishedCallback finished_callback,
+               StreamPlaybackOptions options = {});
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
@@ -41,6 +49,7 @@ private:
     std::string displayed_text_;
     SubtitleCallback subtitle_callback_;
     FinishedCallback finished_callback_;
+    StreamPlaybackOptions options_;
     TaskHandle_t task_handle_ = nullptr;
     uint32_t playback_id_ = 0;
     uint32_t last_playback_position_ms_ = 0;

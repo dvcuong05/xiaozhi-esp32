@@ -88,6 +88,13 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.robot.show_oled_text`: hien mot cau tuy chon bang marquee tren OLED trong thoi gian tam thoi, khong ghi de noi dung da luu. Vi du: "Hien tren OLED: Xin chao moi nguoi".
 - `self.robot.show_payment_qr`: hien ma QR tai khoan ngan hang tren TFT trong thoi gian tam thoi. Vi du: "Hien ma QR thanh toan".
 
+Radio, music va video duoc tim kiem va dieu phoi boi service MCP rieng. Firmware khong
+chua provider, station ID hay dia chi MCP host. Lop tich hop cua robot chi nhan URL da duoc
+service resolve qua message `radio.start` hoac HTTP `POST /api/radio/start`, phat stream
+bang player generic, va cung cap `/api/radio/stop|status`. Neu robot dang ban, request start
+duoc xep hang den khi conversation ve `idle`. Stream bi ngat se duoc reconnect cho den khi
+nhan stop, reboot hoac mot mode he thong khac can quyen dieu khien audio.
+
 Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong task rieng, tu dong dung sau khi hoan thanh, bi huy boi Stop, hoac bi thay the boi lenh di chuyen thu cong. Hay nang robot khoi mat dat khi test.
 
 Mode status cua OLED hien ngay theo dang `dd-MMM` (vi du `14-Oct`) thay cho `dd/mm/yy`.

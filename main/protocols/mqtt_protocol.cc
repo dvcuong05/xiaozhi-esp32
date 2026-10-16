@@ -224,8 +224,7 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
             return false;
         }
         if (aes_nonce_.size() != kAudioHeaderSize || packet->payload.size() > UINT16_MAX) {
-            ESP_LOGE(TAG, "Invalid AES nonce or audio payload length: %zu",
-                     packet->payload.size());
+            ESP_LOGE(TAG, "Invalid AES nonce or audio payload length: %zu", packet->payload.size());
             return false;
         }
         udp = udp_;
@@ -348,6 +347,12 @@ bool MqttProtocol::OpenAudioChannel() {
 
         {
             std::lock_guard<std::mutex> lock(channel_mutex_);
+            // The UDP callback may still run briefly after CloseAudioChannel
+            // moved the socket out. Ignore packets from that closing channel
+            // instead of reporting them as sequence errors.
+            if (udp_ == nullptr) {
+                return;
+            }
             if (sequence <= remote_sequence_) {
                 ESP_LOGW(TAG, "Received duplicate/old audio sequence: %lu, last: %lu", sequence,
                          remote_sequence_);

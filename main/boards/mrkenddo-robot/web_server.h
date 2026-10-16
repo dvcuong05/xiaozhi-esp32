@@ -22,6 +22,11 @@ public:
 
 private:
     static esp_err_t RootHandler(httpd_req_t* req);
+    static esp_err_t ApiNotifyHandler(httpd_req_t* req);
+    static esp_err_t ApiNotifyStopHandler(httpd_req_t* req);
+    static esp_err_t ApiRadioStartHandler(httpd_req_t* req);
+    static esp_err_t ApiRadioStopHandler(httpd_req_t* req);
+    static esp_err_t ApiRadioStatusHandler(httpd_req_t* req);
     static esp_err_t ApiPromptHandler(httpd_req_t* req);
     static esp_err_t ApiPromptStatusHandler(httpd_req_t* req);
     static esp_err_t ApiMoveHandler(httpd_req_t* req);

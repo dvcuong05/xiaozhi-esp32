@@ -153,6 +153,12 @@ void SingleLed::OnStateChanged() {
             SetColor(0, DEFAULT_BRIGHTNESS, 0);
             TurnOn();
             break;
+        case kDeviceStateRadio:
+            // Radio is a dedicated playback mode; use cyan so it is distinct
+            // from speaking and listening while the stream remains active.
+            SetColor(0, DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS);
+            TurnOn();
+            break;
         case kDeviceStateUpgrading:
             SetColor(0, DEFAULT_BRIGHTNESS, 0);
             StartContinuousBlink(100);

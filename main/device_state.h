@@ -9,6 +9,7 @@ enum DeviceState {
     kDeviceStateConnecting,
     kDeviceStateListening,
     kDeviceStateSpeaking,
+    kDeviceStateRadio,
     kDeviceStateNotifying,
     kDeviceStateUpgrading,
     kDeviceStateActivating,
@@ -16,4 +17,4 @@ enum DeviceState {
     kDeviceStateFatalError
 };
 
-#endif // _DEVICE_STATE_H_ 
+#endif // _DEVICE_STATE_H_

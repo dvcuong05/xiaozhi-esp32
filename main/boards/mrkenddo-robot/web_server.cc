@@ -10,7 +10,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <utility>
 
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -512,6 +514,11 @@ bool WebServer::Start(int port) {
 
     httpd_uri_t uris[] = {
         {"/", HTTP_GET, RootHandler, this},
+        {"/api/notify", HTTP_POST, ApiNotifyHandler, this},
+        {"/api/notify/stop", HTTP_POST, ApiNotifyStopHandler, this},
+        {"/api/radio/start", HTTP_POST, ApiRadioStartHandler, this},
+        {"/api/radio/stop", HTTP_POST, ApiRadioStopHandler, this},
+        {"/api/radio/status", HTTP_GET, ApiRadioStatusHandler, this},
         {"/api/prompt", HTTP_POST, ApiPromptHandler, this},
         {"/api/prompt_status", HTTP_GET, ApiPromptStatusHandler, this},
         {"/api/move", HTTP_POST, ApiMoveHandler, this},
@@ -568,6 +575,109 @@ void WebServer::Stop() {
 esp_err_t WebServer::RootHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::ApiNotifyHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr) {
+        return ESP_FAIL;
+    }
+
+    char audio_url[768] = {};
+    bool valid = GetString(root, "audio_url", audio_url, sizeof(audio_url));
+    valid = valid && (std::strncmp(audio_url, "http://", 7) == 0 ||
+                      std::strncmp(audio_url, "https://", 8) == 0);
+
+    std::vector<NotifySubtitle> subtitles;
+    const cJSON* subtitles_json = cJSON_GetObjectItemCaseSensitive(root, "subtitles");
+    if (valid && subtitles_json != nullptr) {
+        if (!cJSON_IsArray(subtitles_json) || cJSON_GetArraySize(subtitles_json) > 32) {
+            valid = false;
+        } else {
+            const cJSON* item = nullptr;
+            cJSON_ArrayForEach (item, subtitles_json) {
+                int start_ms = 0;
+                char text[256] = {};
+                if (!cJSON_IsObject(item) ||
+                    !GetInteger(item, "start_ms", 0, std::numeric_limits<int>::max(), &start_ms) ||
+                    !GetString(item, "text", text, sizeof(text))) {
+                    valid = false;
+                    break;
+                }
+                subtitles.push_back(
+                    NotifySubtitle{static_cast<uint32_t>(start_ms), std::string(text)});
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid notify payload");
+        return ESP_FAIL;
+    }
+
+    Application::GetInstance().RequestNotification(std::string(audio_url), std::move(subtitles));
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "queued");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiNotifyStopHandler(httpd_req_t* req) {
+    Application::GetInstance().RequestStopNotification();
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "stopping");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiRadioStartHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr) {
+        return ESP_FAIL;
+    }
+
+    char audio_url[768] = {};
+    bool valid = GetString(root, "audio_url", audio_url, sizeof(audio_url));
+    valid = valid && (std::strncmp(audio_url, "http://", 7) == 0 ||
+                      std::strncmp(audio_url, "https://", 8) == 0);
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid radio payload");
+        return ESP_FAIL;
+    }
+
+    Application::GetInstance().RequestRadio(std::string(audio_url));
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "queued");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiRadioStopHandler(httpd_req_t* req) {
+    Application::GetInstance().RequestStopRadio();
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "stopping");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiRadioStatusHandler(httpd_req_t* req) {
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        const bool active = Application::GetInstance().IsRadioActive();
+        cJSON_AddBoolToObject(response, "active", active);
+        cJSON_AddStringToObject(response, "state", active ? "radio" : "idle");
+    }
+    return SendJson(req, response);
 }
 
 esp_err_t WebServer::ApiPromptHandler(httpd_req_t* req) {
@@ -1120,6 +1230,8 @@ const char* DeviceStateName(DeviceState state) {
             return "speaking";
         case kDeviceStateNotifying:
             return "notifying";
+        case kDeviceStateRadio:
+            return "radio";
         case kDeviceStateUpgrading:
             return "upgrading";
         case kDeviceStateActivating:

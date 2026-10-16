@@ -25,21 +25,22 @@
 #include "stream/continuous_stream_player.h"
 
 // Main event bits
-#define MAIN_EVENT_SCHEDULE (1 << 0)
-#define MAIN_EVENT_SEND_AUDIO (1 << 1)
-#define MAIN_EVENT_WAKE_WORD_DETECTED (1 << 2)
-#define MAIN_EVENT_VAD_CHANGE (1 << 3)
-#define MAIN_EVENT_ERROR (1 << 4)
-#define MAIN_EVENT_ACTIVATION_DONE (1 << 5)
-#define MAIN_EVENT_CLOCK_TICK (1 << 6)
-#define MAIN_EVENT_NETWORK_CONNECTED (1 << 7)
+#define MAIN_EVENT_SCHEDULE             (1 << 0)
+#define MAIN_EVENT_SEND_AUDIO           (1 << 1)
+#define MAIN_EVENT_WAKE_WORD_DETECTED   (1 << 2)
+#define MAIN_EVENT_VAD_CHANGE           (1 << 3)
+#define MAIN_EVENT_ERROR                (1 << 4)
+#define MAIN_EVENT_ACTIVATION_DONE      (1 << 5)
+#define MAIN_EVENT_CLOCK_TICK           (1 << 6)
+#define MAIN_EVENT_NETWORK_CONNECTED    (1 << 7)
 #define MAIN_EVENT_NETWORK_DISCONNECTED (1 << 8)
-#define MAIN_EVENT_TOGGLE_CHAT (1 << 9)
-#define MAIN_EVENT_START_LISTENING (1 << 10)
-#define MAIN_EVENT_STOP_LISTENING (1 << 11)
-#define MAIN_EVENT_STATE_CHANGED (1 << 12)
-#define MAIN_EVENT_PLAYBACK_DRAINED (1 << 13)
-#define MAIN_EVENT_BOOT_EVENT (1 << 14)
+#define MAIN_EVENT_TOGGLE_CHAT          (1 << 9)
+#define MAIN_EVENT_START_LISTENING      (1 << 10)
+#define MAIN_EVENT_STOP_LISTENING       (1 << 11)
+#define MAIN_EVENT_STATE_CHANGED        (1 << 12)
+#define MAIN_EVENT_PLAYBACK_DRAINED     (1 << 13)
+#define MAIN_EVENT_BOOT_EVENT           (1 << 14)
+#define MAIN_EVENT_STARTUP_HINT_TIMEOUT (1 << 15)
 
 enum AecMode {
     kAecOff,
@@ -149,10 +150,12 @@ private:
     std::unique_ptr<Protocol> protocol_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
+    esp_timer_handle_t startup_wake_word_hint_timer_ = nullptr;
     DeviceStateMachine state_machine_;
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
+    std::string startup_wake_word_hint_message_;
     AudioService audio_service_;
     NotifyPlayer notify_player_;
     ContinuousStreamPlayer continuous_stream_player_;
@@ -166,6 +169,8 @@ private:
     std::function<void(const std::string&)> mcp_broadcast_callback_;
 
     bool has_server_time_ = false;
+    bool startup_completed_ = false;
+    bool pending_startup_wake_word_hint_ = false;
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ =
@@ -202,6 +207,8 @@ private:
     void ContinueWakeWordInvoke(const std::string& wake_word);
     void StartListeningAudio();
     void ConfigureWakeWordForListening();
+    void ShowStartupWakeWordHint();
+    void HideStartupWakeWordHint();
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void StopNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);

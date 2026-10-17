@@ -29,6 +29,8 @@ public:
     bool SupportsAudioVisualization() const override { return true; }
     void OnAudioPlaybackFrame(const AudioPlaybackFrame& frame) override;
     void OnAudioPlaybackStopped() override;
+    void SetMediaMetadata(const MediaPlaybackMetadata& metadata) override;
+    void SetMediaSubtitle(const char* text) override;
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const mrkenddo::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
@@ -52,6 +54,7 @@ private:
     lv_timer_t* payment_qr_timer_ = nullptr;
     lv_obj_t* audio_visualizer_ = nullptr;
     lv_obj_t* music_title_ = nullptr;
+    lv_obj_t* music_artist_ = nullptr;
     lv_obj_t* music_lyric_ = nullptr;
     lv_obj_t* music_previous_lyric_ = nullptr;
     std::array<lv_obj_t*, 12> audio_visualizer_bars_ = {};

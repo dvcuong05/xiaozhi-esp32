@@ -25,7 +25,7 @@ static const char* INDEX_HTML = mrkenddo::web_ui::kIndexHtml;
 
 namespace {
 
-constexpr size_t kMaxJsonBodyBytes = 2048;
+constexpr size_t kMaxJsonBodyBytes = 8192;
 constexpr int kMinOledAddress = 0x03;
 constexpr int kMaxOledAddress = 0x77;
 
@@ -112,6 +112,64 @@ bool GetString(const cJSON* object, const char* name, char* value, size_t value_
     return true;
 }
 
+bool ParseMediaMetadata(const cJSON* root, MediaPlaybackMetadata* metadata) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(root, "metadata");
+    if (item == nullptr) {
+        return true;
+    }
+    if (!cJSON_IsObject(item)) {
+        return false;
+    }
+    char title[193] = {};
+    char artist[129] = {};
+    char album[129] = {};
+    char station[129] = {};
+    if (!GetString(item, "title", title, sizeof(title), false) ||
+        !GetString(item, "artist", artist, sizeof(artist), false) ||
+        !GetString(item, "album", album, sizeof(album), false) ||
+        !GetString(item, "station", station, sizeof(station), false)) {
+        return false;
+    }
+    metadata->title = title;
+    metadata->artist = artist;
+    metadata->album = album;
+    metadata->station = station;
+    const cJSON* duration = cJSON_GetObjectItemCaseSensitive(item, "duration_ms");
+    if (duration != nullptr) {
+        if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||
+            std::floor(duration->valuedouble) != duration->valuedouble ||
+            duration->valuedouble < 0 ||
+            duration->valuedouble > std::numeric_limits<uint32_t>::max()) {
+            return false;
+        }
+        metadata->duration_ms = static_cast<uint32_t>(duration->valuedouble);
+    }
+    return true;
+}
+
+bool ParseSubtitles(const cJSON* root, std::vector<NotifySubtitle>* subtitles) {
+    const cJSON* list = cJSON_GetObjectItemCaseSensitive(root, "subtitles");
+    if (list == nullptr) {
+        return true;
+    }
+    if (!cJSON_IsArray(list) || cJSON_GetArraySize(list) > 48) {
+        return false;
+    }
+    const cJSON* item = nullptr;
+    cJSON_ArrayForEach (item, list) {
+        const cJSON* start = cJSON_GetObjectItemCaseSensitive(item, "start_ms");
+        char text[97] = {};
+        if (!cJSON_IsObject(item) || !cJSON_IsNumber(start) || !std::isfinite(start->valuedouble) ||
+            std::floor(start->valuedouble) != start->valuedouble || start->valuedouble < 0 ||
+            start->valuedouble > std::numeric_limits<uint32_t>::max() ||
+            !GetString(item, "text", text, sizeof(text))) {
+            return false;
+        }
+        subtitles->push_back({static_cast<uint32_t>(start->valuedouble), std::string(text)});
+    }
+    return true;
+}
+
 bool ParseOledAddress(const cJSON* item, int* address) {
     if (item == nullptr || !cJSON_IsString(item) || item->valuestring == nullptr ||
         item->valuestring[0] == '\0' || std::strlen(item->valuestring) > 2) {
@@ -146,6 +204,8 @@ bool WebServer::Start(int port) {
         {"/", HTTP_GET, RootHandler, this},
         {"/api/notify", HTTP_POST, ApiNotifyHandler, this},
         {"/api/notify/stop", HTTP_POST, ApiNotifyStopHandler, this},
+        {"/api/media/play", HTTP_POST, ApiMediaPlayHandler, this},
+        {"/api/media/stop", HTTP_POST, ApiMediaStopHandler, this},
         {"/api/radio/start", HTTP_POST, ApiRadioStartHandler, this},
         {"/api/radio/stop", HTTP_POST, ApiRadioStopHandler, this},
         {"/api/radio/status", HTTP_GET, ApiRadioStatusHandler, this},
@@ -339,6 +399,46 @@ esp_err_t WebServer::ApiNotifyStopHandler(httpd_req_t* req) {
     return SendJson(req, response);
 }
 
+esp_err_t WebServer::ApiMediaPlayHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr) {
+        return ESP_FAIL;
+    }
+    char audio_url[768] = {};
+    bool valid =
+        GetString(root, "audio_url", audio_url, sizeof(audio_url)) &&
+        (std::strncmp(audio_url, "http://", 7) == 0 || std::strncmp(audio_url, "https://", 8) == 0);
+    MediaPlaybackMetadata metadata;
+    std::vector<NotifySubtitle> subtitles;
+    valid = valid && ParseMediaMetadata(root, &metadata) && ParseSubtitles(root, &subtitles);
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid media payload");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Media request title=%s artist=%s timed_lyrics=%u", metadata.title.c_str(),
+             metadata.artist.c_str(), static_cast<unsigned>(subtitles.size()));
+    Application::GetInstance().RequestMedia(std::string(audio_url), std::move(metadata),
+                                            std::move(subtitles));
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "queued");
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiMediaStopHandler(httpd_req_t* req) {
+    Application::GetInstance().RequestStopMedia();
+    httpd_resp_set_status(req, "202 Accepted");
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddStringToObject(response, "status", "stopping");
+    }
+    return SendJson(req, response);
+}
+
 esp_err_t WebServer::ApiRadioStartHandler(httpd_req_t* req) {
     cJSON* root = ParseBody(req);
     if (root == nullptr) {
@@ -349,13 +449,15 @@ esp_err_t WebServer::ApiRadioStartHandler(httpd_req_t* req) {
     bool valid = GetString(root, "audio_url", audio_url, sizeof(audio_url));
     valid = valid && (std::strncmp(audio_url, "http://", 7) == 0 ||
                       std::strncmp(audio_url, "https://", 8) == 0);
+    MediaPlaybackMetadata metadata;
+    valid = valid && ParseMediaMetadata(root, &metadata);
     cJSON_Delete(root);
     if (!valid) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid radio payload");
         return ESP_FAIL;
     }
 
-    Application::GetInstance().RequestRadio(std::string(audio_url));
+    Application::GetInstance().RequestRadio(std::string(audio_url), std::move(metadata));
     httpd_resp_set_status(req, "202 Accepted");
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {

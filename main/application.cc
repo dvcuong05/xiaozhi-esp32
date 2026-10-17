@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <cJSON.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -25,6 +26,22 @@
 namespace {
 
 constexpr int64_t kAudioVisualizerFrameIntervalUs = 40000;
+constexpr size_t kMaxMediaSubtitleCount = 48;
+constexpr size_t kMaxMediaSubtitleBytes = 96;
+
+bool GetOptionalJsonString(const cJSON* object, const char* name, size_t max_bytes,
+                           std::string* value) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, name);
+    if (item == nullptr) {
+        return true;
+    }
+    if (!cJSON_IsString(item) || item->valuestring == nullptr ||
+        std::strlen(item->valuestring) > max_bytes) {
+        return false;
+    }
+    value->assign(item->valuestring);
+    return true;
+}
 
 bool IsStreamPlaybackState(DeviceState state) {
     return state == kDeviceStateRadio || state == kDeviceStateNotifying;
@@ -211,7 +228,8 @@ void Application::HandleBootEvents() {
 void Application::QueueAudioVisualizerFrame(const int16_t* pcm, size_t count, int sample_rate,
                                             uint32_t playback_id, AudioPlaybackSource source) {
     const auto state = GetDeviceState();
-    const bool media = source == AudioPlaybackSource::Media && state == kDeviceStateRadio;
+    const bool media = source == AudioPlaybackSource::Media &&
+                       (state == kDeviceStateRadio || state == kDeviceStateNotifying);
     const bool speech =
         source == AudioPlaybackSource::Conversation && state == kDeviceStateSpeaking;
     if (pcm == nullptr || count == 0 || sample_rate <= 0 || (!media && !speech)) {
@@ -295,6 +313,8 @@ void Application::HandleAudioVisualizerEvent() {
         const auto state = GetDeviceState();
         if ((frame.source == AudioPlaybackSource::Media && state == kDeviceStateRadio &&
              frame.playback_id == radio_playback_id_) ||
+            (frame.source == AudioPlaybackSource::Media && state == kDeviceStateNotifying &&
+             frame.playback_id == notification_playback_id_) ||
             (frame.source == AudioPlaybackSource::Conversation && state == kDeviceStateSpeaking)) {
             display->OnAudioPlaybackFrame(frame);
         }
@@ -567,6 +587,12 @@ void Application::Run() {
             }
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+
+            // A cancelled HTTP worker may take up to its read timeout to exit.
+            // Retry a pending media command without blocking the main loop.
+            if (!pending_media_url_.empty()) {
+                TryStartPendingMedia();
+            }
 
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
@@ -905,15 +931,91 @@ void Application::InitializeProtocol() {
         }
         if (strcmp(type->valuestring, "radio.start") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
-            if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
+            if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
+                audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
                 ESP_LOGW(TAG, "Radio start message requires audio_url");
                 return;
             }
-            Schedule([this, url = std::string(audio_url->valuestring)]() mutable {
-                StartRadio(std::move(url));
+            MediaPlaybackMetadata metadata;
+            const cJSON* metadata_json = cJSON_GetObjectItemCaseSensitive(root, "metadata");
+            if (metadata_json != nullptr &&
+                (!cJSON_IsObject(metadata_json) ||
+                 !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
+                 !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
+                 !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station))) {
+                ESP_LOGW(TAG, "Radio metadata is invalid or too long");
+                return;
+            }
+            Schedule([this, url = std::string(audio_url->valuestring),
+                      metadata = std::move(metadata)]() mutable {
+                StartRadio(std::move(url), std::move(metadata));
             });
         } else if (strcmp(type->valuestring, "radio.stop") == 0) {
             Schedule([this]() { StopRadio(); });
+        } else if (strcmp(type->valuestring, "media.play") == 0) {
+            auto audio_url = cJSON_GetObjectItem(root, "audio_url");
+            if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
+                audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
+                ESP_LOGW(TAG, "Media play message requires audio_url");
+                return;
+            }
+            MediaPlaybackMetadata metadata;
+            const cJSON* metadata_json = cJSON_GetObjectItem(root, "metadata");
+            if (metadata_json != nullptr) {
+                if (!cJSON_IsObject(metadata_json) ||
+                    !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
+                    !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
+                    !GetOptionalJsonString(metadata_json, "album", 128, &metadata.album) ||
+                    !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station)) {
+                    ESP_LOGW(TAG, "Media metadata is invalid or too long");
+                    return;
+                }
+                const cJSON* duration =
+                    cJSON_GetObjectItemCaseSensitive(metadata_json, "duration_ms");
+                if (duration != nullptr) {
+                    if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||
+                        std::floor(duration->valuedouble) != duration->valuedouble ||
+                        duration->valuedouble < 0 ||
+                        duration->valuedouble > std::numeric_limits<uint32_t>::max()) {
+                        ESP_LOGW(TAG, "Media duration is invalid");
+                        return;
+                    }
+                    metadata.duration_ms = static_cast<uint32_t>(duration->valuedouble);
+                }
+            }
+            std::vector<NotifySubtitle> subtitles;
+            const cJSON* subtitles_json = cJSON_GetObjectItemCaseSensitive(root, "subtitles");
+            if (subtitles_json != nullptr && !cJSON_IsArray(subtitles_json)) {
+                ESP_LOGW(TAG, "Media subtitles must be an array");
+                return;
+            }
+            if (cJSON_IsArray(subtitles_json)) {
+                if (cJSON_GetArraySize(subtitles_json) > kMaxMediaSubtitleCount) {
+                    ESP_LOGW(TAG, "Media subtitle count exceeds the limit");
+                    return;
+                }
+                cJSON* item = nullptr;
+                cJSON_ArrayForEach (item, subtitles_json) {
+                    const cJSON* start_ms = cJSON_GetObjectItemCaseSensitive(item, "start_ms");
+                    const cJSON* text = cJSON_GetObjectItemCaseSensitive(item, "text");
+                    if (!cJSON_IsObject(item) || !cJSON_IsNumber(start_ms) ||
+                        !std::isfinite(start_ms->valuedouble) ||
+                        std::floor(start_ms->valuedouble) != start_ms->valuedouble ||
+                        start_ms->valuedouble < 0 ||
+                        start_ms->valuedouble > std::numeric_limits<uint32_t>::max() ||
+                        !cJSON_IsString(text) || text->valuestring == nullptr ||
+                        std::strlen(text->valuestring) > kMaxMediaSubtitleBytes) {
+                        ESP_LOGW(TAG, "Media subtitle is invalid or too long");
+                        return;
+                    }
+                    subtitles.push_back(
+                        {static_cast<uint32_t>(start_ms->valuedouble), text->valuestring});
+                }
+            }
+            RequestMedia(std::string(audio_url->valuestring), std::move(metadata),
+                         std::move(subtitles));
+        } else if (strcmp(type->valuestring, "media.stop") == 0) {
+            RequestStopMedia();
         } else if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
@@ -1540,6 +1642,20 @@ void Application::ConfigureWakeWordForListening() {
 }
 
 void Application::StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles) {
+    StartFiniteAudio(std::move(audio_url), std::move(subtitles), AudioPlaybackSource::Notification,
+                     {});
+}
+
+void Application::StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                             std::vector<NotifySubtitle> subtitles) {
+    ESP_LOGI(TAG, "Media start title=%s artist=%s lyrics=%u", metadata.title.c_str(),
+             metadata.artist.c_str(), static_cast<unsigned>(subtitles.size()));
+    StartFiniteAudio(std::move(audio_url), std::move(subtitles), AudioPlaybackSource::Media,
+                     std::move(metadata));
+}
+
+void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
+                                   AudioPlaybackSource source, MediaPlaybackMetadata metadata) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
         continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Ignoring notify message while device is busy");
@@ -1565,20 +1681,35 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
     if (playback_id == 0) {
         playback_id = ++notification_playback_id_;
     }
-    audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+    finite_audio_source_ = source;
+    auto* display = board.GetDisplay();
+    display->SetMediaMetadata(source == AudioPlaybackSource::Media ? metadata
+                                                                   : MediaPlaybackMetadata{});
+    if (source == AudioPlaybackSource::Notification) {
+        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+    }
+
+    StreamPlaybackOptions options;
+    options.source = source;
 
     bool started = notify_player_.Start(
         std::move(audio_url), std::move(subtitles), playback_id,
-        [this](uint32_t id, const std::string& text) {
-            Schedule([this, id, text]() {
+        [this, source](uint32_t id, const std::string& text) {
+            Schedule([this, source, id, text]() {
                 if (GetDeviceState() == kDeviceStateNotifying && notification_playback_id_ == id) {
-                    Board::GetInstance().GetDisplay()->SetChatMessage("assistant", text.c_str());
+                    auto* display = Board::GetInstance().GetDisplay();
+                    if (source == AudioPlaybackSource::Media) {
+                        display->SetMediaSubtitle(text.c_str());
+                    } else {
+                        display->SetChatMessage("assistant", text.c_str());
+                    }
                 }
             });
         },
         [this](uint32_t id, bool success) {
             Schedule([this, id, success]() { HandleNotificationFinished(id, success); });
-        });
+        },
+        options);
 
     if (!started) {
         ESP_LOGE(TAG, "Failed to start notification playback");
@@ -1593,21 +1724,66 @@ void Application::RequestNotification(std::string audio_url,
     });
 }
 
+void Application::RequestMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                               std::vector<NotifySubtitle> subtitles) {
+    Schedule([this, audio_url = std::move(audio_url), metadata = std::move(metadata),
+              subtitles = std::move(subtitles)]() mutable {
+        QueueMedia(std::move(audio_url), std::move(metadata), std::move(subtitles));
+    });
+}
+
+void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                             std::vector<NotifySubtitle> subtitles) {
+    pending_radio_url_.clear();
+    pending_radio_metadata_ = {};
+    pending_media_url_ = std::move(audio_url);
+    pending_media_metadata_ = std::move(metadata);
+    pending_media_subtitles_ = std::move(subtitles);
+
+    if (GetDeviceState() == kDeviceStateRadio) {
+        ESP_LOGI(TAG, "Replacing radio playback with requested media");
+        StopRadio();
+    } else if (GetDeviceState() == kDeviceStateNotifying &&
+               finite_audio_source_ == AudioPlaybackSource::Media) {
+        ESP_LOGI(TAG, "Replacing current media playback with a new request");
+        StopNotification();
+    }
+    TryStartPendingMedia();
+}
+
 void Application::RequestStopNotification() {
     Schedule([this]() { StopNotification(); });
 }
 
-void Application::RequestRadio(std::string audio_url) {
-    Schedule([this, audio_url = std::move(audio_url)]() mutable {
+void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata) {
+    Schedule([this, audio_url = std::move(audio_url), metadata = std::move(metadata)]() mutable {
+        pending_media_url_.clear();
+        pending_media_metadata_ = {};
+        pending_media_subtitles_.clear();
         if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
             ESP_LOGI(TAG, "Ignoring duplicate radio start; radio is already active");
             return;
         }
 
         pending_radio_url_ = std::move(audio_url);
+        pending_radio_metadata_ = std::move(metadata);
         ESP_LOGI(TAG, "Radio start queued while device is in %s",
                  DeviceStateMachine::GetStateName(GetDeviceState()));
         TryStartPendingRadio();
+    });
+}
+
+void Application::RequestStopMedia() {
+    Schedule([this]() {
+        pending_media_url_.clear();
+        pending_media_metadata_ = {};
+        pending_media_subtitles_.clear();
+        if (GetDeviceState() == kDeviceStateNotifying &&
+            finite_audio_source_ == AudioPlaybackSource::Media) {
+            StopNotification();
+        } else {
+            ESP_LOGI(TAG, "Media stop cleared pending playback; no finite media is active");
+        }
     });
 }
 
@@ -1616,6 +1792,7 @@ void Application::RequestStopRadio() {
         // A stop request also cancels a start that is waiting for the current
         // assistant conversation to finish.
         pending_radio_url_.clear();
+        pending_radio_metadata_ = {};
         if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
             StopRadio();
         } else {
@@ -1630,9 +1807,13 @@ bool Application::IsRadioActive() const {
 
 void Application::StopNotification() {
     notify_player_.Stop();
+    finite_audio_source_ = AudioPlaybackSource::Notification;
     audio_service_.ResetDecoder();
     auto& board = Board::GetInstance();
     board.GetDisplay()->SetChatMessage("assistant", "");
+    board.GetDisplay()->SetMediaMetadata({});
+    board.GetDisplay()->SetMediaSubtitle("");
+    board.GetDisplay()->OnAudioPlaybackStopped();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
     if (GetDeviceState() == kDeviceStateNotifying) {
         SetDeviceState(kDeviceStateIdle);
@@ -1649,6 +1830,14 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
 }
 
 void Application::TryStartPendingRadio() {
+    // Music and radio share the same one-slot pending command. Media wins if
+    // one is present; request handlers clear the older command when replaced.
+    if (!pending_media_url_.empty()) {
+        TryStartPendingMedia();
+        if (!pending_media_url_.empty() || GetDeviceState() != kDeviceStateIdle) {
+            return;
+        }
+    }
     if (pending_radio_url_.empty()) {
         return;
     }
@@ -1680,15 +1869,53 @@ void Application::TryStartPendingRadio() {
 
     auto audio_url = std::move(pending_radio_url_);
     pending_radio_url_.clear();
-    StartRadio(std::move(audio_url));
+    auto metadata = std::move(pending_radio_metadata_);
+    pending_radio_metadata_ = {};
+    StartRadio(std::move(audio_url), std::move(metadata));
 }
 
-void Application::StartRadio(std::string audio_url) {
+void Application::TryStartPendingMedia() {
+    if (pending_media_url_.empty()) {
+        return;
+    }
+
+    const auto state = GetDeviceState();
+    if (state == kDeviceStateListening && protocol_ && protocol_->IsAudioChannelOpened()) {
+        ESP_LOGI(TAG, "Closing listening conversation before starting pending media");
+        protocol_->CloseAudioChannel();
+        return;
+    }
+
+    if (state == kDeviceStateListening) {
+        ESP_LOGI(TAG, "Ending listening conversation before starting pending media");
+        if (!SetDeviceState(kDeviceStateIdle)) {
+            return;
+        }
+    }
+
+    if (GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+    if (notify_player_.IsBusy() || continuous_stream_player_.IsBusy()) {
+        return;
+    }
+
+    auto audio_url = std::move(pending_media_url_);
+    pending_media_url_.clear();
+    auto metadata = std::move(pending_media_metadata_);
+    pending_media_metadata_ = {};
+    auto subtitles = std::move(pending_media_subtitles_);
+    pending_media_subtitles_.clear();
+    StartMedia(std::move(audio_url), std::move(metadata), std::move(subtitles));
+}
+
+void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metadata) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
         continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Delaying radio start while device is busy (%s)",
                  DeviceStateMachine::GetStateName(GetDeviceState()));
         pending_radio_url_ = std::move(audio_url);
+        pending_radio_metadata_ = std::move(metadata);
         return;
     }
 
@@ -1711,6 +1938,9 @@ void Application::StartRadio(std::string audio_url) {
         return;
     }
 
+    ESP_LOGI(TAG, "Radio start station=%s", metadata.station.c_str());
+    board.GetDisplay()->SetMediaMetadata(metadata);
+
     audio_service_.ResetDecoder();
     uint32_t playback_id = ++radio_playback_id_;
     if (playback_id == 0) {
@@ -1729,6 +1959,7 @@ void Application::StartRadio(std::string audio_url) {
 
 void Application::StopRadio() {
     pending_radio_url_.clear();
+    pending_radio_metadata_ = {};
     if (GetDeviceState() != kDeviceStateRadio && !continuous_stream_player_.IsBusy()) {
         return;
     }
@@ -1738,6 +1969,9 @@ void Application::StopRadio() {
         protocol_->CloseAudioChannel();
     }
     audio_service_.ResetDecoder();
+    Board::GetInstance().GetDisplay()->SetMediaMetadata({});
+    Board::GetInstance().GetDisplay()->SetMediaSubtitle("");
+    Board::GetInstance().GetDisplay()->OnAudioPlaybackStopped();
     Board::GetInstance().GetDisplay()->SetChatMessage("assistant", "");
     Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
     if (GetDeviceState() == kDeviceStateRadio) {

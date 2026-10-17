@@ -1,10 +1,11 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
-#include "emoji_collection.h"
-#include "text_glyph.h"
-#include "boot_sequence.h"
 #include "audio/audio_playback_frame.h"
+#include "boot_sequence.h"
+#include "emoji_collection.h"
+#include "media/media_metadata.h"
+#include "text_glyph.h"
 
 #ifndef CONFIG_USE_EMOTE_MESSAGE_STYLE
 #define HAVE_LVGL 1
@@ -48,6 +49,8 @@ public:
     virtual bool SupportsAudioVisualization() const { return false; }
     virtual void OnAudioPlaybackFrame(const AudioPlaybackFrame& frame) { (void)frame; }
     virtual void OnAudioPlaybackStopped() {}
+    virtual void SetMediaMetadata(const MediaPlaybackMetadata& metadata) { (void)metadata; }
+    virtual void SetMediaSubtitle(const char* text) { (void)text; }
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);
     virtual void StartBootSequence() {}

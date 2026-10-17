@@ -110,11 +110,13 @@ void MrkenDDoRobotDisplay::SetupUI() {
     }
 
     music_title_ = lv_label_create(audio_visualizer_);
+    music_artist_ = lv_label_create(audio_visualizer_);
     music_previous_lyric_ = lv_label_create(audio_visualizer_);
     music_lyric_ = lv_label_create(audio_visualizer_);
     auto* theme = static_cast<LvglTheme*>(current_theme_);
     const auto* text_font = theme->text_font()->font();
-    for (auto* label : {music_title_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
+    for (auto* label :
+         {music_title_, music_artist_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
         lv_obj_set_width(label, width_ - 20);
         lv_obj_set_style_text_font(label, text_font, 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
@@ -124,6 +126,10 @@ void MrkenDDoRobotDisplay::SetupUI() {
     lv_obj_set_height(music_title_, 26);
     lv_label_set_long_mode(music_title_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(music_title_, lv_color_hex(0xC4B5FD), 0);
+    lv_obj_set_pos(music_artist_, 10, 34);
+    lv_obj_set_height(music_artist_, 20);
+    lv_label_set_long_mode(music_artist_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_color(music_artist_, lv_color_hex(0x94A3B8), 0);
     lv_obj_set_pos(music_previous_lyric_, 10, height_ / 2 + 14);
     lv_obj_set_height(music_previous_lyric_, 32);
     lv_label_set_long_mode(music_previous_lyric_, LV_LABEL_LONG_DOT);
@@ -245,6 +251,22 @@ void MrkenDDoRobotDisplay::RenderMusicInfo() {
         music_session_.IsActive()
             ? (music_session_.Title().empty() ? "MUSIC" : music_session_.Title().c_str())
             : "RADIO / MUSIC");
+    std::string artist_line = music_session_.Artist();
+    if (!music_session_.Station().empty() && artist_line.empty()) {
+        artist_line = "LIVE RADIO";
+    }
+    const uint32_t duration_seconds = music_session_.DurationMs() / 1000;
+    if (duration_seconds > 0) {
+        char duration[16] = {};
+        std::snprintf(duration, sizeof(duration), "%lu:%02lu",
+                      static_cast<unsigned long>(duration_seconds / 60),
+                      static_cast<unsigned long>(duration_seconds % 60));
+        if (!artist_line.empty()) {
+            artist_line += " | ";
+        }
+        artist_line += duration;
+    }
+    lv_label_set_text(music_artist_, artist_line.c_str());
     lv_label_set_text(music_previous_lyric_, music_session_.PreviousLine().c_str());
     lv_label_set_text(music_lyric_,
                       music_session_.CurrentLine().empty()
@@ -431,11 +453,44 @@ void MrkenDDoRobotDisplay::OnAudioPlaybackStopped() {
     ApplyUiMode();
 }
 
+void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadata) {
+    {
+        DisplayLockGuard lock(this);
+        if (!lock) {
+            return;
+        }
+        music_session_.SetMediaMetadata(metadata.title, metadata.artist, metadata.station,
+                                        metadata.duration_ms);
+        audio_playback_active_ = false;
+        if (spectrum_ != nullptr) {
+            spectrum_->Reset();
+        }
+        RenderMusicInfo();
+        ApplyUiMode();
+    }
+    if (!metadata.title.empty() || !metadata.station.empty()) {
+        SpiLcdDisplay::SetStatus(metadata.station.empty() ? "Music" : "Radio");
+    }
+}
+
+void MrkenDDoRobotDisplay::SetMediaSubtitle(const char* text) {
+    if (text == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    if (!lock) {
+        return;
+    }
+    music_session_.SetSubtitle(text);
+    RenderMusicInfo();
+}
+
 void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     if (boot_console_label_ != nullptr) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
     }
-    for (auto* label : {music_title_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
+    for (auto* label :
+         {music_title_, music_artist_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
         if (label != nullptr) {
             lv_obj_set_style_text_font(label, text_font, 0);
         }

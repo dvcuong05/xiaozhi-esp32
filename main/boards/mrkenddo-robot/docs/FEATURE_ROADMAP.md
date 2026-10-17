@@ -22,7 +22,11 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     TFT có tên bài, lời hiện tại và dòng trước từ `sentence_start`. Không
     tải thêm LRC, không lưu cả bài; giữ QR priority và reset khi hết session.
 - [x] QR địa chỉ IP webserver qua `self.network.ip2qrcode` và dashboard.
-- [ ] MCP nghe nhạc việt hoặc cách build host server nghe nhạc bằng cách ra lệnh mcp tìm nhạc theo tên, tác giả, thể loại
+- [x] Tích hợp music MCP theo provider: Zing MP3 migrate vào client Python
+    trong MCP server; radio-browser là provider/tool riêng. Firmware nhận URL
+    đã chuẩn hóa; deployment không cần repo hay service API Zing chạy riêng.
+    Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
+    track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
 - [ ] Read & play music from SD card
 - [ ] Read & play photos from SD card
 - [ ] Stream live television and support config from webserver
@@ -92,6 +96,11 @@ Tất cả hạng mục trong kế hoạch hiện tại đã hoàn tất ở m�
 Không còn mục implementation nào đang chờ trong kế hoạch đã chốt. Các thay
 đổi tiếp theo chỉ nên mở roadmap mới sau khi xác định rõ phạm vi và ảnh hưởng
 đến bộ nhớ, audio hoặc giao thức MCP.
+
+- [x] P1 - Track từ MCP dùng player chung `NotifyPlayer` với source `Media`,
+      nhận metadata và timed lyrics qua `media.play`; `media.stop` dừng track.
+      Radio dùng provider/tool và lifecycle riêng. Provider Zing MP3, LRC và
+      URL proxy thuộc MCP server, không firmware.
 
 ## Hardware validation backlog
 

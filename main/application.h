@@ -19,6 +19,7 @@
 #include "boot_sequence.h"
 #include "device_state.h"
 #include "device_state_machine.h"
+#include "media/media_metadata.h"
 #include "notify/notify_player.h"
 #include "ota.h"
 #include "protocol.h"
@@ -118,8 +119,11 @@ public:
     void WakeWordInvoke(const std::string& wake_word);
     bool StartTextBridgeConversation(std::function<void(bool)> on_ready);
     void RequestNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
+    void RequestMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                      std::vector<NotifySubtitle> subtitles);
     void RequestStopNotification();
-    void RequestRadio(std::string audio_url);
+    void RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata = {});
+    void RequestStopMedia();
     void RequestStopRadio();
     bool IsRadioActive() const;
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
@@ -168,6 +172,11 @@ private:
     // A radio request can arrive while the assistant is still speaking. Keep
     // it until the conversation channel has returned the device to idle.
     std::string pending_radio_url_;
+    MediaPlaybackMetadata pending_radio_metadata_;
+    std::string pending_media_url_;
+    MediaPlaybackMetadata pending_media_metadata_;
+    std::vector<NotifySubtitle> pending_media_subtitles_;
+    AudioPlaybackSource finite_audio_source_ = AudioPlaybackSource::Notification;
     std::unique_ptr<Ota> ota_;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
@@ -222,9 +231,16 @@ private:
     void ShowStartupWakeWordHint();
     void HideStartupWakeWordHint();
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
+    void StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                    std::vector<NotifySubtitle> subtitles);
+    void StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
+                          AudioPlaybackSource source, MediaPlaybackMetadata metadata);
+    void QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
+                    std::vector<NotifySubtitle> subtitles);
+    void TryStartPendingMedia();
     void StopNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);
-    void StartRadio(std::string audio_url);
+    void StartRadio(std::string audio_url, MediaPlaybackMetadata metadata);
     void TryStartPendingRadio();
     void StopRadio();
     void HandleRadioFinished(uint32_t playback_id, bool success);

@@ -44,8 +44,32 @@ std::string RobotMusicSession::ClipUtf8(std::string_view text, size_t limit) {
 void RobotMusicSession::Reset() {
     active_ = false;
     title_.clear();
+    artist_.clear();
+    station_.clear();
+    duration_ms_ = 0;
     current_.clear();
     previous_.clear();
+}
+
+void RobotMusicSession::SetMediaMetadata(std::string_view title, std::string_view artist,
+                                         std::string_view station, uint32_t duration_ms) {
+    Reset();
+    if (title.empty() && artist.empty() && station.empty()) {
+        return;
+    }
+    active_ = true;
+    title_ = ClipUtf8(station.empty() ? title : station, 192);
+    artist_ = ClipUtf8(artist, 128);
+    station_ = ClipUtf8(station, 128);
+    duration_ms_ = duration_ms;
+}
+
+void RobotMusicSession::SetSubtitle(std::string_view text) {
+    if (!active_ || text.empty()) {
+        return;
+    }
+    previous_ = std::move(current_);
+    current_ = ClipUtf8(text, 384);
 }
 
 RobotMusicSession::Update RobotMusicSession::OnAssistantText(std::string_view text) {
@@ -68,8 +92,7 @@ RobotMusicSession::Update RobotMusicSession::OnAssistantText(std::string_view te
     if (text.starts_with("《") && text.ends_with("》")) {
         title_ = ClipUtf8(text, 192);
     } else if (text != current_) {
-        previous_ = std::move(current_);
-        current_ = ClipUtf8(text, 384);
+        SetSubtitle(text);
     }
     return Update::Text;
 }

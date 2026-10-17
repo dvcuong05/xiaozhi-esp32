@@ -36,7 +36,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 
 OLED dùng renderer bitmap cục bộ với các mode `clock`, chữ chạy, `status` và `off`; trước khi đồng bộ giờ, đồng hồ hiển thị `--:--:--`. Mode `status` được bố trí hai nửa trên OLED 128×32: đồng hồ `HH:MM:SS` ở dòng trên bên trái, ngày `dd/mm/yy` ở dòng dưới bên trái, cột sóng Wi-Fi ở phía trên bên phải và `IDLE`/`LISTENING`/`SPEAKING` bên dưới. Font 5×7 được giữ cho chữ Latin/số/dấu câu; các dấu tiếng Việt phổ biến được vẽ bổ sung phía trên hoặc dưới glyph. Firmware cũng có một bộ emoji đơn sắc nhỏ (ví dụ 😀 😢 😡 🤖 👍 👎 ❤ ⚠ ✅ ⭐). Unicode ngoài bộ glyph sẽ hiện `?`, emoji phức hợp/đa màu không được hỗ trợ như trên màn hình điện thoại. Tùy chọn xoay OLED 180 độ áp dụng khi vẽ pixel, còn TFT xoay qua LVGL/panel. Motor còn có MCP user-only tools `move_motor`, `stop_motor`, `set_motor_speed`; `move_motor` dùng `steps` có dấu để tiến/lùi và `set_motor_speed` giữ tên API cũ nhưng thực chất chỉnh mili-giây mỗi đơn vị.
 
-HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 2048 byte và cấu hình được kiểm tra trước khi ghi NVS.
+HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 8192 byte; riêng media giới hạn 48 dòng lyric, mỗi dòng tối đa 96 byte UTF-8. Cấu hình NVS vẫn được kiểm tra trước khi ghi.
 
 ## Nguồn tham khảo cho các tính năng robot
 
@@ -148,10 +148,16 @@ PCM phục vụ tính năng này.
 Tham khảo cách `develop_vn` gắn spectrum với vòng đời media player, nhưng
 không nhập nguyên player hay tạo task FFT riêng. Packet được gắn nguồn nội
 bộ `Conversation`/`Effect`/`Notification`/`Media`, giữ qua bước decode/resample;
-định dạng WebSocket và MQTT/UDP không đổi. Nguồn media hiện là player dùng
-chung cho nhạc/radio qua `radio.start` hoặc `POST /api/radio/start`; endpoint
-`/api/notify` vẫn là thông báo, không suy đoán thể loại từ URL. Thêm một nguồn
-nhạc hữu hạn sau này phải gắn `Media` rõ ràng, không dựa vào cờ lặp vô hạn.
+định dạng WebSocket và MQTT/UDP không đổi. Player chung nhận radio qua
+`radio.start`/`POST /api/radio/start`, còn track qua `media.play` hoặc
+`POST /api/media/play` với metadata và subtitles có mốc thời gian. `/api/notify`
+vẫn dành cho thông báo; firmware không chứa provider, station ID hay logic Zing.
+MCP sở hữu tìm kiếm, resolve URL, chuyển đổi Ogg Opus và LRC; Zing client
+Python được tích hợp ngay trong MCP server. Radio dùng
+`radio_search` cùng lifecycle `radio.start`/`radio.stop` riêng. Track có thể
+được thay hoặc dừng bằng `media.play`/`media.stop` và chờ hội thoại hiện tại về
+idle trước khi bắt đầu. Giới hạn firmware là tối đa 48 dòng lyric, 96 byte mỗi
+dòng và body HTTP 8 KiB.
 Luồng tenclass tích hợp có ngoại lệ quan trọng: `search_music`/`play_music`
 phát nhạc qua cùng transport TTS, nên state machine vẫn là `speaking`. Custom
 board nhận diện đúng marker assistant `% play_music...` (không phải
@@ -198,12 +204,12 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.network.ip2qrcode`: hiện QR mở webserver theo IP Wi-Fi hiện tại, không thay QR ngân hàng.
 - `self.robot.show_qr`: hiện QR URL/text tạm thời, nhận `payload`, `caption` và `duration_ms`; không lưu. Yêu cầu thanh toán phải dùng `show_payment_qr`, không suy đoán tài khoản từ chatbot. Cấu hình QR ngân hàng chỉ đổi qua web của chủ robot.
 
-Radio, music va video duoc tim kiem va dieu phoi boi service MCP rieng. Firmware khong
-chua provider, station ID hay dia chi MCP host. Lop tich hop cua robot chi nhan URL da duoc
-service resolve qua message `radio.start` hoac HTTP `POST /api/radio/start`, phat stream
-bang player generic, va cung cap `/api/radio/stop|status`. Neu robot dang ban, request start
-duoc xep hang den khi conversation ve `idle`. Stream bi ngat se duoc reconnect cho den khi
-nhan stop, reboot hoac mot mode he thong khac can quyen dieu khien audio.
+Music va radio duoc MCP tach thanh hai flow: music dung `music_search`/`music_play`,
+con radio dung `radio_search`/`radio_start`. Firmware khong chua provider, station ID
+hay logic Zing; player chung nhan URL da duoc resolve qua `media.play` hoac `radio.start`.
+Track co metadata va timed subtitles, co the stop bang `media.stop`; radio co API
+`/api/radio/start|stop|status` va reconnect stream. Yeu cau media den luc robot ban
+duoc giu mot slot toi khi conversation ve `idle`; lenh moi nhat thay the lenh dang cho.
 
 Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong task rieng, tu dong dung sau khi hoan thanh, bi huy boi Stop, hoac bi thay the boi lenh di chuyen thu cong. Hay nang robot khoi mat dat khi test.
 

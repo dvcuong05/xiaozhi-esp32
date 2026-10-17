@@ -6,6 +6,30 @@ config OTA_URL
     help
         The application will access this URL to check for new firmwares and server address.
 
+config XIAOZHI_MCP_DEVICE_WSS_ENABLE
+    bool "Enable outbound WSS control bridge for MrKenDDo Robot"
+    depends on BOARD_TYPE_MRKENDDO_ROBOT
+    default n
+    help
+        Keep an authenticated WebSocket connection from the robot to the MCP music server.
+
+config XIAOZHI_MCP_DEVICE_WSS_URI
+    string "MCP device bridge WSS URL"
+    depends on XIAOZHI_MCP_DEVICE_WSS_ENABLE
+    default "wss://103.77.242.31:18443/device/bridge"
+
+config XIAOZHI_MCP_DEVICE_WSS_DEVICE_ID
+    string "MCP device bridge ID"
+    depends on XIAOZHI_MCP_DEVICE_WSS_ENABLE
+    default "mrkenddo-robot"
+
+config XIAOZHI_MCP_DEVICE_WSS_TOKEN
+    string "MCP device bridge token"
+    depends on XIAOZHI_MCP_DEVICE_WSS_ENABLE
+    default ""
+    help
+        Use a unique random token for this robot. Do not commit sdkconfig or share firmware logs.
+
 choice
     prompt "Flash Assets"
     default FLASH_DEFAULT_ASSETS if !USE_EMOTE_MESSAGE_STYLE

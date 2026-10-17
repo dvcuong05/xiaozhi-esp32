@@ -113,6 +113,7 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `web_server.*`, `robot_mcp_tools.*` | Adapter nhận đầu vào, kiểm tra JSON/tham số và gọi controller; giữ tên route/tool hiện có. |
 | `web_chat_bridge.*` | Giữ tối đa một prompt chờ, trigger `web_chat`, trạng thái consume và timeout 30 giây. |
 | `mrkenddo_robot_display.*`, `robot_eyes.*` | Điều phối màn TFT và vẽ mắt/boot console/QR/visualizer. |
+| `robot_screen_layout.*` | Layout màn hình thường: vùng face độc lập với renderer và vùng thông tin bên dưới cho hội thoại/hint. |
 | `robot_spectrum.*` | FFT 512 điểm, Hann window, loại DC, 12 dải bass→treble và mức RMS điều khiển miệng; dùng lại `espressif/dl_fft` có sẵn. |
 | `robot_music_session.*` | Nhận diện marker tool nhạc tenclass trong `sentence_start`, giữ tên bài/lời hiện tại/dòng trước với giới hạn UTF-8; không thay giao thức hay đoán nhạc từ nội dung người dùng. |
 | `robot_qr_code.*` | Mã hóa text/URL thành QR động bằng Nayuki có sẵn trong LVGL, kiểm tra UTF-8, giữ ma trận module 1-bit; không tải ảnh hoặc tạo thông tin ngân hàng. |
@@ -134,6 +135,28 @@ QR thanh toán thay vì âm thầm đổi người nhận. Dữ liệu NVS/HTTP 
 mã hóa bởi tính năng này; chỉ dùng LAN tin cậy, không forward cổng 80.
 Tên Wi-Fi provisioning/hostname `MrKenDDo-Robot` do board cung cấp qua hook;
 các board Wi-Fi khác vẫn dùng mặc định của XiaoZhi.
+
+`RobotScreenLayout` bố trí màn hình thường thành `FaceRegion` ở trên và
+`InfoRegion` ở dưới. Với font Noto Sans 14 px mặc định, vùng thông tin dành
+khoảng ba dòng, tự xuống dòng và cuộn dọc khi câu dài hơn vùng hiển thị.
+Face renderer nhận vùng chứa/kích thước riêng; các biến thể cảm xúc sau này
+có thể thay mắt robot mà không phải thay layout thông tin. Animation mắt và
+miệng được tính trong vùng face, không che text.
+
+Text hội thoại tiếp tục dùng flow `tts.sentence_start → SetChatMessage` hiện
+có; sau bước nhận diện nhạc tenclass, text thông thường được đưa vào vùng
+thông tin. Đây là một ô nội dung hiện tại, không lưu lịch sử chat. `ClearChatMessages`
+khi về idle xoá nội dung; câu mới thay câu trước. Cấu hình ẩn subtitle áp dụng
+cho text hội thoại. Hint wakeword là hướng dẫn hệ thống riêng, vẫn hiện khi
+ẩn subtitle, lấy đúng các từ đánh thức đang hoạt động từ audio engine.
+
+Sau activation thành công và cleanup idle hoàn tất, `Application` gọi hook
+`Display::ShowStartupHint`; board render hint vào `InfoRegion` trong 5 giây.
+Display thông thường giữ fallback chat message của upstream. Chuyển khỏi idle,
+alert/text mới hoặc một màn full-screen thay thế sẽ huỷ hint. Timer chỉ xoá
+hint còn thuộc sở hữu của nó, không xoá câu TTS/alert mới và không khôi phục
+hint khi đóng QR. Tên bài, lời nhạc, QR caption và boot log tiếp tục thuộc màn
+hình riêng; OLED phụ không nhận hint hay text hội thoại qua layout này.
 
 TFT chỉ chọn một chế độ từ trạng thái hiện tại, theo thứ tự ưu tiên
 `QR thanh toán → boot console → audio visualizer → robot eyes`. QR hết hạn
@@ -210,6 +233,38 @@ hay logic Zing; player chung nhan URL da duoc resolve qua `media.play` hoac `rad
 Track co metadata va timed subtitles, co the stop bang `media.stop`; radio co API
 `/api/radio/start|stop|status` va reconnect stream. Yeu cau media den luc robot ban
 duoc giu mot slot toi khi conversation ve `idle`; lenh moi nhat thay the lenh dang cho.
+
+![Sơ đồ đăng ký MCP và luồng music/radio từ service đến firmware](docs/features/music-radio-mcp-flow.svg)
+
+Trong production, `xiaozhi-kenddo-services` đăng ký tool music/radio với MCP
+Access Point riêng; firmware không đăng ký lại các tool này. Robot mở TLS WSS
+outbound tới service để nhận lệnh, sau đó tải audio riêng qua HTTP proxy.
+Firmware đăng ký `self.robot.*` qua MCP của XiaoZhi cho các thao tác robot; đây
+là nhóm tool độc lập với music/radio. Sơ đồ chi tiết nằm tại
+[`docs/features/music-radio-mcp-flow.svg`](docs/features/music-radio-mcp-flow.svg).
+
+Production MCP điều khiển robot bằng một WebSocket TLS riêng do robot chủ động
+mở tới VPS (`wss://<host>:18443/device/bridge`); không dùng endpoint HTTP LAN,
+reverse SSH tunnel hay WebSocket/MQTT hội thoại XiaoZhi. Bật
+`XIAOZHI_MCP_DEVICE_WSS_ENABLE` và URI được cấu hình sẵn cho variant `mrkenddo-robot`;
+device ID phải khớp cấu hình MCP server. Khi build, cấp token qua
+`XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE` (hoặc `XIAOZHI_MCP_DEVICE_WSS_TOKEN`), không
+ghi token vào `config.json`. `mrkenddo-build-firmware.bat` tự tìm secret file
+trong repo MCP ở thư mục bên cạnh. Nếu gọi trực tiếp bằng Python, ví dụ tại root repo:
+
+```powershell
+$env:XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE = "..\xiaozhi-kenddo-services\secrets\xiaozhi_device_bridge_token"
+python scripts\build.py mrkenddo-robot --language vi-VN --wake-word wn9_hilili_tts
+Remove-Item Env:\XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE
+```
+
+Token riêng của thiết bị nằm trong `sdkconfig` và firmware image; không commit
+hoặc in nội dung token. Build script che token khi in cấu hình. Client xác thực TLS bằng
+CA bundle, reconnect sau mất mạng và ACK `queued` khi cùng dispatcher media/radio
+đã nhận lệnh. `radio.status` trả state thật của player; ACK không khẳng định audio
+đã phát thành công. Audio vẫn được tải riêng từ URL proxy do MCP gửi qua lệnh.
+HTTP `/api/media/*` và `/api/radio/*` tiếp tục hữu ích cho test local cùng LAN.
+Chi tiết cấu hình server và certificate nằm trong `xiaozhi-kenddo-services/docs/setup.md`.
 
 Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong task rieng, tu dong dung sau khi hoan thanh, bi huy boi Stop, hoac bi thay the boi lenh di chuyen thu cong. Hay nang robot khoi mat dat khi test.
 

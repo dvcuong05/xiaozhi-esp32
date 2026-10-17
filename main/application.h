@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
+#include <cJSON.h>
 
 #include <array>
 #include <cstdint>
@@ -23,6 +24,7 @@
 #include "notify/notify_player.h"
 #include "ota.h"
 #include "protocol.h"
+#include "protocols/device_bridge_client.h"
 #include "stream/continuous_stream_player.h"
 
 // Main event bits
@@ -126,6 +128,8 @@ public:
     void RequestStopMedia();
     void RequestStopRadio();
     bool IsRadioActive() const;
+    bool HandleDeviceBridgeCommand(const std::string& payload_json, std::string* result_json,
+                                   std::string* error);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
@@ -153,6 +157,7 @@ private:
     std::mutex mutex_;
     std::deque<std::function<void()>> main_tasks_;
     std::unique_ptr<Protocol> protocol_;
+    std::unique_ptr<DeviceBridgeClient> device_bridge_client_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     esp_timer_handle_t startup_wake_word_hint_timer_ = nullptr;
@@ -237,6 +242,7 @@ private:
                           AudioPlaybackSource source, MediaPlaybackMetadata metadata);
     void QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                     std::vector<NotifySubtitle> subtitles);
+    bool HandleStreamPlaybackCommand(const cJSON* root, std::string* error);
     void TryStartPendingMedia();
     void StopNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);

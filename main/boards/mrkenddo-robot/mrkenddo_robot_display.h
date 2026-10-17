@@ -5,6 +5,7 @@
 #include "robot_eyes.h"
 #include "robot_music_session.h"
 #include "robot_qr_code.h"
+#include "robot_screen_layout.h"
 #include "robot_spectrum.h"
 
 #include <array>
@@ -21,6 +22,11 @@ public:
     void SetupUI() override;
     void SetStatus(const char* status) override;
     void SetChatMessage(const char* role, const char* content) override;
+    void RemoveChatMessage(const char* role, const char* content) override;
+    void ClearChatMessages() override;
+    void ShowStartupHint(const char* text) override;
+    void HideStartupHint(const char* text) override;
+    void SetHideSubtitle(bool hide) override;
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void SetEmotion(const char* emotion) override;
     void StartBootSequence() override;
@@ -40,8 +46,9 @@ protected:
 
 private:
     enum class BootState { Pending, Active, Finished };
-    enum class UiMode { Eyes, BootConsole, PaymentQr, AudioVisualizer };
+    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer };
 
+    std::unique_ptr<mrkenddo::RobotScreenLayout> screen_layout_;
     std::unique_ptr<RobotEyesView> robot_eyes_;
     std::unique_ptr<mrkenddo::RobotSpectrum> spectrum_;
     mrkenddo::RobotMusicSession music_session_;

@@ -63,6 +63,10 @@ public:
     virtual void SetChatMessage(const char* role, const char* content);
     // Remove a matching message without clearing newer content, when supported.
     virtual void RemoveChatMessage(const char* role, const char* content) {}
+    // Presentation hook for the local, temporary startup hint. Ordinary
+    // displays retain the upstream chat-message behavior.
+    virtual void ShowStartupHint(const char* text) { SetChatMessage("assistant", text); }
+    virtual void HideStartupHint(const char* text) { RemoveChatMessage("assistant", text); }
     virtual void ClearChatMessages();
     virtual void SetTheme(Theme* theme);
     virtual Theme* GetTheme() { return current_theme_; }

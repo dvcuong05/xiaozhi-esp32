@@ -1329,6 +1329,44 @@ def _merge_sdkconfig_options(
     return [values[key] for key in keys]
 
 
+def _device_bridge_token_options(options: list[str]) -> list[str]:
+    """Load the WSS device credential from the build environment, never config.json."""
+    assignments = _sdkconfig_assignments(options)
+    if assignments.get("CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE") != "y":
+        return []
+
+    token = os.environ.get("XIAOZHI_MCP_DEVICE_WSS_TOKEN", "").strip()
+    token_file = os.environ.get("XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE", "").strip()
+    if token and token_file:
+        raise ValueError(
+            "Set only one of XIAOZHI_MCP_DEVICE_WSS_TOKEN or "
+            "XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE."
+        )
+    if token_file:
+        try:
+            token = Path(token_file).expanduser().read_text(encoding="utf-8").strip()
+        except OSError as error:
+            raise ValueError(
+                "Unable to read XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE."
+            ) from error
+    if len(token) < 32:
+        raise ValueError(
+            "WSS bridge is enabled; provide a token of at least 32 characters "
+            "through XIAOZHI_MCP_DEVICE_WSS_TOKEN or "
+            "XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE."
+        )
+    return [
+        "CONFIG_XIAOZHI_MCP_DEVICE_WSS_TOKEN=" + json.dumps(token)
+    ]
+
+
+def _redact_sdkconfig_assignment(option: str) -> str:
+    key = option.partition("=")[0]
+    if key == "CONFIG_XIAOZHI_MCP_DEVICE_WSS_TOKEN":
+        return f"{key}=[REDACTED]"
+    return option
+
+
 ################################################################################
 # Check board_type in CMakeLists
 ################################################################################
@@ -1650,6 +1688,10 @@ def build_board(
             user_options,
         )
         sdkconfig_append = _apply_auto_selects(sdkconfig_append)
+        sdkconfig_append = _merge_sdkconfig_options(
+            sdkconfig_append,
+            _device_bridge_token_options(sdkconfig_append),
+        )
 
         print("-" * 80)
         print(f"name: {final_name}")
@@ -1667,7 +1709,7 @@ def build_board(
                 + json.dumps(selected_build_options, ensure_ascii=False, sort_keys=True)
             )
         for item in sdkconfig_append:
-            print(f"sdkconfig_append: {item}")
+            print(f"sdkconfig_append: {_redact_sdkconfig_assignment(item)}")
 
         _emit_build_stage("dependencies_resolving")
         os.environ.pop("IDF_TARGET", None)

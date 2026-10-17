@@ -33,6 +33,7 @@ public:
     void SetStatus(RobotEyesMode mode);
     void SetVisible(bool visible);
     void SetSpeechLevel(uint8_t level);
+    void SetSize(lv_coord_t width, lv_coord_t height);
 
 private:
     struct EyeGeometry {

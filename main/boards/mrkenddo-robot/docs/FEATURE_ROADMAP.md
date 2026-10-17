@@ -33,6 +33,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Load and show emotion from SD card and allow dynamic change
 - [ ] Feature ask chatbox to set and weak the alarm
 - [ ] Tính năng chuyển bài, pause, stop music dựa vào số lần chạm cảm biến chạm (music navigation with touch sensor)
+- [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 
 ## Completed implementation
 

@@ -44,16 +44,98 @@ class StartupWakeWordHintTests(unittest.TestCase):
             result = subprocess.run([str(executable)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_robot_hint_preserves_new_speech_and_full_screen_actions_cancel_it(self):
+        source = (ROOT / "main/boards/mrkenddo-robot/robot_screen_layout.cc").read_text(encoding="utf-8")
+        platform = r'''
+            #include <algorithm>
+            #include <cassert>
+            #include <string>
+            #include <string_view>
+            struct lv_obj_t { bool hidden = false; };
+            constexpr int LV_OBJ_FLAG_HIDDEN = 1;
+            void lv_obj_remove_flag(lv_obj_t* obj, int) { obj->hidden = false; }
+            void lv_obj_add_flag(lv_obj_t* obj, int) { obj->hidden = true; }
+            void lv_obj_move_foreground(lv_obj_t*) {}
+            namespace mrkenddo {
+            CLIP_TEXT
+            class RobotScreenLayout {
+            public:
+                lv_obj_t root;
+                lv_obj_t* root_ = &root;
+                bool startup_hint_ = false, hide_subtitle_ = false;
+                std::string role_, text_, rendered;
+                void RenderText() {
+                    rendered = hide_subtitle_ && !startup_hint_ ? "" : text_;
+                }
+                void SetVisible(bool);
+                void SetText(const char*, const char*);
+                void RemoveText(const char*, const char*);
+                void ClearText();
+                void ShowStartupHint(const char*);
+                void HideStartupHint(const char*);
+                void DismissStartupHint();
+                void SetHideSubtitle(bool);
+            };
+            METHODS
+            }
+            int main() {
+                mrkenddo::RobotScreenLayout layout;
+                layout.SetVisible(true);
+                layout.ShowStartupHint("Hint");
+                assert(layout.rendered == "Hint");
+                layout.SetText("assistant", "New reply");
+                layout.HideStartupHint("Hint");
+                assert(layout.rendered == "New reply");
+                layout.ShowStartupHint("Hint");
+                layout.SetText("system", "Network error");
+                layout.HideStartupHint("Hint");
+                assert(layout.rendered == "Network error");
+                layout.ShowStartupHint("Hint");
+                layout.SetVisible(false); // QR/boot/spectrum owns the screen.
+                assert(layout.root.hidden && layout.rendered.empty());
+                layout.SetVisible(true);
+                assert(!layout.root.hidden && layout.rendered.empty());
+                layout.ShowStartupHint("Hint");
+                layout.SetText("assistant", "Hint"); // Same text, new owner.
+                layout.HideStartupHint("Hint");
+                assert(layout.rendered == "Hint");
+                layout.RemoveText("user", "Hint");
+                assert(layout.rendered == "Hint");
+                layout.ClearText();
+                assert(layout.rendered.empty());
+                layout.SetHideSubtitle(true);
+                layout.ShowStartupHint("Hint");
+                assert(layout.rendered == "Hint");
+                layout.DismissStartupHint();
+                assert(layout.rendered.empty());
+                layout.SetText("assistant", "Speech");
+                assert(layout.rendered.empty());
+                layout.SetHideSubtitle(false);
+                assert(layout.rendered == "Speech");
+                const std::string long_text(2000, 'x');
+                layout.SetText("assistant", long_text.c_str());
+                assert(layout.text_.size() == 1024);
+                layout.RemoveText("assistant", long_text.c_str());
+                assert(layout.rendered.empty());
+            }
+        '''
+        methods = "\n".join(definition(source, "void RobotScreenLayout::" + name + "(") for name in (
+            "SetVisible", "SetText", "RemoveText", "ClearText", "ShowStartupHint",
+            "HideStartupHint", "DismissStartupHint", "SetHideSubtitle",
+        ))
+        driver = textwrap.dedent(platform).replace("CLIP_TEXT", definition(source, "std::string ClipText("))
+        self.compile_and_run(driver.replace("METHODS", methods))
+
     def test_startup_hint_is_a_localized_one_time_assistant_message_with_a_five_second_timeout(self):
         locales = ROOT / "main/assets/locales"
-        english = json.loads((locales / "en-US/language.json").read_text())["strings"]["WAKE_WORD_HINT"]
-        chinese = json.loads((locales / "zh-CN/language.json").read_text())["strings"]["WAKE_WORD_HINT"]
+        english = json.loads((locales / "en-US/language.json").read_text(encoding="utf-8"))["strings"]["WAKE_WORD_HINT"]
+        chinese = json.loads((locales / "zh-CN/language.json").read_text(encoding="utf-8"))["strings"]["WAKE_WORD_HINT"]
         method = definition(
-            (ROOT / "main/application.cc").read_text(),
+            (ROOT / "main/application.cc").read_text(encoding="utf-8"),
             "void Application::ShowStartupWakeWordHint()",
         )
         hide = definition(
-            (ROOT / "main/application.cc").read_text(),
+            (ROOT / "main/application.cc").read_text(encoding="utf-8"),
             "void Application::HideStartupWakeWordHint()",
         )
         platform = r'''
@@ -122,6 +204,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             public:
                 std::string status = "Standby";
                 std::vector<std::pair<std::string, std::string>> messages;
+                DISPLAY_HINT_HOOKS
                 void SetChatMessage(const char* role, const char* content) {
                     messages.emplace_back(role, content);
                 }
@@ -230,7 +313,12 @@ class StartupWakeWordHintTests(unittest.TestCase):
                 assert(display->messages.empty());
             }
         '''
-        driver = textwrap.dedent(platform).replace("ENGLISH_TEMPLATE", json.dumps(english, ensure_ascii=False))
+        display_header = (ROOT / "main/display/display.h").read_text(encoding="utf-8")
+        hooks = "\n".join(definition(display_header, "virtual void " + name + "(") for name in (
+            "ShowStartupHint", "HideStartupHint",
+        ))
+        driver = textwrap.dedent(platform).replace("DISPLAY_HINT_HOOKS", hooks)
+        driver = driver.replace("ENGLISH_TEMPLATE", json.dumps(english, ensure_ascii=False))
         driver += method + hide + textwrap.dedent(checks).replace("CHINESE_TEMPLATE", json.dumps(chinese, ensure_ascii=False))
         self.compile_and_run(driver)
 
@@ -348,7 +436,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             ("wechat_lcd", "lcd_display.cc", 0, wechat_checks),
         ):
             with self.subTest(display=name):
-                source = (ROOT / "main/display" / file).read_text()
+                source = (ROOT / "main/display" / file).read_text(encoding="utf-8")
                 signature = "void " + ("OledDisplay" if name == "oled" else "LcdDisplay") + "::RemoveChatMessage("
                 method = definition(source, signature, occurrence)
                 method = method.replace("OledDisplay::", "TestDisplay::").replace("LcdDisplay::", "TestDisplay::")

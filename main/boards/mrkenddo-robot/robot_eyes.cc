@@ -140,7 +140,6 @@ void RobotEyesView::SetVisible(bool visible) {
     }
     if (visible) {
         lv_obj_remove_flag(root_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(root_);
     } else {
         lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -149,7 +148,14 @@ void RobotEyesView::SetVisible(bool visible) {
 void RobotEyesView::SetMode(RobotEyesMode mode) {
     mode_ = mode;
     frame_ = 0;
-    SetVisible(true);
+    Render();
+}
+
+void RobotEyesView::SetSize(lv_coord_t width, lv_coord_t height) {
+    width_ = width;
+    height_ = height;
+    lv_obj_set_size(root_, width_, height_);
+    lv_obj_center(root_);
     Render();
 }
 

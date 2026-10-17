@@ -392,6 +392,11 @@ void Application::Initialize() {
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
 
+    device_bridge_client_ = std::make_unique<DeviceBridgeClient>(
+        [this](const std::string& payload, std::string* result, std::string* error) {
+            return HandleDeviceBridgeCommand(payload, result, error);
+        });
+
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
         auto display = Board::GetInstance().GetDisplay();
@@ -613,6 +618,12 @@ void Application::Run() {
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    // WSS setup resolves/connects through lwIP. Start only after the board has
+    // reported a usable network so the TCP/IP task and mailbox are ready.
+    if (device_bridge_client_ != nullptr) {
+        device_bridge_client_->Start();
+    }
+
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -898,23 +909,17 @@ void Application::InitializeProtocol() {
         }
     });
 
-    protocol_->OnAudioChannelClosed([this, &board]() {
-        // Closing the MQTT conversation channel is independent from the HTTP
-        // radio stream. The server may send `goodbye` as soon as the assistant
-        // finishes speaking, so never let that callback terminate radio mode.
-        if (GetDeviceState() == kDeviceStateRadio) {
-            ESP_LOGI(TAG, "Audio channel closed while radio is active; keeping radio playback");
-            return;
-        }
-
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+    protocol_->OnAudioChannelClosed([this]() {
         Schedule([this]() {
-            // A radio start may have been queued while the audio channel was
-            // closing. Do not let this stale callback overwrite radio state.
-            if (GetDeviceState() == kDeviceStateRadio) {
+            text_bridge_active_ = false;
+            // HTTP music/notification/radio playback is independent from the
+            // conversation channel. Check on the main task: playback may start
+            // after `goodbye` arrives but before this scheduled callback runs.
+            if (IsStreamPlaybackState(GetDeviceState())) {
+                ESP_LOGI(TAG, "Conversation channel closed; keeping HTTP audio playback");
                 return;
             }
-            text_bridge_active_ = false;
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -929,94 +934,17 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
-        if (strcmp(type->valuestring, "radio.start") == 0) {
-            auto audio_url = cJSON_GetObjectItem(root, "audio_url");
-            if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
-                audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
-                ESP_LOGW(TAG, "Radio start message requires audio_url");
-                return;
+        if (strcmp(type->valuestring, "radio.start") == 0 ||
+            strcmp(type->valuestring, "radio.stop") == 0 ||
+            strcmp(type->valuestring, "media.play") == 0 ||
+            strcmp(type->valuestring, "media.stop") == 0) {
+            std::string error;
+            if (!HandleStreamPlaybackCommand(root, &error)) {
+                ESP_LOGW(TAG, "Ignoring invalid stream playback command: %s", error.c_str());
             }
-            MediaPlaybackMetadata metadata;
-            const cJSON* metadata_json = cJSON_GetObjectItemCaseSensitive(root, "metadata");
-            if (metadata_json != nullptr &&
-                (!cJSON_IsObject(metadata_json) ||
-                 !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
-                 !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
-                 !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station))) {
-                ESP_LOGW(TAG, "Radio metadata is invalid or too long");
-                return;
-            }
-            Schedule([this, url = std::string(audio_url->valuestring),
-                      metadata = std::move(metadata)]() mutable {
-                StartRadio(std::move(url), std::move(metadata));
-            });
-        } else if (strcmp(type->valuestring, "radio.stop") == 0) {
-            Schedule([this]() { StopRadio(); });
-        } else if (strcmp(type->valuestring, "media.play") == 0) {
-            auto audio_url = cJSON_GetObjectItem(root, "audio_url");
-            if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
-                audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
-                ESP_LOGW(TAG, "Media play message requires audio_url");
-                return;
-            }
-            MediaPlaybackMetadata metadata;
-            const cJSON* metadata_json = cJSON_GetObjectItem(root, "metadata");
-            if (metadata_json != nullptr) {
-                if (!cJSON_IsObject(metadata_json) ||
-                    !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
-                    !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
-                    !GetOptionalJsonString(metadata_json, "album", 128, &metadata.album) ||
-                    !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station)) {
-                    ESP_LOGW(TAG, "Media metadata is invalid or too long");
-                    return;
-                }
-                const cJSON* duration =
-                    cJSON_GetObjectItemCaseSensitive(metadata_json, "duration_ms");
-                if (duration != nullptr) {
-                    if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||
-                        std::floor(duration->valuedouble) != duration->valuedouble ||
-                        duration->valuedouble < 0 ||
-                        duration->valuedouble > std::numeric_limits<uint32_t>::max()) {
-                        ESP_LOGW(TAG, "Media duration is invalid");
-                        return;
-                    }
-                    metadata.duration_ms = static_cast<uint32_t>(duration->valuedouble);
-                }
-            }
-            std::vector<NotifySubtitle> subtitles;
-            const cJSON* subtitles_json = cJSON_GetObjectItemCaseSensitive(root, "subtitles");
-            if (subtitles_json != nullptr && !cJSON_IsArray(subtitles_json)) {
-                ESP_LOGW(TAG, "Media subtitles must be an array");
-                return;
-            }
-            if (cJSON_IsArray(subtitles_json)) {
-                if (cJSON_GetArraySize(subtitles_json) > kMaxMediaSubtitleCount) {
-                    ESP_LOGW(TAG, "Media subtitle count exceeds the limit");
-                    return;
-                }
-                cJSON* item = nullptr;
-                cJSON_ArrayForEach (item, subtitles_json) {
-                    const cJSON* start_ms = cJSON_GetObjectItemCaseSensitive(item, "start_ms");
-                    const cJSON* text = cJSON_GetObjectItemCaseSensitive(item, "text");
-                    if (!cJSON_IsObject(item) || !cJSON_IsNumber(start_ms) ||
-                        !std::isfinite(start_ms->valuedouble) ||
-                        std::floor(start_ms->valuedouble) != start_ms->valuedouble ||
-                        start_ms->valuedouble < 0 ||
-                        start_ms->valuedouble > std::numeric_limits<uint32_t>::max() ||
-                        !cJSON_IsString(text) || text->valuestring == nullptr ||
-                        std::strlen(text->valuestring) > kMaxMediaSubtitleBytes) {
-                        ESP_LOGW(TAG, "Media subtitle is invalid or too long");
-                        return;
-                    }
-                    subtitles.push_back(
-                        {static_cast<uint32_t>(start_ms->valuedouble), text->valuestring});
-                }
-            }
-            RequestMedia(std::string(audio_url->valuestring), std::move(metadata),
-                         std::move(subtitles));
-        } else if (strcmp(type->valuestring, "media.stop") == 0) {
-            RequestStopMedia();
-        } else if (strcmp(type->valuestring, "notify") == 0) {
+            return;
+        }
+        if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
                 ESP_LOGW(TAG, "Notify message requires audio_url");
@@ -1443,6 +1371,9 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 
 void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
+    if (new_state != kDeviceStateIdle) {
+        HideStartupWakeWordHint();
+    }
     clock_ticks_ = 0;
     // Any state change invalidates a pending deferred listening start;
     // the Listening case below re-arms it when needed.
@@ -1596,7 +1527,7 @@ void Application::ShowStartupWakeWordHint() {
         ESP_ERROR_CHECK(esp_timer_create(&timer_args, &startup_wake_word_hint_timer_));
     }
     ESP_LOGI(TAG, "Startup wake word hint: %s", message.c_str());
-    Board::GetInstance().GetDisplay()->SetChatMessage("assistant", message.c_str());
+    Board::GetInstance().GetDisplay()->ShowStartupHint(message.c_str());
     startup_wake_word_hint_message_ = std::move(message);
     ESP_ERROR_CHECK(esp_timer_start_once(startup_wake_word_hint_timer_, 5000 * 1000));
 }
@@ -1606,8 +1537,7 @@ void Application::HideStartupWakeWordHint() {
         return;
     }
     // A conversation or alert may have replaced the hint while its timer was running.
-    Board::GetInstance().GetDisplay()->RemoveChatMessage("assistant",
-                                                         startup_wake_word_hint_message_.c_str());
+    Board::GetInstance().GetDisplay()->HideStartupHint(startup_wake_word_hint_message_.c_str());
     startup_wake_word_hint_message_.clear();
 }
 
@@ -1730,6 +1660,142 @@ void Application::RequestMedia(std::string audio_url, MediaPlaybackMetadata meta
               subtitles = std::move(subtitles)]() mutable {
         QueueMedia(std::move(audio_url), std::move(metadata), std::move(subtitles));
     });
+}
+
+bool Application::HandleStreamPlaybackCommand(const cJSON* root, std::string* error) {
+    const auto reject = [error](const char* reason) {
+        if (error != nullptr) {
+            *error = reason;
+        }
+        return false;
+    };
+    const cJSON* type = cJSON_GetObjectItemCaseSensitive(root, "type");
+    if (!cJSON_IsString(type) || type->valuestring == nullptr) {
+        return reject("command type is required");
+    }
+
+    if (strcmp(type->valuestring, "radio.start") == 0) {
+        const cJSON* audio_url = cJSON_GetObjectItemCaseSensitive(root, "audio_url");
+        if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
+            audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
+            return reject("radio.start requires a valid audio_url");
+        }
+        MediaPlaybackMetadata metadata;
+        const cJSON* metadata_json = cJSON_GetObjectItemCaseSensitive(root, "metadata");
+        if (metadata_json != nullptr &&
+            (!cJSON_IsObject(metadata_json) ||
+             !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
+             !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
+             !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station))) {
+            return reject("radio metadata is invalid or too long");
+        }
+        RequestRadio(std::string(audio_url->valuestring), std::move(metadata));
+        return true;
+    }
+    if (strcmp(type->valuestring, "radio.stop") == 0) {
+        RequestStopRadio();
+        return true;
+    }
+    if (strcmp(type->valuestring, "media.play") == 0) {
+        const cJSON* audio_url = cJSON_GetObjectItemCaseSensitive(root, "audio_url");
+        if (!cJSON_IsString(audio_url) || audio_url->valuestring == nullptr ||
+            audio_url->valuestring[0] == '\0' || std::strlen(audio_url->valuestring) > 767) {
+            return reject("media.play requires a valid audio_url");
+        }
+        MediaPlaybackMetadata metadata;
+        const cJSON* metadata_json = cJSON_GetObjectItemCaseSensitive(root, "metadata");
+        if (metadata_json != nullptr) {
+            if (!cJSON_IsObject(metadata_json) ||
+                !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
+                !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
+                !GetOptionalJsonString(metadata_json, "album", 128, &metadata.album) ||
+                !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station)) {
+                return reject("media metadata is invalid or too long");
+            }
+            const cJSON* duration =
+                cJSON_GetObjectItemCaseSensitive(metadata_json, "duration_ms");
+            if (duration != nullptr) {
+                if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||
+                    std::floor(duration->valuedouble) != duration->valuedouble ||
+                    duration->valuedouble < 0 ||
+                    duration->valuedouble > std::numeric_limits<uint32_t>::max()) {
+                    return reject("media duration is invalid");
+                }
+                metadata.duration_ms = static_cast<uint32_t>(duration->valuedouble);
+            }
+        }
+        std::vector<NotifySubtitle> subtitles;
+        const cJSON* subtitles_json = cJSON_GetObjectItemCaseSensitive(root, "subtitles");
+        if (subtitles_json != nullptr && !cJSON_IsArray(subtitles_json)) {
+            return reject("media subtitles must be an array");
+        }
+        if (cJSON_IsArray(subtitles_json)) {
+            if (cJSON_GetArraySize(subtitles_json) > kMaxMediaSubtitleCount) {
+                return reject("media subtitle count exceeds the limit");
+            }
+            cJSON* item = nullptr;
+            cJSON_ArrayForEach (item, subtitles_json) {
+                const cJSON* start_ms = cJSON_GetObjectItemCaseSensitive(item, "start_ms");
+                const cJSON* text = cJSON_GetObjectItemCaseSensitive(item, "text");
+                if (!cJSON_IsObject(item) || !cJSON_IsNumber(start_ms) ||
+                    !std::isfinite(start_ms->valuedouble) ||
+                    std::floor(start_ms->valuedouble) != start_ms->valuedouble ||
+                    start_ms->valuedouble < 0 ||
+                    start_ms->valuedouble > std::numeric_limits<uint32_t>::max() ||
+                    !cJSON_IsString(text) || text->valuestring == nullptr ||
+                    std::strlen(text->valuestring) > kMaxMediaSubtitleBytes) {
+                    return reject("media subtitle is invalid or too long");
+                }
+                subtitles.push_back(
+                    {static_cast<uint32_t>(start_ms->valuedouble), text->valuestring});
+            }
+        }
+        RequestMedia(std::string(audio_url->valuestring), std::move(metadata),
+                     std::move(subtitles));
+        return true;
+    }
+    if (strcmp(type->valuestring, "media.stop") == 0) {
+        RequestStopMedia();
+        return true;
+    }
+    return reject("unsupported device bridge command");
+}
+
+bool Application::HandleDeviceBridgeCommand(const std::string& payload_json,
+                                            std::string* result_json, std::string* error) {
+    cJSON* root = cJSON_ParseWithLength(payload_json.data(), payload_json.size());
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        if (error != nullptr) {
+            *error = "command payload must be a JSON object";
+        }
+        return false;
+    }
+
+    bool accepted = false;
+    cJSON* result = cJSON_CreateObject();
+    const cJSON* type = cJSON_GetObjectItemCaseSensitive(root, "type");
+    if (cJSON_IsString(type) && type->valuestring != nullptr &&
+        strcmp(type->valuestring, "radio.status") == 0) {
+        cJSON_AddBoolToObject(result, "active", IsRadioActive());
+        cJSON_AddStringToObject(result, "state",
+                                DeviceStateMachine::GetStateName(GetDeviceState()));
+        accepted = true;
+    } else {
+        accepted = HandleStreamPlaybackCommand(root, error);
+        if (accepted) {
+            cJSON_AddStringToObject(result, "status", "queued");
+        }
+    }
+
+    if (accepted && result_json != nullptr) {
+        char* encoded = cJSON_PrintUnformatted(result);
+        *result_json = encoded == nullptr ? "{}" : encoded;
+        cJSON_free(encoded);
+    }
+    cJSON_Delete(result);
+    cJSON_Delete(root);
+    return accepted;
 }
 
 void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,

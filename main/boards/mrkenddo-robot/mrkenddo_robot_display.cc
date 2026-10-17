@@ -33,6 +33,7 @@ MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
         audio_visualizer_ = nullptr;
     }
     robot_eyes_.reset();
+    screen_layout_.reset();
     if (boot_console_ != nullptr) {
         lv_obj_delete(boot_console_);
         boot_console_ = nullptr;
@@ -51,9 +52,13 @@ void MrkenDDoRobotDisplay::SetupUI() {
         return;
     }
 
-    robot_eyes_ = std::make_unique<RobotEyesView>(lv_screen_active(), width_, height_);
+    screen_layout_ = std::make_unique<mrkenddo::RobotScreenLayout>(
+        lv_screen_active(), width_, height_,
+        static_cast<LvglTheme*>(current_theme_)->text_font()->font());
+    screen_layout_->SetHideSubtitle(hide_subtitle_);
+    robot_eyes_ = std::make_unique<RobotEyesView>(screen_layout_->FaceRegion(), width_,
+                                                  screen_layout_->FaceHeight());
     spectrum_ = std::make_unique<mrkenddo::RobotSpectrum>();
-    robot_eyes_->SetVisible(false);
     HideLegacyEmoji();
 
     // Keep the QR above robot eyes, notifications, and chat UI refreshes.
@@ -154,7 +159,7 @@ MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
     if (boot_state_ == BootState::Finished && audio_playback_active_) {
         return UiMode::AudioVisualizer;
     }
-    return UiMode::Eyes;
+    return UiMode::NormalFace;
 }
 
 void MrkenDDoRobotDisplay::ApplyUiMode() {
@@ -171,10 +176,8 @@ void MrkenDDoRobotDisplay::ApplyUiMode() {
         }
     };
 
-    // RobotEyesView updates can show/move the eyes internally. Always reconcile
-    // after those updates, while still holding the same LVGL lock.
-    if (robot_eyes_ != nullptr) {
-        robot_eyes_->SetVisible(mode == UiMode::Eyes);
+    if (screen_layout_ != nullptr) {
+        screen_layout_->SetVisible(mode == UiMode::NormalFace);
     }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
@@ -204,6 +207,11 @@ void MrkenDDoRobotDisplay::SetStatus(const char* status) {
         DisplayLockGuard lock(this);
         if (!lock) {
             return;
+        }
+        if (screen_layout_ != nullptr && std::strcmp(status, Lang::Strings::STANDBY) != 0) {
+            // Status changes dismiss only the transient hint. Speaking text
+            // follows SetChatMessage/ClearChatMessages instead.
+            screen_layout_->DismissStartupHint();
         }
         if (std::strcmp(status, Lang::Strings::SPEAKING) != 0) {
             music_session_.Reset();
@@ -275,9 +283,12 @@ void MrkenDDoRobotDisplay::RenderMusicInfo() {
 }
 
 void MrkenDDoRobotDisplay::SetChatMessage(const char* role, const char* content) {
+    if (role == nullptr || content == nullptr) {
+        return;
+    }
     bool consumed = false;
     bool music = false;
-    if (role != nullptr && content != nullptr && std::strcmp(role, "assistant") == 0) {
+    if (std::strcmp(role, "assistant") == 0) {
         DisplayLockGuard lock(this);
         if (!lock) {
             return;
@@ -303,7 +314,47 @@ void MrkenDDoRobotDisplay::SetChatMessage(const char* role, const char* content)
     if (consumed) {
         SpiLcdDisplay::SetStatus(music ? "Music" : Lang::Strings::SPEAKING);
     } else {
-        SpiLcdDisplay::SetChatMessage(role, content);
+        DisplayLockGuard lock(this);
+        if (lock && screen_layout_ != nullptr) {
+            screen_layout_->SetText(role, content);
+        }
+    }
+}
+
+void MrkenDDoRobotDisplay::RemoveChatMessage(const char* role, const char* content) {
+    DisplayLockGuard lock(this);
+    if (lock && screen_layout_ != nullptr) {
+        screen_layout_->RemoveText(role, content);
+    }
+}
+
+void MrkenDDoRobotDisplay::ClearChatMessages() {
+    DisplayLockGuard lock(this);
+    if (lock && screen_layout_ != nullptr) {
+        screen_layout_->ClearText();
+    }
+}
+
+void MrkenDDoRobotDisplay::ShowStartupHint(const char* text) {
+    DisplayLockGuard lock(this);
+    if (lock && screen_layout_ != nullptr && GetUiMode() == UiMode::NormalFace &&
+        boot_state_ == BootState::Finished && text != nullptr) {
+        screen_layout_->ShowStartupHint(text);
+    }
+}
+
+void MrkenDDoRobotDisplay::HideStartupHint(const char* text) {
+    DisplayLockGuard lock(this);
+    if (lock && screen_layout_ != nullptr) {
+        screen_layout_->HideStartupHint(text);
+    }
+}
+
+void MrkenDDoRobotDisplay::SetHideSubtitle(bool hide) {
+    SpiLcdDisplay::SetHideSubtitle(hide);
+    DisplayLockGuard lock(this);
+    if (lock && screen_layout_ != nullptr) {
+        screen_layout_->SetHideSubtitle(hide);
     }
 }
 
@@ -486,6 +537,12 @@ void MrkenDDoRobotDisplay::SetMediaSubtitle(const char* text) {
 }
 
 void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
+    if (screen_layout_ != nullptr) {
+        screen_layout_->SetFont(text_font);
+        if (robot_eyes_ != nullptr) {
+            robot_eyes_->SetSize(width_, screen_layout_->FaceHeight());
+        }
+    }
     if (boot_console_label_ != nullptr) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
     }

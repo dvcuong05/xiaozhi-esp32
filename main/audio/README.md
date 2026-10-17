@@ -93,6 +93,15 @@ flowchart LR
     Codec --> Speaker[Speaker]
 ```
 
+Packet giữ metadata nguồn nội bộ `Conversation`, `Effect`, `Notification`
+hoặc `Media` qua decode/resample; metadata không được gửi trong WebSocket
+hay MQTT/UDP. Callback playback tùy chọn chỉ mượn con trỏ PCM trong thời
+gian gọi. `Application` copy tối đa 512 mẫu mono sang mailbox cố định và
+chuyển cho display opt-in tối đa 25 FPS, kiểm tra lại state/session trước
+khi hiển thị. FFT và animation không chạy trên audio output task. Effect,
+boot sound và notification không bật media visualizer; hội thoại và media
+được trình bày riêng bởi display của board.
+
 ## Tasks and power management
 
 - `AudioInputTask` reads codec input and feeds the selected engine.

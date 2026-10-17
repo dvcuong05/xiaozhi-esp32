@@ -22,6 +22,7 @@ struct NotifySubtitle {
 struct StreamPlaybackOptions {
     bool continuous = false;
     uint32_t reconnect_delay_ms = 1000;
+    AudioPlaybackSource source = AudioPlaybackSource::Notification;
 };
 
 class NotifyPlayer {

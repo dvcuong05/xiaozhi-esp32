@@ -9,6 +9,7 @@ bool ContinuousStreamPlayer::Start(std::string audio_url, uint32_t playback_id,
                                    FinishedCallback finished_callback) {
     StreamPlaybackOptions options;
     options.continuous = true;
+    options.source = AudioPlaybackSource::Media;
     return stream_player_.Start(std::move(audio_url), {}, playback_id, nullptr,
                                 std::move(finished_callback), options);
 }

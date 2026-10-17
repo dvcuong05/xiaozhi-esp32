@@ -78,6 +78,7 @@ public:
     virtual void OnApplicationReady() {}
     // Optional board-local consumer for the shared boot event stream.
     virtual void OnBootEvent(const BootEvent& event) { (void)event; }
+    virtual BootAudioConfig GetBootAudioConfig() { return {}; }
     // Optional board-provided boot sounds. Empty views disable the sound on boards
     // that do not opt into a boot presentation.
     virtual std::string_view GetBootSound(BootStage stage) {

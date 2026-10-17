@@ -184,10 +184,12 @@ void NotifyPlayer::WorkerTask() {
     bool success = false;
     bool continuous = false;
     uint32_t reconnect_delay_ms = 1000;
+    AudioPlaybackSource source = AudioPlaybackSource::Notification;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         continuous = options_.continuous;
         reconnect_delay_ms = options_.reconnect_delay_ms;
+        source = options_.source;
     }
 
     do {
@@ -208,9 +210,9 @@ void NotifyPlayer::WorkerTask() {
                     auto demuxer = std::make_unique<OggDemuxer>();
                     uint32_t media_position_ms = 0;
                     bool packet_error = false;
-                    demuxer->OnPacket([this, playback_id, &media_position_ms, &packet_error](
-                                          const uint8_t* data, int sample_rate,
-                                          int frame_duration_ms, size_t size) {
+                    demuxer->OnPacket([this, playback_id, source, &media_position_ms,
+                                       &packet_error](const uint8_t* data, int sample_rate,
+                                                      int frame_duration_ms, size_t size) {
                         if (packet_error || IsCancelled(playback_id)) {
                             packet_error = true;
                             return;
@@ -221,6 +223,7 @@ void NotifyPlayer::WorkerTask() {
                         packet->frame_duration = frame_duration_ms;
                         packet->playback_id = playback_id;
                         packet->media_position_ms = media_position_ms;
+                        packet->source = source;
                         packet->payload.assign(data, data + size);
 
                         {

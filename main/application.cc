@@ -24,8 +24,7 @@
 
 namespace {
 
-constexpr int kDefaultBootAudioVolume = 45;
-constexpr int kBootAudioConfigVersion = 2;
+constexpr int64_t kAudioVisualizerFrameIntervalUs = 40000;
 
 bool IsStreamPlaybackState(DeviceState state) {
     return state == kDeviceStateRadio || state == kDeviceStateNotifying;
@@ -58,11 +57,35 @@ Application::Application()
                                                 .name = "clock_timer",
                                                 .skip_unhandled_events = true};
     esp_timer_create(&clock_timer_args, &clock_timer_handle_);
+
+    esp_timer_create_args_t visualizer_timer_args = {
+        .callback =
+            [](void* arg) {
+                auto* app = static_cast<Application*>(arg);
+                bool pending = false;
+                {
+                    std::lock_guard<std::mutex> lock(app->audio_visualizer_mutex_);
+                    pending = app->audio_visualizer_frame_pending_;
+                }
+                if (pending) {
+                    xEventGroupSetBits(app->event_group_, MAIN_EVENT_AUDIO_VISUALIZER);
+                }
+            },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "audio_visualizer",
+        .skip_unhandled_events = true,
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&visualizer_timer_args, &audio_visualizer_timer_));
 }
 
 Application::~Application() {
     notify_player_.Stop();
     continuous_stream_player_.Stop();
+    if (audio_visualizer_timer_ != nullptr) {
+        esp_timer_stop(audio_visualizer_timer_);
+        esp_timer_delete(audio_visualizer_timer_);
+    }
     if (clock_timer_handle_ != nullptr) {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
@@ -77,19 +100,8 @@ Application::~Application() {
 bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
 
 void Application::LoadBootAudioConfig() {
-    Settings settings("boot_sequence", false);
-    boot_audio_enabled_ = settings.GetBool("enabled", true);
-    int32_t stored_volume = settings.GetInt("volume", kDefaultBootAudioVolume);
-    const int32_t config_version = settings.GetInt("version", 0);
-    if (config_version < kBootAudioConfigVersion && config_version == 0 && stored_volume == 22) {
-        // Version 1 used 22 as the default, which is too quiet for the robot's
-        // startup presentation. Preserve an explicit non-default user choice.
-        Settings migration("boot_sequence", true);
-        migration.SetInt("volume", kDefaultBootAudioVolume);
-        migration.SetInt("version", kBootAudioConfigVersion);
-        stored_volume = kDefaultBootAudioVolume;
-    }
-    boot_audio_volume_ = std::clamp<int32_t>(stored_volume, 0, 100);
+    const auto config = Board::GetInstance().GetBootAudioConfig();
+    SetBootAudioConfig(config.enabled, config.volume);
 }
 
 void Application::SetBootAudioConfig(bool enabled, int volume) {
@@ -196,6 +208,99 @@ void Application::HandleBootEvents() {
     }
 }
 
+void Application::QueueAudioVisualizerFrame(const int16_t* pcm, size_t count, int sample_rate,
+                                            uint32_t playback_id, AudioPlaybackSource source) {
+    const auto state = GetDeviceState();
+    const bool media = source == AudioPlaybackSource::Media && state == kDeviceStateRadio;
+    const bool speech =
+        source == AudioPlaybackSource::Conversation && state == kDeviceStateSpeaking;
+    if (pcm == nullptr || count == 0 || sample_rate <= 0 || (!media && !speech)) {
+        return;
+    }
+    bool notify = false;
+    {
+        std::lock_guard<std::mutex> lock(audio_visualizer_mutex_);
+        notify = !audio_visualizer_frame_pending_;
+        const size_t copied = std::min(count, AudioPlaybackFrame::kSamples);
+        // Keep a contiguous window: striding samples would alias the FFT.
+        std::copy_n(pcm, copied, audio_visualizer_frame_.pcm.begin());
+        audio_visualizer_frame_.sample_count = copied;
+        audio_visualizer_frame_.sample_rate = sample_rate;
+        audio_visualizer_frame_.playback_id = playback_id;
+        audio_visualizer_frame_.source = source;
+        audio_visualizer_frame_pending_ = true;
+    }
+    if (notify) {
+        xEventGroupSetBits(event_group_, MAIN_EVENT_AUDIO_VISUALIZER);
+    }
+}
+
+void Application::HandleAudioVisualizerEvent() {
+    // The timer callback only posts an event. Keeping timer operations here
+    // serializes frame/drain races without holding the audio mailbox mutex.
+    if (audio_visualizer_timer_armed_) {
+        // An expired one-shot is already stopped (ESP_ERR_INVALID_STATE).
+        esp_timer_stop(audio_visualizer_timer_);
+        audio_visualizer_timer_armed_ = false;
+    }
+    AudioPlaybackFrame frame;
+    uint32_t generation = 0;
+    bool stopped = false;
+    bool has_frame = false;
+    int64_t delay_us = 0;
+    {
+        std::lock_guard<std::mutex> lock(audio_visualizer_mutex_);
+        stopped = audio_visualizer_stop_pending_;
+        audio_visualizer_stop_pending_ = false;
+        generation = audio_visualizer_generation_;
+        const int64_t now = esp_timer_get_time();
+        if (audio_visualizer_frame_pending_ &&
+            now - audio_visualizer_last_frame_us_ >= kAudioVisualizerFrameIntervalUs) {
+            frame = audio_visualizer_frame_;
+            audio_visualizer_frame_pending_ = false;
+            audio_visualizer_last_frame_us_ = now;
+            has_frame = true;
+        } else if (audio_visualizer_frame_pending_) {
+            delay_us = kAudioVisualizerFrameIntervalUs - (now - audio_visualizer_last_frame_us_);
+        }
+    }
+
+    if (delay_us > 0) {
+        ESP_ERROR_CHECK(esp_timer_start_once(audio_visualizer_timer_, delay_us));
+        audio_visualizer_timer_armed_ = true;
+        // A concurrent drain posts another event, which cancels this one-shot;
+        // a concurrent frame overwrites the mailbox without extending the deadline.
+    }
+
+    auto* display = Board::GetInstance().GetDisplay();
+    if (display == nullptr) {
+        return;
+    }
+    // A new playback may already have published a frame after the stop. Apply
+    // the stop first, then only that new generation's latest frame.
+    if (stopped) {
+        display->OnAudioPlaybackStopped();
+    }
+    if (has_frame) {
+        {
+            std::lock_guard<std::mutex> lock(audio_visualizer_mutex_);
+            if (generation != audio_visualizer_generation_) {
+                return;
+            }
+        }
+        // Display hooks retain ownership of boot presentation blocking. A stop
+        // arriving during this call is delivered on the next main-loop pass.
+        // Recheck state/session on the main task; an old frame cannot reopen
+        // media UI after Stop, or drive the mouth after listening has started.
+        const auto state = GetDeviceState();
+        if ((frame.source == AudioPlaybackSource::Media && state == kDeviceStateRadio &&
+             frame.playback_id == radio_playback_id_) ||
+            (frame.source == AudioPlaybackSource::Conversation && state == kDeviceStateSpeaking)) {
+            display->OnAudioPlaybackFrame(frame);
+        }
+    }
+}
+
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
@@ -223,23 +328,23 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
-    callbacks.on_playback_drained = [this]() {
-        xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED);
-        auto* display = Board::GetInstance().GetDisplay();
-        if (display != nullptr) {
-            Schedule([display]() { display->OnAudioPlaybackStopped(); });
+    const bool visualize_audio = display != nullptr && display->SupportsAudioVisualization();
+    callbacks.on_playback_drained = [this, visualize_audio]() {
+        if (visualize_audio) {
+            std::lock_guard<std::mutex> lock(audio_visualizer_mutex_);
+            ++audio_visualizer_generation_;
+            audio_visualizer_frame_pending_ = false;
+            audio_visualizer_stop_pending_ = true;
         }
+        xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED |
+                                             (visualize_audio ? MAIN_EVENT_AUDIO_VISUALIZER : 0));
     };
-    callbacks.on_playback_frame =
-        [this](const std::array<uint8_t, AUDIO_VISUALIZER_BANDS>& levels) {
-            auto* display = Board::GetInstance().GetDisplay();
-            if (display == nullptr) {
-                return;
-            }
-            Schedule([display, levels]() {
-                display->OnAudioPlaybackFrame(levels.data(), levels.size());
-            });
+    if (visualize_audio) {
+        callbacks.on_playback_frame = [this](const int16_t* pcm, size_t count, int sample_rate,
+                                             uint32_t playback_id, AudioPlaybackSource source) {
+            QueueAudioVisualizerFrame(pcm, count, sample_rate, playback_id, source);
         };
+    }
     callbacks.on_playback_progress = [this](uint32_t playback_id, uint32_t media_position_ms) {
         if (GetDeviceState() == kDeviceStateRadio) {
             continuous_stream_player_.OnPlaybackProgress(playback_id, media_position_ms);
@@ -252,7 +357,7 @@ void Application::Initialize() {
     LoadBootAudioConfig();
     display->StartBootSequence();
     board.OnApplicationReady();
-    ReportBootEvent(BootStage::SystemInitializing, "MRKENDDO ROBOT");
+    ReportBootEvent(BootStage::SystemInitializing);
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -346,7 +451,8 @@ void Application::Run() {
         MAIN_EVENT_VAD_CHANGE | MAIN_EVENT_CLOCK_TICK | MAIN_EVENT_ERROR |
         MAIN_EVENT_NETWORK_CONNECTED | MAIN_EVENT_NETWORK_DISCONNECTED | MAIN_EVENT_TOGGLE_CHAT |
         MAIN_EVENT_START_LISTENING | MAIN_EVENT_STOP_LISTENING | MAIN_EVENT_ACTIVATION_DONE |
-        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED | MAIN_EVENT_STARTUP_HINT_TIMEOUT;
+        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED | MAIN_EVENT_STARTUP_HINT_TIMEOUT |
+        MAIN_EVENT_BOOT_EVENT | MAIN_EVENT_AUDIO_VISUALIZER;
 
     while (true) {
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
@@ -472,6 +578,9 @@ void Application::Run() {
         if (bits & MAIN_EVENT_STARTUP_HINT_TIMEOUT) {
             HideStartupWakeWordHint();
         }
+        if (bits & MAIN_EVENT_AUDIO_VISUALIZER) {
+            HandleAudioVisualizerEvent();
+        }
         ShowStartupWakeWordHint();
     }
 }
@@ -542,8 +651,6 @@ void Application::HandleActivationDoneEvent() {
     }
     if (!has_error) {
         auto display = Board::GetInstance().GetDisplay();
-    auto display = Board::GetInstance().GetDisplay();
-    if (!has_error) {
         std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
         display->ShowNotification(message.c_str());
         ReportBootEvent(BootStage::Ready, "XiaoZhi ready");
@@ -1244,6 +1351,12 @@ void Application::HandleStateChangedEvent() {
     auto led = board.GetLed();
     led->OnStateChanged();
 
+    // State changes must dismiss the previous audio presentation even when an
+    // in-flight frame is discarded or the decoder has no more PCM to drain.
+    if (display->SupportsAudioVisualization()) {
+        display->OnAudioPlaybackStopped();
+    }
+
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
@@ -1604,11 +1717,10 @@ void Application::StartRadio(std::string audio_url) {
         playback_id = ++radio_playback_id_;
     }
 
-    bool started =
-        continuous_stream_player_.Start(
-            std::move(audio_url), playback_id, [this](uint32_t id, bool success) {
-                Schedule([this, id, success]() { HandleRadioFinished(id, success); });
-            });
+    bool started = continuous_stream_player_.Start(
+        std::move(audio_url), playback_id, [this](uint32_t id, bool success) {
+            Schedule([this, id, success]() { HandleRadioFinished(id, success); });
+        });
     if (!started) {
         ESP_LOGE(TAG, "Failed to start radio playback");
         StopRadio();

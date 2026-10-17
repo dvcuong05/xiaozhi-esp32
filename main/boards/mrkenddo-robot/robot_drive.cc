@@ -4,7 +4,6 @@
 #include <cstdlib>
 
 #include <esp_log.h>
-#include <nvs.h>
 
 namespace {
 constexpr char kTag[] = "RobotDrive";
@@ -37,24 +36,6 @@ RobotDrive::RobotDrive(gpio_num_t left_a, gpio_num_t left_b, gpio_num_t right_a,
     };
     if (esp_timer_create(&timer_args, &stop_timer_) != ESP_OK) {
         ESP_LOGE(kTag, "Cannot create motor stop timer");
-    }
-
-    nvs_handle_t handle;
-    if (nvs_open("motor_config", NVS_READONLY, &handle) == ESP_OK) {
-        uint8_t left = 0;
-        uint8_t right = 1;
-        int32_t saved_delay = 1;
-        if (nvs_get_i32(handle, "delay_ms", &saved_delay) == ESP_OK && saved_delay >= kMinDelayMs &&
-            saved_delay <= kMaxDelayMs) {
-            delay_ms_ = saved_delay;
-        }
-        if (nvs_get_u8(handle, "left_inv", &left) == ESP_OK && left <= 1) {
-            left_inverted_ = left != 0;
-        }
-        if (nvs_get_u8(handle, "right_inv", &right) == ESP_OK && right <= 1) {
-            right_inverted_ = right != 0;
-        }
-        nvs_close(handle);
     }
 }
 
@@ -91,15 +72,20 @@ bool RobotDrive::Move(Direction direction, int steps, int delay_ms) {
         mutex_ == nullptr || stop_timer_ == nullptr) {
         return false;
     }
-    if (routine_running_.load() && routine_task_ != xTaskGetCurrentTaskHandle()) {
-        routine_cancel_.store(true);
-    }
     xSemaphoreTake(mutex_, portMAX_DELAY);
     int effective_delay = delay_ms == 0 ? delay_ms_ : delay_ms;
     int64_t duration_ms = static_cast<int64_t>(steps) * effective_delay;
     if (duration_ms > kMaxRunTimeMs) {
         xSemaphoreGive(mutex_);
         return false;
+    }
+    const bool from_routine = routine_task_ == xTaskGetCurrentTaskHandle();
+    if (from_routine && routine_cancel_.load()) {
+        xSemaphoreGive(mutex_);
+        return false;
+    }
+    if (!from_routine) {
+        routine_cancel_.store(true);
     }
     esp_timer_stop(stop_timer_);  // A new command replaces the previous timeout.
     int left = 0;
@@ -149,27 +135,35 @@ bool RobotDrive::Step(int steps, int delay_ms) {
 }
 
 bool RobotDrive::StartRoutine(Routine routine) {
-    if (mutex_ == nullptr || stop_timer_ == nullptr || routine_running_.load()) {
+    if (mutex_ == nullptr || stop_timer_ == nullptr) {
         return false;
     }
-
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+    if (routine_running_.load()) {
+        xSemaphoreGive(mutex_);
+        return false;
+    }
     routine_ = routine;
     routine_cancel_.store(false);
     routine_running_.store(true);
     if (xTaskCreate(RoutineTask, "robot_routine", 3072, this, 4, &routine_task_) != pdPASS) {
         routine_running_.store(false);
         routine_task_ = nullptr;
+        xSemaphoreGive(mutex_);
         return false;
     }
+    xSemaphoreGive(mutex_);
     return true;
 }
 
 void RobotDrive::RoutineTask(void* context) {
     auto* drive = static_cast<RobotDrive*>(context);
     drive->RunRoutine(drive->routine_);
-    drive->Stop();
-    drive->routine_running_.store(false);
+    drive->StopMotion();
+    xSemaphoreTake(drive->mutex_, portMAX_DELAY);
     drive->routine_task_ = nullptr;
+    drive->routine_running_.store(false);
+    xSemaphoreGive(drive->mutex_);
     vTaskDelete(nullptr);
 }
 
@@ -226,6 +220,15 @@ void RobotDrive::StopMotion() {
     if (mutex_ == nullptr)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    // Serialize external cancellation with StartRoutine() under the same mutex.
+    const bool from_routine = routine_task_ == xTaskGetCurrentTaskHandle();
+    if (!from_routine) {
+        routine_cancel_.store(true);
+    } else if (routine_cancel_.load()) {
+        // A cancelled routine cannot stop the manual command that superseded it.
+        xSemaphoreGive(mutex_);
+        return;
+    }
     if (stop_timer_ != nullptr)
         esp_timer_stop(stop_timer_);
     SetOutputsLocked(0, 0);
@@ -258,6 +261,7 @@ void RobotDrive::SetInversion(bool left_inverted, bool right_inverted) {
     if (mutex_ == nullptr)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    routine_cancel_.store(true);
     // Stop before changing polarity to avoid reversing under power.
     if (stop_timer_ != nullptr)
         esp_timer_stop(stop_timer_);

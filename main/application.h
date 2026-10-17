@@ -41,6 +41,7 @@
 #define MAIN_EVENT_PLAYBACK_DRAINED     (1 << 13)
 #define MAIN_EVENT_BOOT_EVENT           (1 << 14)
 #define MAIN_EVENT_STARTUP_HINT_TIMEOUT (1 << 15)
+#define MAIN_EVENT_AUDIO_VISUALIZER (1 << 16)
 
 enum AecMode {
     kAecOff,
@@ -151,6 +152,9 @@ private:
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     esp_timer_handle_t startup_wake_word_hint_timer_ = nullptr;
+    esp_timer_handle_t audio_visualizer_timer_ = nullptr;
+    // Only the main task starts/stops the one-shot visualizer timer.
+    bool audio_visualizer_timer_armed_ = false;
     DeviceStateMachine state_machine_;
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
@@ -178,7 +182,7 @@ private:
     bool pending_listening_start_ =
         false;  // Waiting for playback to drain before starting listening (auto mode)
     bool text_bridge_active_ = false;
-    bool boot_audio_enabled_ = true;
+    bool boot_audio_enabled_ = false;
     int boot_audio_volume_ = 45;
     bool boot_audio_volume_active_ = false;
     int boot_audio_restore_volume_ = 0;
@@ -189,6 +193,14 @@ private:
     size_t boot_event_ring_head_ = 0;
     size_t boot_event_ring_count_ = 0;
     std::mutex boot_event_mutex_;
+    // Latest-frame mailbox shared with audio callbacks. Never hold this mutex
+    // while calling display hooks; only the main task consumes the mailbox.
+    std::mutex audio_visualizer_mutex_;
+    AudioPlaybackFrame audio_visualizer_frame_{};
+    uint32_t audio_visualizer_generation_ = 0;
+    bool audio_visualizer_frame_pending_ = false;
+    bool audio_visualizer_stop_pending_ = false;
+    int64_t audio_visualizer_last_frame_us_ = -40000;
     int64_t text_bridge_started_us_ = 0;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
@@ -221,6 +233,9 @@ private:
     void EnsureBootAudioVolume();
     void RestoreBootAudioVolume();
     void LoadBootAudioConfig();
+    void QueueAudioVisualizerFrame(const int16_t* pcm, size_t count, int sample_rate,
+                                   uint32_t playback_id, AudioPlaybackSource source);
+    void HandleAudioVisualizerEvent();
 
     // Activation task (runs in background)
     void ActivationTask();

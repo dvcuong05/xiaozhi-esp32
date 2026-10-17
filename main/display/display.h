@@ -4,6 +4,7 @@
 #include "emoji_collection.h"
 #include "text_glyph.h"
 #include "boot_sequence.h"
+#include "audio/audio_playback_frame.h"
 
 #ifndef CONFIG_USE_EMOTE_MESSAGE_STYLE
 #define HAVE_LVGL 1
@@ -44,10 +45,8 @@ public:
     virtual void SetStatus(const char* status);
     // Optional playback visualization hooks. They are no-ops for displays that
     // do not provide a board-specific visualizer.
-    virtual void OnAudioPlaybackFrame(const uint8_t* levels, size_t count) {
-        (void)levels;
-        (void)count;
-    }
+    virtual bool SupportsAudioVisualization() const { return false; }
+    virtual void OnAudioPlaybackFrame(const AudioPlaybackFrame& frame) { (void)frame; }
     virtual void OnAudioPlaybackStopped() {}
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);

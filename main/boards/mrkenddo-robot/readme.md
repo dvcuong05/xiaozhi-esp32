@@ -29,6 +29,8 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height, `rotation` (0 hoặc 180 độ), `mode` (`0=clock`, `1=marquee`, `2=status`, `3=off`), `text`, `speed`, `font_size`, `contrast` và `invert`; lưu NVS và khởi tạo lại OLED sau khi lưu. `POST /api/oled_message` đổi sang mode chữ chạy và cập nhật nội dung mà không reset I2C; `POST /api/oled_clear` tắt nội dung; `POST /api/oled_test` khởi tạo lại OLED.
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
+- `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
+- `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
 - `POST /api/prompt`: `{ "prompt": "..." }` (tối đa 1000 byte UTF-8) trả HTTP 202 khi được xếp hàng, 409 nếu thiết bị bận. Đây là cầu nối MCP thử nghiệm cho server tenclass.net: firmware chỉ gửi trigger ngắn `web_chat` qua `listen/detect`, còn câu lệnh đầy đủ chỉ được chuyển khi AI gọi tool `self.web_chat.consume_pending`. Không dùng `detect` để gửi văn bản dài.
 - `GET /api/prompt_status`: `queued`, `trigger_sent`, `consumed`, `failed` hoặc `timeout`. `trigger_sent` **không** có nghĩa AI đã nhận câu lệnh; chỉ `consumed` xác nhận tool đã được gọi. Phản hồi TTS vẫn cần thử trên phần cứng và phụ thuộc server/agent; sau 30 giây không gọi tool, câu lệnh bị xóa và trạng thái chuyển `timeout`.
 
@@ -49,9 +51,25 @@ idf-init
 idf.py build
 ```
 
+Lệnh build kiểm tra bản refactor, giữ wake word Jarvis đang được chọn:
+
+```powershell
+idf-init
+python scripts/build.py mrkenddo-robot --name mrkenddo-robot --language vi-VN --wake-word wn9_jarvis_tts
+```
+
+`--language` và `--wake-word` là lựa chọn khi build; không đưa chúng vào
+`config.json` của board. Build thành công chưa thay thế kiểm tra trên robot.
+
 Để chọn/build variant từ đầu, sau `idf-init` chạy `python scripts/build.py --list-boards` và `python scripts/build.py mrkenddo-robot --name mrkenddo-robot --language vi-VN`. Script variant có thể thay đổi `sdkconfig` và trạng thái build cục bộ. Có thể dùng `mrkenddo-build-firmware.bat` và `mrkenddo-flash-firmware.bat` sau khi kiểm tra đường dẫn ESP-IDF và cổng COM. Output firmware ở `build/`.
 
 Kiểm tra host/style: `python -m unittest discover -s scripts/tests -v`, `git diff --check` và `clang-format --dry-run -Werror` với các file C/C++ đã sửa. Không sửa thủ công `build/`, `managed_components/`, `components/`, `sdkconfig*` hay file generated/vendor.
+
+Test nhận diện nhạc/lyrics nằm tại `tests/music_session_test.cc`, chạy trên
+host bằng C++23 cùng `robot_music_session.cc` (không được compile vào firmware).
+Test replay marker/tên bài/lời trong log tenclass, giới hạn UTF-8 và reset sau
+khi kết thúc bài. Khi thêm file `.cc` mới vào board, chạy `idf.py reconfigure`
+trước build vì danh sách source board dùng GLOB ở thời điểm cấu hình.
 
 ## Cần xác nhận trên phần cứng
 
@@ -66,8 +84,13 @@ khiển motor và routine qua webserver/MCP, OLED clock/marquee/status, hiển t
 IP khi boot, mắt robot cyan có animation, boot console, audio starting/wake,
 Audio Visualizer theo PCM playback và hiển thị QR thanh toán trên TFT. QR mặc
 định giữ trên màn hình 30 giây và có thể cấu hình thời gian từ 5 đến 120 giây
-qua MCP. Visualizer hiện hiển thị cột mức âm thanh; metadata tên bài hát/tác
-giả chưa có trong payload audio hiện tại. Giao diện visualizer dùng palette
+qua MCP. Visualizer hiển thị phổ tần FFT thật, chỉ khi nhạc/radio có PCM thực
+sự phát ra loa; không bật vì boot sound, beep, thông báo hoặc giọng chatbot.
+Màn hình chatbot giữ mắt cyan và miệng đóng/mở theo mức âm thanh TTS; miệng
+tự khép khi im lặng hoặc chuyển sang listening/idle. Đây là animation theo
+âm lượng, không phải lip-sync theo âm vị. Nhạc tenclass qua tool `play_music`
+còn hiển thị tên bài và lời theo từng câu server gửi; metadata tác giả chưa
+có trong payload hiện tại. Giao diện visualizer dùng palette
 gradient nhiều màu trên nền midnight; màu cyan chỉ giữ cho robot eyes và các
 UI đã được thiết kế riêng theo nhận diện của robot.
 
@@ -76,6 +99,91 @@ phải tính năng chưa triển khai. Cần flash firmware mới trước khi k
 thay đổi trên robot.
 
 ## MCP va routine robot
+
+Firmware được tổ chức theo trách nhiệm, tập trung các phần riêng của sản phẩm
+trong thư mục board này. `mrkenddo_robot.cc` là nơi khởi tạo phần cứng và nối
+các module; các tính năng không đọc ngược vào board qua biến global.
+
+| Module | Trách nhiệm |
+| --- | --- |
+| `robot_controller.*` | Một đường xử lý chung cho lệnh HTTP và MCP; kiểm tra yêu cầu, lưu cấu hình rồi chuyển việc cập nhật UI/phần cứng sang task phù hợp. |
+| `robot_settings.*` | Nguồn duy nhất cho schema, giá trị mặc định, validation và migration của NVS motor/OLED/TFT/âm thanh boot. |
+| `secondary_display.*` | Sở hữu OLED SSD1306, I2C, framebuffer, mutex, task cập nhật và nội dung IP/boot/clock/marquee/status. |
+| `oled_display_controller.*`, `oled_clock_font.h` | Vẽ bitmap, ký tự tiếng Việt và emoji lên framebuffer; không đọc NVS hoặc xử lý HTTP/MCP. |
+| `web_server.*`, `robot_mcp_tools.*` | Adapter nhận đầu vào, kiểm tra JSON/tham số và gọi controller; giữ tên route/tool hiện có. |
+| `web_chat_bridge.*` | Giữ tối đa một prompt chờ, trigger `web_chat`, trạng thái consume và timeout 30 giây. |
+| `mrkenddo_robot_display.*`, `robot_eyes.*` | Điều phối màn TFT và vẽ mắt/boot console/QR/visualizer. |
+| `robot_spectrum.*` | FFT 512 điểm, Hann window, loại DC, 12 dải bass→treble và mức RMS điều khiển miệng; dùng lại `espressif/dl_fft` có sẵn. |
+| `robot_music_session.*` | Nhận diện marker tool nhạc tenclass trong `sentence_start`, giữ tên bài/lời hiện tại/dòng trước với giới hạn UTF-8; không thay giao thức hay đoán nhạc từ nội dung người dùng. |
+| `robot_qr_code.*` | Mã hóa text/URL thành QR động bằng Nayuki có sẵn trong LVGL, kiểm tra UTF-8, giữ ma trận module 1-bit; không tải ảnh hoặc tạo thông tin ngân hàng. |
+| `robot_drive.*` | Điều khiển motor, timeout và routine; nhận cấu hình từ controller thay vì tự đọc NVS. |
+
+Luồng đổi chế độ OLED từ web và từ giọng nói đều là
+`HTTP/MCP → RobotController → RobotSettings → Application::Schedule → SecondaryDisplay`.
+NVS được lưu trước khi báo đã nhận cấu hình; việc khởi tạo lại panel chạy ở
+main task và được tuần tự với task OLED bằng mutex. Phản hồi “scheduled” xác
+nhận yêu cầu đã được nhận, không xác nhận panel đã cập nhật xong. Văn bản OLED
+tạm thời chỉ thay nội dung runtime, không ghi đè marquee đã lưu.
+
+Các namespace/key NVS `motor_config`, `oled_config`, `tft_config` và
+`boot_sequence` được giữ nguyên, gồm migration góc TFT cũ và âm lượng boot cũ.
+QR mới dùng namespace `qr_config`, key `record`: một blob version 1 chứa
+payload/caption để không ghép nhầm payload mới với caption cũ khi lỗi ghi.
+Không có record thì dùng bitmap gốc; record lỗi/schema lạ thì từ chối hiện
+QR thanh toán thay vì âm thầm đổi người nhận. Dữ liệu NVS/HTTP không được
+mã hóa bởi tính năng này; chỉ dùng LAN tin cậy, không forward cổng 80.
+Tên Wi-Fi provisioning/hostname `MrKenDDo-Robot` do board cung cấp qua hook;
+các board Wi-Fi khác vẫn dùng mặc định của XiaoZhi.
+
+TFT chỉ chọn một chế độ từ trạng thái hiện tại, theo thứ tự ưu tiên
+`QR thanh toán → boot console → audio visualizer → robot eyes`. QR hết hạn
+khôi phục chế độ phù hợp lúc đó; status/emotion không tự giành quyền hiển thị.
+Visualizer bị chặn trong giai đoạn boot. Core chuyển cửa sổ PCM mới nhất qua
+mailbox có kích thước cố định, cập nhật UI tối đa 25 lần/giây; không xếp thêm
+một callback vào hàng đợi main task cho từng PCM frame. Timer one-shot chỉ
+được hẹn khi có frame chờ; lúc idle không có timer visualizer chạy định kỳ.
+Các display khác không đăng ký capability visualizer sẽ không nhận callback
+PCM phục vụ tính năng này.
+
+Tham khảo cách `develop_vn` gắn spectrum với vòng đời media player, nhưng
+không nhập nguyên player hay tạo task FFT riêng. Packet được gắn nguồn nội
+bộ `Conversation`/`Effect`/`Notification`/`Media`, giữ qua bước decode/resample;
+định dạng WebSocket và MQTT/UDP không đổi. Nguồn media hiện là player dùng
+chung cho nhạc/radio qua `radio.start` hoặc `POST /api/radio/start`; endpoint
+`/api/notify` vẫn là thông báo, không suy đoán thể loại từ URL. Thêm một nguồn
+nhạc hữu hạn sau này phải gắn `Media` rõ ràng, không dựa vào cờ lặp vô hạn.
+Luồng tenclass tích hợp có ngoại lệ quan trọng: `search_music`/`play_music`
+phát nhạc qua cùng transport TTS, nên state machine vẫn là `speaking`. Custom
+board nhận diện đúng marker assistant `% play_music...` (không phải
+`search_music` hay câu nói nhắc tên tool); chỉ khi có PCM mới bật spectrum,
+TFT hiện `Music`, không đổi state sang radio. Tên bài dạng `《...》` đi vào dòng
+tiêu đề; các `sentence_start` tiếp theo đi vào vùng lyrics, giữ thêm một dòng
+trước. Khi tạm thiếu PCM vẫn giữ session/lời; listening/idle/error/boot mới
+xóa session, tránh TTS kế tiếp bị coi nhầm là nhạc. Marker `stop_music` và
+`pause_music` cũng xóa session. Đây là adapter theo marker hiện có của backend,
+không phải phân loại giọng/nhạc bằng DSP; nếu backend đổi marker hoặc không
+gửi marker, cần metadata media rõ ràng thay vì đoán từ thời lượng/tiếng Trung.
+
+Lyrics dùng font Noto hiện tại và glyph push có sẵn, được cập nhật khi server
+gửi từng câu (không phải karaoke theo từ hay đồng bộ chính xác đồng hồ PCM).
+Không tải LRC trùng, không lưu cả bài: title tối đa 192 byte UTF-8, mỗi dòng
+lời tối đa 384 byte, giữ hai dòng; cắt tại biên ký tự. Ký tự ngoài font vẫn cần
+glyph do server cung cấp. QR tiếp tục ưu tiên cao hơn; trong lúc QR hiện, lời
+vẫn cập nhật để khi QR hết hạn hiển thị nội dung mới nhất.
+
+PCM media hoặc nhạc tenclass đã nhận diện bật spectrum; PCM hội thoại thường
+chỉ điều khiển miệng. Audio task
+copy tối đa 512 mẫu mono (1 KiB); FFT/render chạy trên main task tối đa 25 FPS,
+không cấp phát mỗi frame. FFT theo sample rate thực, 12 dải 40 Hz–16 kHz bị
+giới hạn bởi Nyquist; ở 24 kHz độ phân giải khoảng 47 Hz. Attack nhanh, decay
+mượt và thang dBFS cố định tránh khuếch đại nhiễu khi im lặng. Không phân tích
+micro, không tải thêm model, và không thay pipeline âm thanh hội thoại.
+
+Core vẫn sở hữu state machine và quyền sử dụng audio. `BootEvent`, hook `Board`
+và hook `Display` là hợp đồng dùng chung; chuỗi thương hiệu, âm thanh, cấu hình
+boot và cách trình bày do robot cung cấp. Module radio/notify generic không
+phụ thuộc GPIO, QR, OLED hay lớp board cụ thể. Các file C/C++ của robot hiện
+được giữ trực tiếp trong thư mục board để phù hợp cơ chế chọn source của CMake.
 
 Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac lenh tu nhien:
 
@@ -87,6 +195,8 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.robot.show_ip` va `self.robot.get_status`: hien/tra ve IP local va trang thai Wi-Fi, IP, routine.
 - `self.robot.show_oled_text`: hien mot cau tuy chon bang marquee tren OLED trong thoi gian tam thoi, khong ghi de noi dung da luu. Vi du: "Hien tren OLED: Xin chao moi nguoi".
 - `self.robot.show_payment_qr`: hien ma QR tai khoan ngan hang tren TFT trong thoi gian tam thoi. Vi du: "Hien ma QR thanh toan".
+- `self.network.ip2qrcode`: hiện QR mở webserver theo IP Wi-Fi hiện tại, không thay QR ngân hàng.
+- `self.robot.show_qr`: hiện QR URL/text tạm thời, nhận `payload`, `caption` và `duration_ms`; không lưu. Yêu cầu thanh toán phải dùng `show_payment_qr`, không suy đoán tài khoản từ chatbot. Cấu hình QR ngân hàng chỉ đổi qua web của chủ robot.
 
 Radio, music va video duoc tim kiem va dieu phoi boi service MCP rieng. Firmware khong
 chua provider, station ID hay dia chi MCP host. Lop tich hop cua robot chi nhan URL da duoc
@@ -99,4 +209,25 @@ Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong t
 
 Mode status cua OLED hien ngay theo dang `dd-MMM` (vi du `14-Oct`) thay cho `dd/mm/yy`.
 
-> Ma QR thanh toan duoc luu board-local dang bitmap 1-bit 37x37 trong `payment_qr_bitmap.h`, du lieu anh chi khoang 185 byte va khong can thu vien QR runtime. QR hien tren TFT trong 30 giay, sau do tu quay lai giao dien mat robot.
+> Bitmap 1-bit 37x37 gốc trong `payment_qr_bitmap.h` (185 byte) vẫn là mặc định
+> dự phòng khi chưa cấu hình QR mới. QR động dùng bộ mã hóa Nayuki có sẵn
+> trong LVGL, bật bằng `CONFIG_LV_USE_QRCODE=y` ở variant board. Ma trận tối đa
+> 65x65 chiếm khoảng 0,6 KiB, buffer mã hóa tạm khoảng 1 KiB; không tạo canvas
+> RGB565 240x240 (~112 KiB). Renderer vẽ đen/trắng, scale nguyên ít nhất 2 px/module,
+> quiet zone 4 module và caption tùy chọn nằm ngoài vùng QR. Hết hạn sẽ về
+> đúng boot/nhạc/mắt hiện tại, không nhất thiết luôn về mắt.
+
+Dashboard có mục "QR thanh toán & chia sẻ": dán **nội dung gốc đọc từ QR**
+(ví dụ chuỗi VietQR/EMV hoặc URL), nhập caption rồi xem thử và quét kiểm tra
+người nhận/số tiền trước khi lưu làm mặc định. Đây không phải upload ảnh PNG,
+không nhận link ảnh để tự tải/giải mã, không tự sửa checksum/tài khoản/số tiền.
+Xóa payload và lưu để trở lại bitmap cũ. QR tạm hoặc QR IP không ghi đè QR đã lưu.
+Không đưa dữ liệu QR ngân hàng vào log. Test host nằm ở `tests/qr_code_test.cc`;
+còn cần quét trên TFT thật, thử xoay màn hình, reboot, renew timeout và QR
+hết hạn trong lúc nhạc/boot vẫn chạy.
+
+Đối chiếu `develop_vn`: module `features/QRCode` tạo QR từ text/URL và tool
+`self.network.ip2qrcode` hiện URL IP; checkout tham khảo chưa có cấu hình
+ngân hàng trong module này. Mượn khả năng QR động và caption, nhưng giữ
+renderer gọn/overlay priority/thời gian quét của robot thay vì nhập canvas
+RGB565 toàn màn hình, singleton và static callback context của họ.

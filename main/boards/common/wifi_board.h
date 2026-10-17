@@ -8,6 +8,8 @@
 
 class WifiBoard : public Board {
 protected:
+    // Product-specific provisioning name without changing other Wi-Fi boards.
+    virtual const char* GetWifiConfigSsidPrefix() const { return "Xiaozhi"; }
     esp_timer_handle_t connect_timer_ = nullptr;
     bool in_config_mode_ = false;
     NetworkEventCallback network_event_callback_ = nullptr;

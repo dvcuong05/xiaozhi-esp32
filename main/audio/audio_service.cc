@@ -351,24 +351,9 @@ void AudioService::AudioOutputTask() {
         }
 
         if (callbacks_.on_playback_frame && !task.pcm.empty()) {
-            std::array<uint8_t, AUDIO_VISUALIZER_BANDS> levels = {};
-            for (size_t band = 0; band < levels.size(); ++band) {
-                const size_t start = task.pcm.size() * band / levels.size();
-                const size_t end = task.pcm.size() * (band + 1) / levels.size();
-                if (start >= end) {
-                    continue;
-                }
-
-                uint64_t amplitude_sum = 0;
-                for (size_t index = start; index < end; ++index) {
-                    amplitude_sum +=
-                        static_cast<uint32_t>(std::abs(static_cast<int32_t>(task.pcm[index])));
-                }
-                const uint64_t average = amplitude_sum / (end - start);
-                levels[band] = static_cast<uint8_t>(
-                    std::min<uint64_t>(255, average * 255 / INT16_MAX));
-            }
-            callbacks_.on_playback_frame(levels);
+            callbacks_.on_playback_frame(task.pcm.data(), task.pcm.size(),
+                                         codec_->output_sample_rate(), task.playback_id,
+                                         task.source);
         }
 
         codec_->OutputData(task.pcm);
@@ -428,6 +413,7 @@ void AudioService::OpusCodecTask() {
             task.timestamp = packet->timestamp;
             task.playback_id = packet->playback_id;
             task.media_position_ms = packet->media_position_ms;
+            task.source = packet->source;
 
             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
             bool decoded = false;
@@ -526,6 +512,7 @@ void AudioService::OpusCodecTask() {
                             callbacks_.on_send_queue_available();
                         }
                     } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
+                        packet->source = AudioPlaybackSource::Effect;
                         bool testing_queue_full = false;
                         {
                             std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
@@ -804,6 +791,7 @@ void AudioService::PlaySound(const std::string_view& ogg) {
             auto packet = std::make_unique<AudioStreamPacket>();
             packet->sample_rate = sample_rate;
             packet->frame_duration = frame_duration_ms;
+            packet->source = AudioPlaybackSource::Effect;
             packet->payload.resize(size);
             std::memcpy(packet->payload.data(), data, size);
             PushPacketToDecodeQueue(std::move(packet), true);

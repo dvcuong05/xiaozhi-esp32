@@ -98,6 +98,18 @@ RobotEyesView::RobotEyesView(lv_obj_t* parent, lv_coord_t width, lv_coord_t heig
         lv_obj_clear_flag(eye, LV_OBJ_FLAG_SCROLLABLE);
     }
 
+    mouth_ = lv_obj_create(root_);
+    mouth_inside_ = lv_obj_create(mouth_);
+    for (lv_obj_t* object : {mouth_, mouth_inside_}) {
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(object, 0, 0);
+        lv_obj_set_style_pad_all(object, 0, 0);
+        lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    lv_obj_set_style_bg_color(mouth_, lv_color_hex(kRobotCyan), 0);
+    lv_obj_set_style_bg_color(mouth_inside_, lv_color_hex(0x000000), 0);
+    lv_obj_add_flag(mouth_, LV_OBJ_FLAG_HIDDEN);
+
     timer_ = lv_timer_create(OnTimer, kTimerPeriodMs, this);
     Render();
 }
@@ -142,8 +154,49 @@ void RobotEyesView::SetMode(RobotEyesMode mode) {
 }
 
 void RobotEyesView::SetStatus(RobotEyesMode mode) {
+    if (mode != RobotEyesMode::Speaking || status_mode_ != RobotEyesMode::Speaking) {
+        SetSpeechLevel(0);
+    }
     status_mode_ = mode;
     SetMode(mode);
+}
+
+void RobotEyesView::SetSpeechLevel(uint8_t level) {
+    speech_target_ = level;
+    speech_updated_ms_ = lv_tick_get();
+    if (level == 0) {
+        speech_level_ = 0;
+    }
+}
+
+void RobotEyesView::RenderMouth() {
+    // Emotions may alter the eyes during TTS; the speaking state independently
+    // owns the mouth, so a "happy" event cannot accidentally stop lip motion.
+    if (status_mode_ != RobotEyesMode::Speaking) {
+        lv_obj_add_flag(mouth_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(mouth_, LV_OBJ_FLAG_HIDDEN);
+    // Close during pauses/underruns, even if the server has not sent TTS stop.
+    if (static_cast<uint32_t>(lv_tick_get() - speech_updated_ms_) > 160) {
+        speech_target_ = 0;
+    }
+    const int target = speech_target_;
+    speech_level_ = target > speech_level_ ? (target + speech_level_) / 2
+                                           : std::max(target, static_cast<int>(speech_level_) - 36);
+    const int mouth_height = 4 + speech_level_ * 26 / 255;
+    const int mouth_width = std::max(40, static_cast<int>(width_) / 3) - speech_level_ / 24;
+    lv_obj_set_size(mouth_, mouth_width, mouth_height);
+    lv_obj_set_pos(mouth_, (width_ - mouth_width) / 2, height_ * 4 / 5 - mouth_height / 2);
+    lv_obj_set_style_radius(mouth_, mouth_height / 2, 0);
+    if (mouth_height >= 10) {
+        lv_obj_remove_flag(mouth_inside_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_size(mouth_inside_, mouth_width - 8, mouth_height - 6);
+        lv_obj_center(mouth_inside_);
+        lv_obj_set_style_radius(mouth_inside_, mouth_height / 2, 0);
+    } else {
+        lv_obj_add_flag(mouth_inside_, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 bool RobotEyesView::MapEmotion(const char* emotion, RobotEyesMode& mode) {
@@ -305,8 +358,13 @@ void RobotEyesView::Render() {
 
     const int adjusted_left_x = (static_cast<int>(width_) - eye_width * 2 - eye_gap) / 2 + gaze_x;
     const int adjusted_right_x = adjusted_left_x + eye_width + eye_gap;
+    if (status_mode_ == RobotEyesMode::Speaking) {
+        y -= 12;
+        right_y -= 12;
+    }
     const EyeGeometry left{adjusted_left_x, y, eye_width, eye_height};
     const EyeGeometry right{adjusted_right_x, right_y, eye_width, eye_height};
     RenderEye(left_eye_, left);
     RenderEye(right_eye_, right);
+    RenderMouth();
 }

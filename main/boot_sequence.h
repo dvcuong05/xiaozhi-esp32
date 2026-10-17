@@ -4,6 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 
+// Boards opt into boot audio and own any persistent settings or migration.
+struct BootAudioConfig {
+    bool enabled = false;
+    int volume = 45;
+};
+
 enum class BootStage : uint8_t {
     SystemInitializing,
     WifiScanning,

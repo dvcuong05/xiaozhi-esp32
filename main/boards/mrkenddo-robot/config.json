@@ -5,6 +5,7 @@
         {
             "name": "mrkenddo-robot",
             "sdkconfig_append": [
+                "CONFIG_LV_USE_QRCODE=y",
                 "CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y",
                 "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/8m.csv\""
             ]

@@ -5,16 +5,13 @@
 #include <esp_http_server.h>
 #include <string>
 
-class RobotDrive;
-
-// C wrapper function for OLED reinitialization (defined in mrkenddo_robot.cc)
-extern "C" void ReinitializeOledDisplay();
-extern "C" void ApplyOledDisplaySettings();
-extern "C" void ApplyTftRotation(int rotation);
+namespace mrkenddo {
+class RobotController;
+}  // namespace mrkenddo
 
 class WebServer {
 public:
-    WebServer(RobotDrive* drive);
+    explicit WebServer(mrkenddo::RobotController& controller);
     ~WebServer();
 
     bool Start(int port = 80);
@@ -41,9 +38,11 @@ private:
     static esp_err_t ApiStatusHandler(httpd_req_t* req);
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
     static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiQrShowHandler(httpd_req_t* req);
 
     httpd_handle_t server_;
-    RobotDrive* drive_;
+    mrkenddo::RobotController& controller_;
 };
 
 #endif  // WEB_SERVER_H

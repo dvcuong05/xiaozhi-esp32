@@ -1100,6 +1100,10 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
+# ESP-IDF dependency discovery runs before board Kconfig values are available.
+if(CMAKE_BUILD_EARLY_EXPANSION OR CONFIG_BOARD_TYPE_MRKENDDO_ROBOT)
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA espressif__dl_fft)
+endif()
 if(CONFIG_XIAOZHI_NETWORK_ETHERNET AND CONFIG_XIAOZHI_ETH_PHY_IP101)
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA espressif__ip101)
 endif()

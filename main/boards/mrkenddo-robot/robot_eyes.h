@@ -32,6 +32,7 @@ public:
     bool SetEmotion(const char* emotion);
     void SetStatus(RobotEyesMode mode);
     void SetVisible(bool visible);
+    void SetSpeechLevel(uint8_t level);
 
 private:
     struct EyeGeometry {
@@ -44,16 +45,22 @@ private:
     lv_obj_t* root_ = nullptr;
     lv_obj_t* left_eye_ = nullptr;
     lv_obj_t* right_eye_ = nullptr;
+    lv_obj_t* mouth_ = nullptr;
+    lv_obj_t* mouth_inside_ = nullptr;
     lv_timer_t* timer_ = nullptr;
     lv_coord_t width_ = 0;
     lv_coord_t height_ = 0;
     RobotEyesMode mode_ = RobotEyesMode::Neutral;
     RobotEyesMode status_mode_ = RobotEyesMode::Neutral;
     uint32_t frame_ = 0;
+    uint8_t speech_target_ = 0;
+    uint8_t speech_level_ = 0;
+    uint32_t speech_updated_ms_ = 0;
 
     static void OnTimer(lv_timer_t* timer);
     void Render();
     void RenderEye(lv_obj_t* eye, const EyeGeometry& geometry);
+    void RenderMouth();
     void SetMode(RobotEyesMode mode);
     static bool MapEmotion(const char* emotion, RobotEyesMode& mode);
 };

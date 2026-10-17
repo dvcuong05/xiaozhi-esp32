@@ -13,12 +13,34 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
 ## Planned features
-- [x] Audio Visualizer trên TFT: khi có playback audio, màn hình chuyển sang
-    nền midnight với palette gradient tím/xanh/lục/vàng/cam/hồng phản ứng
-    theo mức PCM; khi playback kết thúc, giao diện mắt robot được khôi phục.
+- [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
+    spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
+    không bật vì boot/beep/thông báo/TTS. Dừng media thì khôi phục mắt robot.
+- [x] Chatbot speaking giữ mắt cyan và thêm miệng đóng/mở theo mức TTS,
+    tự khép khi im lặng; emotion không làm mất animation miệng.
+- [x] Nhạc tenclass qua `play_music` trên transport TTS vẫn hiện spectrum;
+    TFT có tên bài, lời hiện tại và dòng trước từ `sentence_start`. Không
+    tải thêm LRC, không lưu cả bài; giữ QR priority và reset khi hết session.
+- [x] QR địa chỉ IP webserver qua `self.network.ip2qrcode` và dashboard.
 - [ ] MCP nghe nhạc việt hoặc cách build host server nghe nhạc bằng cách ra lệnh mcp tìm nhạc theo tên, tác giả, thể loại
+- [ ] Read & play music from SD card
+- [ ] Read & play photos from SD card
+- [ ] Stream live television and support config from webserver
+- [ ] Load and show emotion from SD card and allow dynamic change
+- [ ] Feature ask chatbox to set and weak the alarm
+- [ ] Tính năng chuyển bài, pause, stop music dựa vào số lần chạm cảm biến chạm (music navigation with touch sensor)
+
 ## Completed implementation
 
+- [x] Refactor kiến trúc firmware: board khởi tạo phần cứng, HTTP/MCP cùng
+      gọi `RobotController`, NVS tập trung trong `RobotSettings`, OLED có
+      service riêng sở hữu I2C/framebuffer/task; bỏ C wrapper và global board.
+- [x] Tập trung quyền hiển thị TFT theo thứ tự QR → boot → visualizer → eyes;
+      QR hết hạn quay về chế độ phù hợp với playback/boot hiện tại.
+- [x] Chuyển mẫu visualizer qua mailbox cố định, giới hạn UI 25 FPS và xử lý
+      playback stopped; bỏ callback xếp hàng theo từng PCM frame.
+- [x] Core dùng boot config do board cung cấp; giữ branding, defaults/migration
+      NVS và tên Wi-Fi provisioning của MrKenDDo trong board riêng.
 - [x] Board custom, TFT ST7789, OLED SSD1306, robot drive, microphone,
       speaker, eyes và web server được tách dưới `mrkenddo-robot`.
 - [x] Web dashboard điều khiển Forward/Backward/Left/Right, Stop, đảo
@@ -40,9 +62,10 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [x] Boot console trên TFT có hiệu ứng gõ chữ và vùng log cuộn; âm thanh
       typing đã được loại bỏ để không làm chậm boot hoặc ảnh hưởng hội thoại.
 - [x] Tích hợp audio starting và robot-eye wake; không phát typing sound.
-- [x] MCP `self.robot.show_payment_qr` hiển thị QR ngân hàng dạng bitmap 1-bit
-      board-local trên TFT; QR có quiet zone, nằm trên cùng UI và tự ẩn sau
-      timeout cấu hình được.
+- [x] QR thanh toán mặc định đổi qua web/NVS, QR URL/text tạm qua MCP,
+      QR IP hiện tại; bitmap ngân hàng gốc giữ làm mặc định khi chưa cấu hình.
+      Ma trận 1-bit, quiet zone 4 module, caption tùy chọn, giữ 5–120 giây
+      và phục hồi đúng UI. Cấu hình lỗi từ chối hiển thị thay vì đổi người nhận.
 - [x] Audio Visualizer nhận PCM playback và vẽ các cột màu trên TFT; không
       dùng font trong overlay boot-time để tránh phụ thuộc font assets.
 - [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
@@ -63,8 +86,8 @@ Tất cả hạng mục trong kế hoạch hiện tại đã hoàn tất ở m�
 - [x] P1 — QR thanh toán trên TFT với thời gian hiển thị đủ dài để quét.
 - [x] P1 — Routine chạy trong task FreeRTOS riêng, không chặn audio/main loop.
 - [x] P1 — Boot OLED hiển thị tên robot và IP trước khi về mode bình thường.
-- [x] P1 - Audio Visualizer nhận level envelope từ audio playback mà không
-      chặn audio task; UI cập nhật qua main task.
+- [x] P1 - Audio Visualizer nhận PCM media và tính FFT thật trên main task,
+      mailbox 512 mẫu cố định, tối đa 25 FPS; TTS chỉ điều khiển miệng robot.
 
 Không còn mục implementation nào đang chờ trong kế hoạch đã chốt. Các thay
 đổi tiếp theo chỉ nên mở roadmap mới sau khi xác định rõ phạm vi và ảnh hưởng
@@ -72,6 +95,10 @@ Không còn mục implementation nào đang chờ trong kế hoạch đã chốt
 
 ## Hardware validation backlog
 
+- [ ] Sau refactor, xác nhận cấu hình NVS cũ vẫn được giữ; đổi mode OLED từ
+      HTTP và MCP cho cùng kết quả, xoay TFT/OLED và reboot không mất cấu hình.
+- [ ] Xác nhận QR hết hạn khi đang nghe radio, kết thúc playback khi QR đang
+      hiện, và boot audio không làm visualizer giành màn hình trước READY.
 Đây không phải là feature chưa implement; các mục này cần robot thật để xác
 nhận vì build không thể kiểm tra dây nối, cực tính motor hoặc chất lượng hiển
 thị:
@@ -85,14 +112,17 @@ thị:
 - [ ] Quét thử QR ở nhiều khoảng cách và xác nhận QR tự quay lại mắt robot sau
       timeout.
 
-## Future ideas (not part of the completed plan)
-
-- [ ] Mở rộng MCP cho các GPIO/phụ kiện board-specific mới sau khi có mô tả
-      an toàn và kiểm thử riêng.
-- [ ] Thêm xác thực/TLS cho webserver nếu cần dùng ngoài mạng LAN tin cậy.
 
 ## Decisions and references
 
+- Board definition mô tả phần cứng và nhận diện OTA; firmware tùy biến bổ sung
+  các module sản phẩm. Giữ module robot trong thư mục board hiện tại, chỉ đưa
+  logic ra phần dùng chung khi có hợp đồng độc lập với phần cứng/branding.
+- Tham khảo checkout `TienHuyIoT/xiaozhi-esp32_vietnam`, nhánh `develop_vn`,
+  commit `287e0ea`, về cách tách player/UI/MCP; không nhập nguyên bộ feature
+  hoặc thay audio pipeline chỉ vì dự án tham khảo dùng cách đó.
+- Luồng và trách nhiệm sau refactor được mô tả trong
+  [`readme.md`](../readme.md), phần “MCP va routine robot”.
 - Board vẫn dùng transport và MCP chính thức của XiaoZhi/tenclass.net.
 - `hudrucan/xiaozhi-desk-robot` là repository reference cho ý tưởng UI và
   hành vi robot; không sao chép GPIO, board identity hoặc giả định backend.
@@ -101,3 +131,12 @@ thị:
 - Khi READY, OLED quay về mode đã lưu và TFT chuyển sang robot eyes.
 - QR được lưu trong `payment_qr_bitmap.h`; không lưu thông tin tài khoản dạng
   text trong firmware ngoài dữ liệu bitmap người dùng cung cấp.
+- [ ] Kiểm tra boot/beep/TTS không bật spectrum; nhạc/radio chỉ bật sau PCM
+      đầu tiên, dừng/reconnect/QR expiry khôi phục đúng mode. Xác nhận miệng
+      nói theo TTS và khép khi pause/listening; không ảnh hưởng wake/VAD/audio.
+- [ ] Replay nhạc bằng tool tenclass `search_music` → `play_music`: spectrum
+      hiện sau PCM đầu tiên, tên bài/lyrics tiếng Trung hoặc Việt đọc được;
+      sau bài hát, câu nói thường trở lại mắt/miệng. Thử QR trong lúc hát.
+- [ ] Quét QR URL/IP và QR thanh toán mới trên TFT thật, kiểm tra đúng người
+      nhận/số tiền, giữ sau reboot; QR tạm/IP không thay mặc định. Thử record
+      NVS lỗi, xoay TFT, renew timer và expiry khi nhạc/boot/eyes đang hoạt động.

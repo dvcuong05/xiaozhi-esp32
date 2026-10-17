@@ -1,117 +1,23 @@
 #include "robot_mcp_tools.h"
-#include "board.h"
-#include "display/display.h"
+#include "application.h"
+#include "mcp_server.h"
+#include "robot_controller.h"
+#include "robot_drive.h"
 
 #include <esp_log.h>
-#include <esp_timer.h>
-#include <cstdint>
-#include <mutex>
+#include <expected>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <wifi_manager.h>
-
-static RobotDrive* g_drive = nullptr;
-static std::function<bool(int)> g_set_oled_mode;
-static std::function<std::string()> g_show_ip;
-static std::function<bool(std::string, int)> g_show_oled_text;
-static std::function<bool(int)> g_show_payment_qr;
 
 static const char* TAG = "RobotMCP";
 
 namespace {
 
-enum class WebPromptStatus { Idle, Queued, TriggerSent, Consumed, Failed, Timeout };
-
-std::mutex web_prompt_mutex;
-std::string pending_web_prompt;
-WebPromptStatus web_prompt_status = WebPromptStatus::Idle;
-int64_t web_prompt_started_us = 0;
-uint32_t web_prompt_id = 0;
-
-void ExpireWebPrompt() {
-    if ((web_prompt_status == WebPromptStatus::Queued ||
-         web_prompt_status == WebPromptStatus::TriggerSent) &&
-        esp_timer_get_time() - web_prompt_started_us > 30000000) {
-        pending_web_prompt.clear();
-        web_prompt_status = WebPromptStatus::Timeout;
-    }
-}
-
-ToolResult ConsumeWebPrompt(const PropertyList&) {
-    std::lock_guard<std::mutex> lock(web_prompt_mutex);
-    ExpireWebPrompt();
-    if (pending_web_prompt.empty()) {
-        return std::unexpected("No pending Web UI prompt");
-    }
-    std::string prompt = std::move(pending_web_prompt);
-    pending_web_prompt.clear();
-    web_prompt_status = WebPromptStatus::Consumed;
-    ESP_LOGI(TAG, "Web prompt consumed by assistant tool (%u bytes)",
-             static_cast<unsigned>(prompt.size()));
-    return prompt;
-}
-
-}  // namespace
-
-bool QueueRobotWebPrompt(std::string prompt) {
-    uint32_t id;
-    {
-        std::lock_guard<std::mutex> lock(web_prompt_mutex);
-        ExpireWebPrompt();
-        if (!pending_web_prompt.empty()) {
-            return false;
-        }
-        pending_web_prompt = std::move(prompt);
-        web_prompt_status = WebPromptStatus::Queued;
-        web_prompt_started_us = esp_timer_get_time();
-        id = ++web_prompt_id;
-    }
-    if (!Application::GetInstance().StartTextBridgeConversation([id](bool ready) {
-            std::lock_guard<std::mutex> lock(web_prompt_mutex);
-            if (id != web_prompt_id || web_prompt_status != WebPromptStatus::Queued) {
-                return;
-            }
-            web_prompt_status = ready ? WebPromptStatus::TriggerSent : WebPromptStatus::Failed;
-            if (!ready) {
-                pending_web_prompt.clear();
-            }
-        })) {
-        std::lock_guard<std::mutex> lock(web_prompt_mutex);
-        if (id == web_prompt_id) {
-            pending_web_prompt.clear();
-            web_prompt_status = WebPromptStatus::Failed;
-        }
-        return false;
-    }
-    return true;
-}
-
-const char* GetRobotWebPromptStatus() {
-    std::lock_guard<std::mutex> lock(web_prompt_mutex);
-    ExpireWebPrompt();
-    switch (web_prompt_status) {
-        case WebPromptStatus::Idle:
-            return "idle";
-        case WebPromptStatus::Queued:
-            return "queued";
-        case WebPromptStatus::TriggerSent:
-            return "trigger_sent";
-        case WebPromptStatus::Consumed:
-            return "consumed";
-        case WebPromptStatus::Failed:
-            return "failed";
-        case WebPromptStatus::Timeout:
-            return "timeout";
-    }
-    return "failed";
-}
-
 // Legacy signed steps select forward/backward; each unit lasts delay_ms milliseconds.
-static ToolResult MoveMotor(const PropertyList& properties) {
-    if (g_drive == nullptr) {
-        return std::unexpected("Motor drive not initialized");
-    }
-
+static ToolResult MoveMotor(mrkenddo::RobotController& controller, const PropertyList& properties) {
     int steps = properties["steps"].value<int>();
     int delay_ms = 0;
 
@@ -120,32 +26,25 @@ static ToolResult MoveMotor(const PropertyList& properties) {
     }
 
     ESP_LOGI(TAG, "Moving DC motors: units=%d, delay=%dms", steps, delay_ms);
-    if (!g_drive->Step(steps, delay_ms)) {
+    if (!controller.Step(steps, delay_ms)) {
         return std::unexpected("Motor command failed");
     }
     return std::string("Motor command started");
 }
 
-static ToolResult StopMotor(const PropertyList& properties) {
-    if (g_drive == nullptr) {
-        return std::unexpected("Motor drive not initialized");
-    }
-
+static ToolResult StopMotor(mrkenddo::RobotController& controller, const PropertyList&) {
     ESP_LOGI(TAG, "Stopping DC motors");
-    g_drive->Stop();
+    controller.Stop();
 
     return std::string("Motor stopped");
 }
 
-static ToolResult SetMotorDurationUnit(const PropertyList& properties) {
-    if (g_drive == nullptr) {
-        return std::unexpected("Motor drive not initialized");
-    }
-
+static ToolResult SetMotorDurationUnit(mrkenddo::RobotController& controller,
+                                       const PropertyList& properties) {
     int delay_ms = properties["delay_ms"].value<int>();
 
     ESP_LOGI(TAG, "Setting motor duration unit: %dms", delay_ms);
-    g_drive->SetSpeed(delay_ms);
+    controller.SetDurationUnit(delay_ms);
 
     return std::string("Motor duration unit set");
 }
@@ -166,57 +65,46 @@ static std::expected<RobotDrive::Direction, std::string> ParseDirection(const st
     return std::unexpected("Direction must be forward, backward, left, or right");
 }
 
-static ToolResult RobotMove(const PropertyList& properties) {
-    if (g_drive == nullptr) {
-        return std::unexpected("Motor drive not initialized");
-    }
+static ToolResult RobotMove(mrkenddo::RobotController& controller, const PropertyList& properties) {
     auto direction = ParseDirection(properties["direction"].value<std::string>());
     if (!direction) {
         return std::unexpected(direction.error());
     }
     const int duration_ms = properties["duration_ms"].value<int>();
-    if (!g_drive->Move(*direction, duration_ms, 1)) {
+    if (!controller.Move(*direction, duration_ms, 1)) {
         return std::unexpected("Robot movement could not be started");
     }
     return "Robot moving for " + std::to_string(duration_ms) + " ms";
 }
 
-static ToolResult StartLivelyRoutine(const PropertyList&) {
-    if (g_drive == nullptr || !g_drive->StartRoutine(RobotDrive::Routine::Lively)) {
+static ToolResult StartLivelyRoutine(mrkenddo::RobotController& controller, const PropertyList&) {
+    if (!controller.StartRoutine(RobotDrive::Routine::Lively)) {
         return std::unexpected("Robot is busy or the movement task is unavailable");
     }
     return "Lively routine started";
 }
 
-static ToolResult StartDanceRoutine(const PropertyList&) {
-    if (g_drive == nullptr || !g_drive->StartRoutine(RobotDrive::Routine::Dance)) {
+static ToolResult StartDanceRoutine(mrkenddo::RobotController& controller, const PropertyList&) {
+    if (!controller.StartRoutine(RobotDrive::Routine::Dance)) {
         return std::unexpected("Robot is busy or the movement task is unavailable");
     }
     return "Dance routine started";
 }
 
-static ToolResult StopRobot(const PropertyList&) {
-    if (g_drive == nullptr) {
-        return std::unexpected("Motor drive not initialized");
-    }
-    g_drive->Stop();
+static ToolResult StopRobot(mrkenddo::RobotController& controller, const PropertyList&) {
+    controller.Stop();
     return "Robot stopped";
 }
 
-static ToolResult SetRobotEmotion(const PropertyList& properties) {
-    auto* display = Board::GetInstance().GetDisplay();
-    if (display == nullptr) {
-        return std::unexpected("Robot display is unavailable");
-    }
+static ToolResult SetRobotEmotion(mrkenddo::RobotController& controller,
+                                  const PropertyList& properties) {
     const std::string emotion = properties["emotion"].value<std::string>();
-    display->SetEmotion(emotion.c_str());
+    controller.SetEmotion(emotion);
     return "Robot emotion set to " + emotion;
 }
 
-static ToolResult SetRobotOledMode(const PropertyList& properties) {
-    if (!g_set_oled_mode) {
-        return std::unexpected("Secondary OLED control is unavailable");
-    }
+static ToolResult SetRobotOledMode(mrkenddo::RobotController& controller,
+                                   const PropertyList& properties) {
     const std::string mode = properties["mode"].value<std::string>();
     int mode_value = -1;
     if (mode == "clock") {
@@ -230,60 +118,53 @@ static ToolResult SetRobotOledMode(const PropertyList& properties) {
     } else {
         return std::unexpected("OLED mode must be clock, marquee, status, or off");
     }
-    if (!g_set_oled_mode(mode_value)) {
+    if (!controller.SetOledMode(mode_value)) {
         return std::unexpected("Could not apply the secondary OLED mode");
     }
     return "Secondary OLED mode set to " + mode;
 }
 
-static ToolResult ShowRobotIp(const PropertyList&) {
-    if (!g_show_ip) {
-        return std::unexpected("IP display is unavailable");
-    }
-    const std::string ip = g_show_ip();
+static ToolResult ShowRobotIp(mrkenddo::RobotController& controller, const PropertyList&) {
+    const std::string ip = controller.ShowIp();
     if (ip.empty()) {
         return std::unexpected("Wi-Fi is not connected");
     }
     return "Robot local IP address is " + ip;
 }
 
-static ToolResult ShowRobotOledText(const PropertyList& properties) {
-    if (!g_show_oled_text) {
-        return std::unexpected("Secondary OLED text control is unavailable");
-    }
+static ToolResult ShowRobotOledText(mrkenddo::RobotController& controller,
+                                    const PropertyList& properties) {
     const std::string text = properties["text"].value<std::string>();
     const int duration_ms = properties["duration_ms"].value<int>();
     if (text.empty()) {
         return std::unexpected("OLED text must not be empty");
     }
-    if (!g_show_oled_text(text, duration_ms)) {
+    if (!controller.ShowOledText(text, duration_ms)) {
         return std::unexpected("Could not display text on the secondary OLED");
     }
     return "Custom OLED text display started";
 }
 
-static ToolResult ShowRobotPaymentQr(const PropertyList& properties) {
-    if (!g_show_payment_qr) {
-        return std::unexpected("Payment QR display is unavailable");
-    }
+static ToolResult ShowRobotPaymentQr(mrkenddo::RobotController& controller,
+                                     const PropertyList& properties) {
     const int duration_ms = properties["duration_ms"].value<int>();
-    if (!g_show_payment_qr(duration_ms)) {
+    if (!controller.ShowPaymentQr(duration_ms)) {
         return std::unexpected("Could not display the payment QR on the TFT");
     }
     return "Payment QR displayed on the TFT";
 }
 
-static ToolResult GetRobotStatus(const PropertyList&) {
+static ToolResult GetRobotStatus(mrkenddo::RobotController& controller, const PropertyList&) {
     const auto& wifi = WifiManager::GetInstance();
     const bool connected = wifi.IsConnected();
     const std::string ip = connected ? wifi.GetIpAddress() : "";
-    const bool moving = g_drive != nullptr && g_drive->IsRoutineRunning();
+    const bool moving = controller.IsRoutineRunning();
     return "{\"wifi_connected\":" + std::string(connected ? "true" : "false") + ",\"ip\":\"" + ip +
            "\",\"routine_running\":" + std::string(moving ? "true" : "false") + "}";
 }
 
 // MCP Tool: Toggle chat state
-static ToolResult ToggleChat(const PropertyList& properties) {
+static ToolResult ToggleChat(const PropertyList&) {
     ESP_LOGI(TAG, "Toggling chat state");
     auto& app = Application::GetInstance();
     app.ToggleChatState();
@@ -291,7 +172,7 @@ static ToolResult ToggleChat(const PropertyList& properties) {
 }
 
 // MCP Tool: Start listening
-static ToolResult StartListening(const PropertyList& properties) {
+static ToolResult StartListening(const PropertyList&) {
     ESP_LOGI(TAG, "Starting listening");
     auto& app = Application::GetInstance();
     app.StartListening();
@@ -299,23 +180,16 @@ static ToolResult StartListening(const PropertyList& properties) {
 }
 
 // MCP Tool: Stop listening
-static ToolResult StopListening(const PropertyList& properties) {
+static ToolResult StopListening(const PropertyList&) {
     ESP_LOGI(TAG, "Stopping listening");
     auto& app = Application::GetInstance();
     app.StopListening();
     return std::string("Listening stopped");
 }
 
-void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_mode,
-                           std::function<std::string()> show_ip,
-                           std::function<bool(std::string, int)> show_oled_text,
-                           std::function<bool(int)> show_payment_qr) {
-    g_drive = drive;
-    g_set_oled_mode = std::move(set_oled_mode);
-    g_show_ip = std::move(show_ip);
-    g_show_oled_text = std::move(show_oled_text);
-    g_show_payment_qr = std::move(show_payment_qr);
+}  // namespace
 
+void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
     auto& mcp = McpServer::GetInstance();
 
     // Preserve existing MCP tool names and signed-unit API for callers.
@@ -324,14 +198,21 @@ void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_
         PropertyList(std::vector<Property>{Property("steps", kPropertyTypeInteger, 0,
                                                     -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps),
                                            Property("delay_ms", kPropertyTypeInteger, 0, 0, 100)}),
-        MoveMotor);
+        [&controller](const PropertyList& properties) {
+            return MoveMotor(controller, properties);
+        });
 
-    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(), StopMotor);
+    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(),
+                        [&controller](const PropertyList& properties) {
+                            return StopMotor(controller, properties);
+                        });
 
     mcp.AddUserOnlyTool(
         "set_motor_speed", "Set milliseconds per motor movement unit (not PWM speed)",
         PropertyList(std::vector<Property>{Property("delay_ms", kPropertyTypeInteger, 1, 100)}),
-        SetMotorDurationUnit);
+        [&controller](const PropertyList& properties) {
+            return SetMotorDurationUnit(controller, properties);
+        });
 
     // Register AI interaction tools
     mcp.AddTool(
@@ -339,7 +220,13 @@ void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_
         "When the short wake/detect text is exactly 'web_chat', call this tool before replying. "
         "The tool result is the user's real message from the robot web page. Answer that "
         "message, not the trigger word. Only call this for a pending web chat message.",
-        PropertyList(), ConsumeWebPrompt);
+        PropertyList(), [&controller](const PropertyList&) -> ToolResult {
+            auto result = controller.ConsumeWebPrompt();
+            if (!result) {
+                return std::unexpected(result.error());
+            }
+            return std::move(*result);
+        });
 
     mcp.AddUserOnlyTool("toggle_chat", "Toggle the chat state (start/stop conversation)",
                         PropertyList(), ToggleChat);
@@ -358,32 +245,46 @@ void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_
                 "left, or right.",
                 PropertyList({direction, Property("duration_ms", kPropertyTypeInteger, 800, 100,
                                                   RobotDrive::kMaxRunTimeMs)}),
-                RobotMove);
+                [&controller](const PropertyList& properties) {
+                    return RobotMove(controller, properties);
+                });
     mcp.AddTool("self.robot.stop", "Stop all robot motor movement immediately", PropertyList(),
-                StopRobot);
+                [&controller](const PropertyList& properties) {
+                    return StopRobot(controller, properties);
+                });
     mcp.AddTool("self.robot.be_lively",
                 "Run a playful robot routine continuously with forward, backward, and turning "
                 "movements until stopped",
-                PropertyList(), StartLivelyRoutine);
+                PropertyList(), [&controller](const PropertyList& properties) {
+                    return StartLivelyRoutine(controller, properties);
+                });
     mcp.AddTool("self.robot.dance", "Run a faster, energetic dancing routine", PropertyList(),
-                StartDanceRoutine);
+                [&controller](const PropertyList& properties) {
+                    return StartDanceRoutine(controller, properties);
+                });
 
     Property emotion("emotion", kPropertyTypeString);
     emotion.SetMaxLength(32);
     mcp.AddTool("self.robot.set_emotion",
                 "Set the custom TFT robot eyes emotion. Examples: neutral, happy, surprised, "
                 "sad, angry, sleepy, confused, listening, speaking.",
-                PropertyList({emotion}), SetRobotEmotion);
+                PropertyList({emotion}), [&controller](const PropertyList& properties) {
+                    return SetRobotEmotion(controller, properties);
+                });
 
     Property oled_mode("mode", kPropertyTypeString);
     oled_mode.SetMaxLength(16);
     mcp.AddTool("self.robot.set_oled_mode",
                 "Set the secondary OLED mode: clock, marquee, status, or off",
-                PropertyList({oled_mode}), SetRobotOledMode);
+                PropertyList({oled_mode}), [&controller](const PropertyList& properties) {
+                    return SetRobotOledMode(controller, properties);
+                });
     mcp.AddTool("self.robot.show_ip",
                 "Show the local Wi-Fi IP on the robot display and return it so the assistant can "
                 "tell the user",
-                PropertyList(), ShowRobotIp);
+                PropertyList(), [&controller](const PropertyList& properties) {
+                    return ShowRobotIp(controller, properties);
+                });
     Property oled_text("text", kPropertyTypeString);
     oled_text.SetMaxLength(240);
     mcp.AddTool("self.robot.show_oled_text",
@@ -391,13 +292,46 @@ void RegisterRobotMcpTools(RobotDrive* drive, std::function<bool(int)> set_oled_
                 "the saved OLED content",
                 PropertyList(
                     {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000)}),
-                ShowRobotOledText);
+                [&controller](const PropertyList& properties) {
+                    return ShowRobotOledText(controller, properties);
+                });
     mcp.AddTool("self.robot.show_payment_qr",
                 "Show the configured bank payment QR code on the TFT for scanning",
                 PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
-                ShowRobotPaymentQr);
+                [&controller](const PropertyList& properties) {
+                    return ShowRobotPaymentQr(controller, properties);
+                });
     mcp.AddTool("self.robot.get_status", "Get robot Wi-Fi, IP, and movement status", PropertyList(),
-                GetRobotStatus);
+                [&controller](const PropertyList& properties) {
+                    return GetRobotStatus(controller, properties);
+                });
+
+    mcp.AddTool("self.network.ip2qrcode",
+                "Show a QR code opening this robot's current local webserver. Requires Wi-Fi; does "
+                "not change the saved bank QR.",
+                PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
+                [&controller](const PropertyList& properties) -> ToolResult {
+                    if (!controller.ShowIpQr(properties["duration_ms"].value<int>()))
+                        return std::unexpected("Cannot show IP QR; check Wi-Fi");
+                    return "Webserver IP QR display scheduled";
+                });
+    auto qr_payload = Property("payload", kPropertyTypeString);
+    qr_payload.SetMaxLength(256);
+    auto qr_caption = Property("caption", kPropertyTypeString, std::string{});
+    qr_caption.SetMaxLength(96);
+    mcp.AddTool(
+        "self.robot.show_qr",
+        "Show a temporary QR from supplied URL/text. Does not save it. For bank payment always use "
+        "self.robot.show_payment_qr; never invent bank details.",
+        PropertyList({qr_payload, qr_caption,
+                      Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
+        [&controller](const PropertyList& properties) -> ToolResult {
+            if (!controller.ShowQr(properties["payload"].value<std::string>(),
+                                   properties["caption"].value<std::string>(),
+                                   properties["duration_ms"].value<int>()))
+                return std::unexpected("Invalid QR payload or caption (max 256/96 UTF-8 bytes)");
+            return "Temporary QR display scheduled";
+        });
 
     ESP_LOGI(TAG, "Robot MCP tools registered");
 }

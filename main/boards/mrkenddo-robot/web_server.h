@@ -3,11 +3,14 @@
 
 #include <esp_err.h>
 #include <esp_http_server.h>
+#include <memory>
 #include <string>
 
 namespace mrkenddo {
 class RobotController;
 }  // namespace mrkenddo
+
+class WebServerLogStream;
 
 class WebServer {
 public:
@@ -42,9 +45,11 @@ private:
     static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrShowHandler(httpd_req_t* req);
+    static esp_err_t LogWebSocketHandler(httpd_req_t* req);
 
     httpd_handle_t server_;
     mrkenddo::RobotController& controller_;
+    std::unique_ptr<WebServerLogStream> log_stream_;
 };
 
 #endif  // WEB_SERVER_H

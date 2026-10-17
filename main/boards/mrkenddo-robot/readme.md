@@ -38,6 +38,24 @@ OLED dùng renderer bitmap cục bộ với các mode `clock`, chữ chạy, `st
 
 HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 8192 byte; riêng media giới hạn 48 dòng lyric, mỗi dòng tối đa 96 byte UTF-8. Cấu hình NVS vẫn được kiểm tra trước khi ghi.
 
+## Xem console log qua webserver
+
+Trình duyệt gửi lệnh `start` sau khi WebSocket mở; firmware chỉ bật thu log
+khi nhận lệnh này và trả `{"type":"log_ready"}`. Giao diện chỉ báo đang đồng bộ
+sau xác nhận đó; nếu quá 5 giây chưa được xác nhận, giao diện báo lỗi và đóng
+kết nối. Khi socket bị ngắt, cleanup của phiên HTTPD cũng tháo hook log.
+
+Dashboard có mục **Console log robot**. Mặc định mục này tắt hoàn toàn. Khi
+người dùng bấm **Bật xem console**, trình duyệt mới mở WebSocket tới
+`/api/logs`; firmware lúc đó tạm móc vào `esp_log` và gửi các dòng log mới
+phát sinh tới đúng phiên xem. Firmware không lưu lịch sử log, không tải lại
+log cũ và giới hạn hàng đợi gửi để một đợt log dày không chiếm hết HTTP server.
+
+Khi người dùng bấm tắt, đóng trang hoặc WebSocket lỗi, firmware tháo hook log
+và dừng đồng bộ. Vì vậy lúc dashboard không xem console, không có kết nối log,
+buffer log hay traffic log qua Wi-Fi. WebSocket này dùng chung HTTP port 80,
+không có TLS/xác thực; chỉ dùng trong LAN tin cậy như các API robot khác.
+
 ## Nguồn tham khảo cho các tính năng robot
 
 Tham khảo [hudrucan/xiaozhi-desk-robot](https://github.com/hudrucan/xiaozhi-desk-robot) khi phát triển web chat, điều khiển, cảm biến và giao diện robot. Đối chiếu thiết kế và giao thức với upstream XiaoZhi, phần cứng của board này và backend đang dùng trước khi áp dụng; không sao chép GPIO/board identity hay giả định server tùy biến của dự án tham khảo tương thích tenclass.net.
@@ -236,11 +254,15 @@ duoc giu mot slot toi khi conversation ve `idle`; lenh moi nhat thay the lenh da
 
 ![Sơ đồ đăng ký MCP và luồng music/radio từ service đến firmware](docs/features/music-radio-mcp-flow.svg)
 
-Trong production, `xiaozhi-kenddo-services` đăng ký tool music/radio với MCP
-Access Point riêng; firmware không đăng ký lại các tool này. Robot mở TLS WSS
-outbound tới service để nhận lệnh, sau đó tải audio riêng qua HTTP proxy.
-Firmware đăng ký `self.robot.*` qua MCP của XiaoZhi cho các thao tác robot; đây
-là nhóm tool độc lập với music/radio. Sơ đồ chi tiết nằm tại
+Trong production, `app.py` đăng ký tool music/radio bằng decorator FastMCP
+`@mcp.tool`; `XiaoZhiMcpEndpoint.run_forever()` mở WebSocket outbound tới MCP
+Access Point để đăng ký/chuyển tiếp MCP JSON-RPC vào `/mcp` trong cùng service.
+Firmware không đăng ký lại các tool music/radio. Riêng tool điều khiển robot,
+`Application::Initialize()` gọi `McpServer::AddCommonTools()` và
+`AddUserOnlyTools()`; board gọi `RegisterRobotMcpTools()`, nơi thêm `self.robot.*`
+qua `McpServer::AddTool()`. Các tool này đi theo XiaoZhi device protocol.
+Robot mở TLS WSS outbound tới service để nhận lệnh playback, sau đó tải audio
+riêng qua HTTP proxy. Sơ đồ chi tiết nằm tại
 [`docs/features/music-radio-mcp-flow.svg`](docs/features/music-radio-mcp-flow.svg).
 
 Production MCP điều khiển robot bằng một WebSocket TLS riêng do robot chủ động

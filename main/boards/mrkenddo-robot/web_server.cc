@@ -5,10 +5,16 @@
 #include "web_ui.h"
 
 #include <cmath>
+#include <algorithm>
+#include <atomic>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <mutex>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,6 +28,252 @@
 #define TAG "WEB_SERVER"
 
 static const char* INDEX_HTML = mrkenddo::web_ui::kIndexHtml;
+
+namespace {
+
+constexpr size_t kMaxLogLineBytes = 384;
+constexpr int kMaxPendingLogJobs = 24;
+
+struct WebServerLogState {
+    std::atomic<httpd_handle_t> server{nullptr};
+    std::atomic<int> client_fd{-1};
+    std::atomic<uint32_t> generation{0};
+    std::atomic<bool> active{false};
+};
+
+std::atomic<int> g_pending_log_jobs{0};
+
+}  // namespace
+
+class WebServerLogStream {
+public:
+    WebServerLogStream() : state_(std::make_shared<WebServerLogState>()) {
+        instance_.store(this);
+    }
+
+    ~WebServerLogStream() {
+        Disable(-1);
+        WebServerLogStream* expected = this;
+        instance_.compare_exchange_strong(expected, nullptr);
+    }
+
+    void SetServer(httpd_handle_t server) { state_->server.store(server); }
+
+    bool Enable(int client_fd) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_->server.load() == nullptr) {
+            return false;
+        }
+
+        if (!state_->active.load()) {
+            previous_vprintf_.store(esp_log_set_vprintf(LogVprintf));
+        }
+        state_->generation.fetch_add(1);
+        state_->client_fd.store(client_fd);
+        state_->active.store(true);
+        return true;
+    }
+
+    void Disable(int client_fd) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!state_->active.load() ||
+            (client_fd >= 0 && state_->client_fd.load() != client_fd)) {
+            return;
+        }
+
+        state_->active.store(false);
+        state_->client_fd.store(-1);
+        state_->generation.fetch_add(1);
+        vprintf_like_t previous = previous_vprintf_.exchange(nullptr);
+        if (previous != nullptr) {
+            esp_log_set_vprintf(previous);
+        }
+    }
+
+    esp_err_t HandleWebSocket(httpd_req_t* req) {
+        const int client_fd = httpd_req_to_sockfd(req);
+        if (req->method == HTTP_GET) {
+            // ESP-IDF 6.1 upgrades without invoking this handler. Capture starts
+            // only after the client sends an explicit command on the open socket.
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "WebSocket upgrade required");
+            return ESP_OK;
+        }
+
+        httpd_ws_frame_t frame = {};
+        esp_err_t ret = httpd_ws_recv_frame(req, &frame, 0);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        if (frame.len > 128) {
+            Disable(client_fd);
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        std::unique_ptr<uint8_t[]> payload;
+        if (frame.len > 0) {
+            payload = std::make_unique<uint8_t[]>(frame.len + 1);
+            frame.payload = payload.get();
+            ret = httpd_ws_recv_frame(req, &frame, frame.len);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+        }
+
+        if (frame.type == HTTPD_WS_TYPE_CLOSE) {
+            Disable(client_fd);
+            frame.len = 0;
+            return httpd_ws_send_frame(req, &frame);
+        }
+        if (frame.type == HTTPD_WS_TYPE_PING) {
+            frame.type = HTTPD_WS_TYPE_PONG;
+            return httpd_ws_send_frame(req, &frame);
+        }
+        if (frame.type == HTTPD_WS_TYPE_TEXT && frame.len == 5 &&
+            std::memcmp(frame.payload, "start", 5) == 0) {
+            if (req->sess_ctx == nullptr) {
+                auto* session = new (std::nothrow) LogSession{this, client_fd};
+                if (session == nullptr) {
+                    return ESP_ERR_NO_MEM;
+                }
+                req->sess_ctx = session;
+                req->free_ctx = FreeSession;
+            }
+            if (!Enable(client_fd)) {
+                return ESP_FAIL;
+            }
+            constexpr char kReady[] = "{\"type\":\"log_ready\"}";
+            httpd_ws_frame_t ready = {};
+            ready.type = HTTPD_WS_TYPE_TEXT;
+            ready.payload = reinterpret_cast<uint8_t*>(const_cast<char*>(kReady));
+            ready.len = sizeof(kReady) - 1;
+            ret = httpd_ws_send_frame(req, &ready);
+            if (ret != ESP_OK) {
+                Disable(client_fd);
+                return ret;
+            }
+            ESP_LOGI(TAG, "Kenh log WebSocket da ket noi, fd=%d", client_fd);
+        }
+        return ESP_OK;
+    }
+
+private:
+    struct LogSession {
+        WebServerLogStream* stream;
+        int client_fd;
+    };
+
+    static void FreeSession(void* ctx) {
+        std::unique_ptr<LogSession> session(static_cast<LogSession*>(ctx));
+        session->stream->Disable(session->client_fd);
+    }
+
+    struct LogJob {
+        std::shared_ptr<WebServerLogState> state;
+        int client_fd = -1;
+        uint32_t generation = 0;
+        size_t length = 0;
+        char payload[kMaxLogLineBytes] = {};
+    };
+
+    static int LogVprintf(const char* format, va_list args) {
+        WebServerLogStream* stream = instance_.load();
+        if (stream == nullptr) {
+            return vprintf(format, args);
+        }
+
+        const auto state = stream->state_;
+        char line[kMaxLogLineBytes];
+        va_list line_args;
+        va_copy(line_args, args);
+        const int written = vsnprintf(line, sizeof(line), format, line_args);
+        va_end(line_args);
+
+        int result = 0;
+        vprintf_like_t previous = stream->previous_vprintf_.load();
+        if (previous != nullptr) {
+            va_list previous_args;
+            va_copy(previous_args, args);
+            result = previous(format, previous_args);
+            va_end(previous_args);
+        } else {
+            va_list fallback_args;
+            va_copy(fallback_args, args);
+            result = vprintf(format, fallback_args);
+            va_end(fallback_args);
+        }
+
+        if (written <= 0 || !state->active.load()) {
+            return result;
+        }
+
+        stream->Queue(state, line, static_cast<size_t>(written));
+        return result;
+    }
+
+    void Queue(const std::shared_ptr<WebServerLogState>& state, const char* line,
+               size_t length) {
+        int pending = g_pending_log_jobs.load();
+        while (pending < kMaxPendingLogJobs &&
+               !g_pending_log_jobs.compare_exchange_weak(pending, pending + 1)) {
+        }
+        if (pending >= kMaxPendingLogJobs) {
+            return;
+        }
+
+        auto* job = new (std::nothrow) LogJob();
+        if (job == nullptr) {
+            g_pending_log_jobs.fetch_sub(1);
+            return;
+        }
+        job->state = state;
+        job->client_fd = state->client_fd.load();
+        job->generation = state->generation.load();
+        job->length = std::min(length, kMaxLogLineBytes - 1);
+        std::memcpy(job->payload, line, job->length);
+
+        httpd_handle_t server = state->server.load();
+        if (server == nullptr || httpd_queue_work(server, SendJob, job) != ESP_OK) {
+            delete job;
+            g_pending_log_jobs.fetch_sub(1);
+        }
+    }
+
+    static void SendJob(void* arg) {
+        std::unique_ptr<LogJob> job(static_cast<LogJob*>(arg));
+        const auto& state = job->state;
+        httpd_handle_t server = state->server.load();
+        bool sent = false;
+        bool current_job = server != nullptr && state->active.load() &&
+                           state->client_fd.load() == job->client_fd &&
+                           state->generation.load() == job->generation;
+        httpd_ws_client_info_t client_info = HTTPD_WS_CLIENT_INVALID;
+        if (current_job) {
+            client_info = httpd_ws_get_fd_info(server, job->client_fd);
+            if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
+                httpd_ws_frame_t frame = {};
+                frame.type = HTTPD_WS_TYPE_TEXT;
+                frame.final = true;
+                frame.payload = reinterpret_cast<uint8_t*>(job->payload);
+                frame.len = job->length;
+                sent = httpd_ws_send_frame_async(server, job->client_fd, &frame) == ESP_OK;
+            }
+        }
+        if (!sent && current_job) {
+            WebServerLogStream* stream = instance_.load();
+            if (stream != nullptr) {
+                stream->Disable(job->client_fd);
+            }
+        }
+        g_pending_log_jobs.fetch_sub(1);
+    }
+
+    std::shared_ptr<WebServerLogState> state_;
+    std::atomic<vprintf_like_t> previous_vprintf_{nullptr};
+    std::mutex mutex_;
+    static std::atomic<WebServerLogStream*> instance_;
+};
+
+std::atomic<WebServerLogStream*> WebServerLogStream::instance_{nullptr};
 
 namespace {
 
@@ -190,7 +442,7 @@ WebServer* GetServer(httpd_req_t* req) { return static_cast<WebServer*>(req->use
 }  // namespace
 
 WebServer::WebServer(mrkenddo::RobotController& controller)
-    : server_(nullptr), controller_(controller) {}
+    : server_(nullptr), controller_(controller), log_stream_(std::make_unique<WebServerLogStream>()) {}
 
 WebServer::~WebServer() { Stop(); }
 
@@ -202,6 +454,7 @@ bool WebServer::Start(int port) {
 
     httpd_uri_t uris[] = {
         {"/", HTTP_GET, RootHandler, this},
+        {"/api/logs", HTTP_GET, LogWebSocketHandler, this, true, true},
         {"/api/notify", HTTP_POST, ApiNotifyHandler, this},
         {"/api/notify/stop", HTTP_POST, ApiNotifyStopHandler, this},
         {"/api/media/play", HTTP_POST, ApiMediaPlayHandler, this},
@@ -242,6 +495,7 @@ bool WebServer::Start(int port) {
         ESP_LOGE(TAG, "Khong the khoi dong HTTP server: %s", esp_err_to_name(ret));
         return false;
     }
+    log_stream_->SetServer(server_);
 
     for (auto& uri : uris) {
         ret = httpd_register_uri_handler(server_, &uri);
@@ -259,7 +513,9 @@ bool WebServer::Start(int port) {
 
 void WebServer::Stop() {
     if (server_) {
+        log_stream_->Disable(-1);
         httpd_stop(server_);
+        log_stream_->SetServer(nullptr);
         server_ = nullptr;
         ESP_LOGI(TAG, "HTTP server da dung");
     }
@@ -268,6 +524,14 @@ void WebServer::Stop() {
 esp_err_t WebServer::RootHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::LogWebSocketHandler(httpd_req_t* req) {
+    WebServer* server = GetServer(req);
+    if (server == nullptr || server->log_stream_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return server->log_stream_->HandleWebSocket(req);
 }
 
 esp_err_t WebServer::ApiQrConfigHandler(httpd_req_t* req) {

@@ -16,6 +16,8 @@ MrkenDDoRobotDisplay::MrkenDDoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                     swap_xy) {}
 
 MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
+    if (face_preview_timer_ != nullptr)
+        lv_timer_delete(face_preview_timer_);
     if (payment_qr_timer_ != nullptr) {
         lv_timer_delete(payment_qr_timer_);
         payment_qr_timer_ = nullptr;
@@ -58,6 +60,9 @@ void MrkenDDoRobotDisplay::SetupUI() {
     screen_layout_->SetHideSubtitle(hide_subtitle_);
     robot_eyes_ = std::make_unique<RobotEyesView>(screen_layout_->FaceRegion(), width_,
                                                   screen_layout_->FaceHeight());
+    robot_eyes_->SetVisible(face_config_.eyes);
+    robot_eyes_->SetAnimation(face_config_.animation);
+    robot_eyes_->SetEmotion(mrkenddo::kFaceEmotions[face_config_.idle_emotion]);
     spectrum_ = std::make_unique<mrkenddo::RobotSpectrum>();
     HideLegacyEmoji();
 
@@ -185,6 +190,49 @@ void MrkenDDoRobotDisplay::ApplyUiMode() {
     HideLegacyEmoji();
 }
 
+void MrkenDDoRobotDisplay::SetBehaviorCallbacks(std::function<void(bool)> speaking,
+                                                std::function<void(const char*)> emotion) {
+    DisplayLockGuard lock(this);
+    if (lock) {
+        speaking_callback_ = std::move(speaking);
+        emotion_callback_ = std::move(emotion);
+    }
+}
+
+void MrkenDDoRobotDisplay::ConfigureFace(const mrkenddo::FaceConfig& config) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    face_config_ = config;
+    if (face_preview_timer_ != nullptr) {
+        lv_timer_delete(face_preview_timer_);
+        face_preview_timer_ = nullptr;
+    }
+    if (robot_eyes_ != nullptr) {
+        robot_eyes_->SetAnimation(config.animation);
+        robot_eyes_->SetEmotion(mrkenddo::kFaceEmotions[config.idle_emotion]);
+        robot_eyes_->SetVisible(config.eyes);
+    }
+}
+
+void MrkenDDoRobotDisplay::PreviewFaceEmotion(const char* emotion, int duration_ms) {
+    DisplayLockGuard lock(this);
+    if (!lock || robot_eyes_ == nullptr)
+        return;
+    if (face_preview_timer_ != nullptr)
+        lv_timer_delete(face_preview_timer_);
+    robot_eyes_->SetEmotion(emotion);
+    face_preview_timer_ = lv_timer_create(
+        [](lv_timer_t* timer) {
+            auto* display = static_cast<MrkenDDoRobotDisplay*>(lv_timer_get_user_data(timer));
+            display->robot_eyes_->SetEmotion(
+                mrkenddo::kFaceEmotions[display->face_config_.idle_emotion]);
+            display->face_preview_timer_ = nullptr;
+            lv_timer_delete(timer);
+        },
+        duration_ms, this);
+}
+
 void MrkenDDoRobotDisplay::HideLegacyEmoji() {
     if (emoji_box_ != nullptr) {
         lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
@@ -223,6 +271,8 @@ void MrkenDDoRobotDisplay::SetStatus(const char* status) {
             ApplyUiMode();
         }
         music = music_session_.IsActive();
+        if (speaking_callback_)
+            speaking_callback_(std::strcmp(status, Lang::Strings::SPEAKING) == 0 && !music);
     }
     // The wire-level state remains speaking for tenclass music. Only the
     // presentation changes; do not break the transport's TTS lifecycle.
@@ -246,6 +296,9 @@ void MrkenDDoRobotDisplay::SetStatus(const char* status) {
     DisplayLockGuard lock(this);
     if (lock && robot_eyes_ != nullptr) {
         robot_eyes_->SetStatus(mode);
+        if (mode == RobotEyesMode::Neutral || !face_config_.follow_emotion) {
+            robot_eyes_->SetEmotion(mrkenddo::kFaceEmotions[face_config_.idle_emotion]);
+        }
         ApplyUiMode();
     }
 }
@@ -374,7 +427,10 @@ void MrkenDDoRobotDisplay::SetEmotion(const char* emotion) {
         return;
     }
 
-    if (!robot_eyes_->SetEmotion(emotion)) {
+    if (emotion_callback_ && emotion != nullptr)
+        emotion_callback_(emotion);
+    if (face_preview_timer_ == nullptr && face_config_.follow_emotion &&
+        !robot_eyes_->SetEmotion(emotion)) {
         robot_eyes_->SetEmotion("neutral");
     }
     ApplyUiMode();
@@ -510,6 +566,8 @@ void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadat
         if (!lock) {
             return;
         }
+        if (speaking_callback_)
+            speaking_callback_(false);
         music_session_.SetMediaMetadata(metadata.title, metadata.artist, metadata.station,
                                         metadata.duration_ms);
         audio_playback_active_ = false;

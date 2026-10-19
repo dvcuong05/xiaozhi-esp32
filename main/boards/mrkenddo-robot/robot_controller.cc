@@ -21,6 +21,66 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
     const auto config = settings_.LoadMotor();
     drive_.SetInversion(config.left_inverted, config.right_inverted);
     drive_.SetSpeed(config.delay_ms);
+    const auto face = settings_.LoadFace();
+    display_.ConfigureFace(face);
+    drive_.ConfigureEmotionMotion(face.motion, face.intensity);
+    display_.SetBehaviorCallbacks(
+        [this](bool speaking) { drive_.SetSpeaking(speaking); },
+        [this](const char* emotion) {
+            const std::string name(emotion);
+            int preset = 0;
+            if (name == "laugh" || name == "joy")
+                preset = 1;
+            else if (name == "angry" || name == "anger")
+                preset = 2;
+            else if (name == "surprised" || name == "astonished" || name == "wow" ||
+                     name == "panic")
+                preset = 3;
+            else if (name == "sad" || name == "cry" || name == "disappointed")
+                preset = 4;
+            else if (name == "thinking" || name == "confused")
+                preset = 5;
+            else if (name == "sleepy" || name == "sleep")
+                preset = 6;
+            else if (name == "confident" || name == "cool")
+                preset = 7;
+            drive_.PlayEmotion(preset);
+        });
+}
+
+RobotController::~RobotController() {
+    display_.SetBehaviorCallbacks({}, {});
+    drive_.ConfigureEmotionMotion(false, 60);
+}
+
+FaceConfig RobotController::GetFaceConfig() const { return settings_.LoadFace(); }
+
+bool RobotController::ConfigureFace(const FaceConfig& config) {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    if (settings_.SaveFace(config) != ESP_OK)
+        return false;
+    drive_.ConfigureEmotionMotion(config.motion, config.intensity);
+    Application::GetInstance().Schedule([this, config]() { display_.ConfigureFace(config); });
+    return true;
+}
+
+bool RobotController::PreviewFace(int emotion) {
+    if (emotion < 0 || emotion >= kFaceEmotionCount)
+        return false;
+    Application::GetInstance().Schedule(
+        [this, emotion]() { display_.PreviewFaceEmotion(kFaceEmotions[emotion], 5000); });
+    return true;
+}
+
+bool RobotController::PreviewEmotion(int preset) {
+    if (!drive_.PlayEmotion(preset, true))
+        return false;
+    static constexpr const char* emotions[] = {"happy", "laugh",    "angry",  "surprised",
+                                               "sad",   "confused", "sleepy", "confident"};
+    const std::string emotion = emotions[preset];
+    Application::GetInstance().Schedule(
+        [this, emotion]() { display_.PreviewFaceEmotion(emotion.c_str()); });
+    return true;
 }
 
 MotorConfig RobotController::GetMotorConfig() const { return settings_.LoadMotor(); }

@@ -42,6 +42,9 @@ private:
     static esp_err_t ApiOledClearHandler(httpd_req_t* req);
     static esp_err_t ApiStatusHandler(httpd_req_t* req);
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiFaceConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiFacePreviewHandler(httpd_req_t* req);
+    static esp_err_t ApiEmotionPreviewHandler(httpd_req_t* req);
     static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrShowHandler(httpd_req_t* req);

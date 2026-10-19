@@ -38,7 +38,60 @@ OLED dùng renderer bitmap cục bộ với các mode `clock`, chữ chạy, `st
 
 HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 8192 byte; riêng media giới hạn 48 dòng lyric, mỗi dòng tối đa 96 byte UTF-8. Cấu hình NVS vẫn được kiểm tra trước khi ghi.
 
+## Cảm xúc, đôi mắt và chuyển động khi nói
+
+Dashboard có thẻ **Cảm xúc & màn hình đôi mắt**: bật/tắt đôi mắt, hoạt ảnh
+mắt/miệng, theo cảm xúc hội thoại và chọn biểu cảm khi nghỉ. Bấm **Lưu & áp dụng**
+để ghi cấu hình vào NVS `face_config/record` (bản ghi phiên bản 1). Khi khởi động,
+board đọc lại cấu hình này; mặc định chuyển động tự động tắt, cường độ 60%.
+
+Khi bật chuyển động, trạng thái speaking của màn hình kích hoạt một chuỗi nhịp
+lắc lư. Emotion mới từ hội thoại chọn mẫu tương ứng; cùng cảm xúc không lặp
+liên tục và yêu cầu mới bị bỏ qua khi một chuỗi đang chạy. Nhạc/radio dùng luồng
+hiển thị riêng và không kích hoạt chuyển động hội thoại. Rời speaking sẽ dừng
+chuỗi tự động. QR, boot console, phụ đề và màn hình phụ giữ luồng hiện có.
+
+Các nút chạy thử kết hợp biểu cảm với 8 mẫu: lắc lư, xoay vòng, lùi+lắc,
+giật mình, buồn, suy nghĩ, ngủ gật và tự tin. Chạy thử được phép khi tự động
+đang tắt, dùng cường độ đã lưu; mỗi mẫu có 4 nhịp ngắn kèm khoảng dừng,
+dưới 2 giây, biểu cảm thử trở về mặc định sau 2 giây. Nếu robot đang chạy
+lệnh tay/routine/mẫu khác, API trả `409` thay vì chen ngang. Lệnh tay mới
+hủy nhịp tự động; **Dừng robot** hủy và ngăn nhịp tự động chạy lại trong
+lượt nói hiện tại. Lượt nói tiếp theo mới cho phép tự động trở lại.
+
+Motor hiện điều khiển H-bridge bằng GPIO số, chưa có PWM: thanh **Cường độ**
+20–100% chỉnh thời gian mỗi nhịp từ 120–280 ms, không phải tốc độ quay motor.
+Không có cảm biến chống rơi; kê bánh xe khỏi mặt bàn khi thử. Đôi mắt hiện
+là vector LVGL, được thiết kế lại theo 8 mẫu QGIF tại `docs/emoji sample`.
+Các mẫu này là ảnh đơn sắc 128×64 kèm thời lượng frame, không phải GIF tiêu chuẩn.
+Firmware tái hiện ngôn ngữ biểu cảm bằng nét vẽ thay vì nhúng toàn bộ animation.
+
+Bộ mặt có 16 lựa chọn: bình thường, vui, buồn, giận, ngạc nhiên, buồn ngủ,
+suy nghĩ, lắng nghe, cười lớn, yêu thích, chóng mặt, lơ đãng, tinh nghịch,
+tự tin, ngáp và nháy mắt. Mắt cười cong, mắt khép khi cười lớn, trái tim,
+mắt xoắn, lông mày nghiêng, giọt nước mắt và miệng ngáp giúp phân biệt rõ
+từng trạng thái. Có màu hồng phụ cho má/trái tim; phong cách chính vẫn cyan.
+`laugh`/`joy` khác `happy`, `confident`/`cool` có kính riêng; `love`, `dizzy`,
+`distracted`, `devil`, `yawn` và `playful`/`wink` được nhận qua emotion hội thoại
+và MCP `self.robot.set_emotion`. Gói lặp cùng emotion không đặt lại frame.
+Khi speaking, khẩu hình vẫn lấy mức âm thanh; cảm xúc chỉ thay mắt/chi tiết,
+không tạo thêm miệng cười chồng lên miệng nói. Tắt đôi mắt sẽ tạm dừng timer vẽ.
+
+Nút **Xem biểu cảm · không chạy bánh xe** xem lựa chọn hiện tại trong 5 giây,
+không ghi NVS, không gọi motor. Tùy chọn đôi mắt/hoạt ảnh vẫn được tôn trọng.
+Sau đó phục hồi biểu cảm mặc định. Chỉ **Lưu & áp dụng** mới ghi lựa chọn mới.
+
+HTTP adapter: `GET/POST /api/face_config` với `eyes`, `animation`,
+`follow_emotion`, `motion` (boolean), `intensity` (20–100), `idle_emotion`
+(0–15 theo thứ tự lựa chọn kể trên; 0–7 giữ nguyên ý nghĩa để tương thích NVS cũ).
+`POST /api/face/preview` nhận `emotion` 0–15 để xem riêng màn hình;
+`POST /api/emotion/preview` nhận `preset` 0–7 theo thứ tự nút chạy thử;
+`POST /api/stop` hủy chuyển động. `RobotController` nối cấu hình và sự kiện
+display với `RobotDrive`; timer chỉ hoạt động trong chuỗi chuyển động,
+không tạo task mới và không chờ hoàn tất motor trong HTTP/audio/main loop.
+
 ## Xem console log qua webserver
+
 
 Trình duyệt gửi lệnh `start` sau khi WebSocket mở; firmware chỉ bật thu log
 khi nhận lệnh này và trả `{"type":"log_ready"}`. Giao diện chỉ báo đang đồng bộ

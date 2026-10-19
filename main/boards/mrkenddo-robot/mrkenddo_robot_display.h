@@ -1,11 +1,13 @@
 #ifndef MRKENDDO_ROBOT_DISPLAY_H_
 #define MRKENDDO_ROBOT_DISPLAY_H_
 
+#include <functional>
 #include "display/lcd_display.h"
 #include "robot_eyes.h"
 #include "robot_music_session.h"
 #include "robot_qr_code.h"
 #include "robot_screen_layout.h"
+#include "robot_settings.h"
 #include "robot_spectrum.h"
 
 #include <array>
@@ -29,6 +31,10 @@ public:
     void SetHideSubtitle(bool hide) override;
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void SetEmotion(const char* emotion) override;
+    void ConfigureFace(const mrkenddo::FaceConfig& config);
+    void PreviewFaceEmotion(const char* emotion, int duration_ms = 2000);
+    void SetBehaviorCallbacks(std::function<void(bool)> speaking,
+                              std::function<void(const char*)> emotion);
     void StartBootSequence() override;
     void FinishBootSequence() override;
     void OnBootEvent(BootStage stage, const char* detail) override;
@@ -70,6 +76,10 @@ private:
     BootState boot_state_ = BootState::Pending;
     bool audio_playback_active_ = false;
     bool payment_qr_active_ = false;
+    mrkenddo::FaceConfig face_config_;
+    lv_timer_t* face_preview_timer_ = nullptr;
+    std::function<void(bool)> speaking_callback_;
+    std::function<void(const char*)> emotion_callback_;
     std::string boot_console_text_;
     size_t boot_console_visible_chars_ = 0;
 

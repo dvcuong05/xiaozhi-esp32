@@ -29,6 +29,9 @@ public:
     void Stop();
     void SetSpeed(int delay_ms);
     void SetInversion(bool left_inverted, bool right_inverted);
+    void ConfigureEmotionMotion(bool enabled, int intensity);
+    void SetSpeaking(bool speaking);
+    bool PlayEmotion(int preset, bool preview = false);
 
 private:
     gpio_num_t left_a_;
@@ -42,6 +45,18 @@ private:
     bool right_inverted_ = true;
     bool running_ = false;
     int64_t deadline_us_ = 0;
+    esp_timer_handle_t emotion_timer_ = nullptr;
+    bool emotion_enabled_ = false;
+    bool speaking_ = false;
+    bool emotion_active_ = false;
+    bool emotion_preview_ = false;
+    bool emotion_suppressed_ = false;
+    int emotion_intensity_ = 60;
+    int emotion_preset_ = -1;
+    int emotion_phase_ = 0;
+    int64_t emotion_deadline_ = 0;
+    static void EmotionTimer(void* context);
+    void CancelEmotionLocked();
     TaskHandle_t routine_task_ = nullptr;
     Routine routine_ = Routine::Lively;
     std::atomic<bool> routine_cancel_{false};

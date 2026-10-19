@@ -20,6 +20,11 @@ class RobotController {
 public:
     RobotController(RobotSettings& settings, RobotDrive& drive, SecondaryDisplay& secondary,
                     MrkenDDoRobotDisplay& display, std::function<void(int)> apply_tft_rotation);
+    ~RobotController();
+    FaceConfig GetFaceConfig() const;
+    bool ConfigureFace(const FaceConfig& config);
+    bool PreviewEmotion(int preset);
+    bool PreviewFace(int emotion);
 
     MotorConfig GetMotorConfig() const;
     bool ConfigureMotor(const MotorConfig& config);

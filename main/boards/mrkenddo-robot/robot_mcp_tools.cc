@@ -266,8 +266,9 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
     Property emotion("emotion", kPropertyTypeString);
     emotion.SetMaxLength(32);
     mcp.AddTool("self.robot.set_emotion",
-                "Set the custom TFT robot eyes emotion. Examples: neutral, happy, surprised, "
-                "sad, angry, sleepy, confused, listening, speaking.",
+                "Set the custom TFT face emotion: neutral, happy, laugh, surprised, sad, angry, "
+                "sleepy, confused, love, dizzy, distracted, devil, confident, yawn, playful, "
+                "listening or speaking. Each expression has distinct eyes and animation.",
                 PropertyList({emotion}), [&controller](const PropertyList& properties) {
                     return SetRobotEmotion(controller, properties);
                 });

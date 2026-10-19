@@ -2,25 +2,11 @@
 #define MRKENDDO_ROBOT_EYES_H_
 
 #include <lvgl.h>
+#include "robot_face_art.h"
 
 #include <cstdint>
 
-enum class RobotEyesMode : uint8_t {
-    Neutral,
-    Listening,
-    Speaking,
-    Happy,
-    Surprised,
-    Sad,
-    Angry,
-    Sleepy,
-    Confused,
-    Boot,
-};
-
-// Board-local vector face for the MrkenDDo Robot TFT. The face intentionally
-// uses solid cyan rounded panels without pupils so it remains crisp after any
-// panel rotation and keeps the display asset footprint small.
+// Procedural face inspired by the QGIF samples, with an independent audio mouth.
 class RobotEyesView {
 public:
     RobotEyesView(lv_obj_t* parent, lv_coord_t width, lv_coord_t height);
@@ -32,20 +18,12 @@ public:
     bool SetEmotion(const char* emotion);
     void SetStatus(RobotEyesMode mode);
     void SetVisible(bool visible);
+    void SetAnimation(bool enabled);
     void SetSpeechLevel(uint8_t level);
     void SetSize(lv_coord_t width, lv_coord_t height);
 
 private:
-    struct EyeGeometry {
-        int x;
-        int y;
-        int width;
-        int height;
-    };
-
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* left_eye_ = nullptr;
-    lv_obj_t* right_eye_ = nullptr;
     lv_obj_t* mouth_ = nullptr;
     lv_obj_t* mouth_inside_ = nullptr;
     lv_timer_t* timer_ = nullptr;
@@ -57,10 +35,12 @@ private:
     uint8_t speech_target_ = 0;
     uint8_t speech_level_ = 0;
     uint32_t speech_updated_ms_ = 0;
+    bool animation_enabled_ = true;
+    bool visible_ = true;
 
     static void OnTimer(lv_timer_t* timer);
     void Render();
-    void RenderEye(lv_obj_t* eye, const EyeGeometry& geometry);
+    static void DrawFace(lv_event_t* event);
     void RenderMouth();
     void SetMode(RobotEyesMode mode);
     static bool MapEmotion(const char* emotion, RobotEyesMode& mode);

@@ -37,10 +37,21 @@ RobotDrive::RobotDrive(gpio_num_t left_a, gpio_num_t left_b, gpio_num_t right_a,
     if (esp_timer_create(&timer_args, &stop_timer_) != ESP_OK) {
         ESP_LOGE(kTag, "Cannot create motor stop timer");
     }
+    const esp_timer_create_args_t emotion_args = {
+        .callback = EmotionTimer,
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "robot_emotion",
+    };
+    if (esp_timer_create(&emotion_args, &emotion_timer_) != ESP_OK) {
+        ESP_LOGE(kTag, "Cannot create emotion timer");
+    }
 }
 
 RobotDrive::~RobotDrive() {
     Stop();
+    if (emotion_timer_ != nullptr)
+        esp_timer_delete(emotion_timer_);
     for (int wait_ms = 0; routine_running_.load() && wait_ms < 500; wait_ms += 10) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -85,6 +96,8 @@ bool RobotDrive::Move(Direction direction, int steps, int delay_ms) {
         return false;
     }
     if (!from_routine) {
+        CancelEmotionLocked();
+        emotion_suppressed_ = true;
         routine_cancel_.store(true);
     }
     esp_timer_stop(stop_timer_);  // A new command replaces the previous timeout.
@@ -144,6 +157,8 @@ bool RobotDrive::StartRoutine(Routine routine) {
         return false;
     }
     routine_ = routine;
+    CancelEmotionLocked();
+    emotion_suppressed_ = true;
     routine_cancel_.store(false);
     routine_running_.store(true);
     if (xTaskCreate(RoutineTask, "robot_routine", 3072, this, 4, &routine_task_) != pdPASS) {
@@ -229,6 +244,10 @@ void RobotDrive::StopMotion() {
         xSemaphoreGive(mutex_);
         return;
     }
+    if (!from_routine) {
+        CancelEmotionLocked();
+        emotion_suppressed_ = true;
+    }
     if (stop_timer_ != nullptr)
         esp_timer_stop(stop_timer_);
     SetOutputsLocked(0, 0);
@@ -261,6 +280,7 @@ void RobotDrive::SetInversion(bool left_inverted, bool right_inverted) {
     if (mutex_ == nullptr)
         return;
     xSemaphoreTake(mutex_, portMAX_DELAY);
+    CancelEmotionLocked();
     routine_cancel_.store(true);
     // Stop before changing polarity to avoid reversing under power.
     if (stop_timer_ != nullptr)
@@ -271,4 +291,93 @@ void RobotDrive::SetInversion(bool left_inverted, bool right_inverted) {
     left_inverted_ = left_inverted;
     right_inverted_ = right_inverted;
     xSemaphoreGive(mutex_);
+}
+
+void RobotDrive::CancelEmotionLocked() {
+    if (emotion_timer_ != nullptr)
+        esp_timer_stop(emotion_timer_);
+    if (emotion_active_)
+        SetOutputsLocked(0, 0);
+    emotion_active_ = false;
+}
+
+void RobotDrive::ConfigureEmotionMotion(bool enabled, int intensity) {
+    if (mutex_ == nullptr)
+        return;
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+    CancelEmotionLocked();
+    emotion_enabled_ = enabled;
+    emotion_intensity_ = std::clamp(intensity, 20, 100);
+    xSemaphoreGive(mutex_);
+}
+
+void RobotDrive::SetSpeaking(bool speaking) {
+    if (mutex_ == nullptr)
+        return;
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+    const bool started = speaking && !speaking_;
+    if (started) {
+        emotion_preset_ = -1;
+        emotion_suppressed_ = false;
+    }
+    speaking_ = speaking;
+    if (!speaking && !emotion_preview_)
+        CancelEmotionLocked();
+    xSemaphoreGive(mutex_);
+    if (started)
+        PlayEmotion(0);
+}
+
+bool RobotDrive::PlayEmotion(int preset, bool preview) {
+    if (preset < 0 || preset > 7 || mutex_ == nullptr || emotion_timer_ == nullptr)
+        return false;
+    // The display/audio path must never wait for a motor command.
+    if (xSemaphoreTake(mutex_, 0) != pdTRUE)
+        return false;
+    if (running_ || routine_running_.load() || emotion_active_ ||
+        (!preview &&
+         (!emotion_enabled_ || !speaking_ || emotion_suppressed_ || preset == emotion_preset_))) {
+        xSemaphoreGive(mutex_);
+        return false;
+    }
+    emotion_preset_ = preset;
+    emotion_phase_ = 0;
+    emotion_preview_ = preview;
+    emotion_deadline_ = esp_timer_get_time();
+    const bool started = esp_timer_start_periodic(emotion_timer_, 20000) == ESP_OK;
+    emotion_active_ = started;
+    xSemaphoreGive(mutex_);
+    return started;
+}
+
+void RobotDrive::EmotionTimer(void* context) {
+    auto* drive = static_cast<RobotDrive*>(context);
+    if (xSemaphoreTake(drive->mutex_, 0) != pdTRUE)
+        return;
+    // Four bounded pulses, each followed by a stopped interval. This board has
+    // digital H-bridge outputs: intensity changes pulse duration, not PWM speed.
+    static constexpr int8_t patterns[8][4][2] = {
+        {{-1, 1}, {1, -1}, {-1, 1}, {1, -1}},  // sway
+        {{1, -1}, {1, -1}, {1, -1}, {1, -1}},  // spin
+        {{-1, -1}, {-1, 1}, {1, -1}, {1, 1}},  // back and sway
+        {{-1, -1}, {0, 0}, {1, 1}, {0, 0}},    // startled
+        {{-1, -1}, {0, 0}, {-1, 1}, {0, 0}},   // sad
+        {{-1, 1}, {0, 0}, {1, -1}, {0, 0}},    // thinking
+        {{1, 1}, {0, 0}, {-1, -1}, {0, 0}},    // sleepy
+        {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}},  // confident
+    };
+    const int64_t now = esp_timer_get_time();
+    if (drive->emotion_active_ && now >= drive->emotion_deadline_) {
+        if (drive->emotion_phase_ >= 8) {
+            drive->CancelEmotionLocked();
+        } else {
+            const int phase = drive->emotion_phase_++;
+            const auto& pulse = patterns[drive->emotion_preset_][phase / 2];
+            const bool moving = phase % 2 == 0;
+            drive->SetOutputsLocked(moving ? pulse[0] : 0, moving ? pulse[1] : 0);
+            drive->emotion_deadline_ =
+                now + (moving ? 80 + drive->emotion_intensity_ * 2 : 100) * 1000;
+        }
+    }
+    xSemaphoreGive(drive->mutex_);
 }

@@ -28,6 +28,23 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
     </header>
 
     <section class="grid">
+        <article class="card wide">
+            <div class="card-head"><div><h2>🎭 Cảm xúc & màn hình đôi mắt</h2><p>Khi nói chuyện, robot đổi biểu cảm và cử động bánh xe theo cảm xúc. Cấu hình được lưu vào chip.</p></div><span class="tag">TFT · CẢM XÚC</span></div>
+            <fieldset id="faceControls" disabled style="border:0;padding:0;margin:0">
+                <div class="row"><label class="check"><input id="faceEyes" type="checkbox" checked>Hiện đôi mắt</label><label class="check"><input id="faceAnimation" type="checkbox" checked>Hoạt ảnh mắt và miệng</label><label class="check"><input id="faceFollow" type="checkbox" checked>Theo cảm xúc hội thoại</label></div>
+                <div class="field" style="margin-top:12px"><label>Biểu cảm mặc định khi nghỉ</label><select id="faceIdle"><option value="0">😐 Bình thường</option><option value="1">😊 Vui vẻ</option><option value="2">😢 Buồn</option><option value="3">😠 Giận</option><option value="4">😮 Ngạc nhiên</option><option value="5">😴 Buồn ngủ</option><option value="6">🤔 Suy nghĩ</option><option value="7">👂 Lắng nghe</option><option value="8">😆 Cười lớn</option><option value="9">😍 Yêu thích</option><option value="10">😵 Chóng mặt</option><option value="11">🙄 Lơ đãng</option><option value="12">😈 Tinh nghịch</option><option value="13">😎 Tự tin</option><option value="14">🥱 Ngáp</option><option value="15">😉 Nháy mắt</option></select></div>
+                <div class="row" style="margin-top:10px"><button class="ghost" onclick="previewFace()">Xem biểu cảm · không chạy bánh xe</button><span class="hint">Xem trong 5 giây, không thay đổi cấu hình đã lưu.</span></div>
+                <div class="divider"></div>
+                <label class="check"><input id="faceMotion" type="checkbox">Chuyển động theo cảm xúc khi đang nói</label>
+                <div class="row" style="margin-top:10px"><button class="primary" onclick="setEmotionMotion(true)">▶ Bật chuyển động</button><button class="ghost" onclick="setEmotionMotion(false)">Ⅱ Tắt chuyển động</button></div>
+                <div class="field" style="margin-top:12px"><label>Cường độ chuyển động: <span id="faceIntensityValue">60</span>%</label><input id="faceIntensity" class="range" type="range" min="20" max="100" value="60" oninput="$('faceIntensityValue').textContent=this.value"></div>
+                <div class="hint">Cường độ chỉnh độ dài nhịp motor, không phải tốc độ PWM. Mỗi lần chạy thử dưới 2 giây. Lệnh điều khiển tay được ưu tiên; Dừng sẽ hủy chuyển động cảm xúc trong lượt nói hiện tại. Robot chưa có cảm biến chống rơi: hãy kê bánh xe khỏi mặt bàn khi chạy thử.</div>
+                <div class="row" style="margin-top:14px"><button class="primary" onclick="saveFace()">Lưu & áp dụng</button><button class="danger" onclick="stopEmotionMotion()">■ Dừng robot</button></div>
+                <div class="divider"></div><p>Chạy thử cả biểu cảm và bánh xe, kể cả khi tự động đang tắt. Dùng cường độ đã lưu.</p>
+                <div class="modes"><button onclick="previewEmotion(0)">😊 Lắc lư</button><button onclick="previewEmotion(1)">😆 Xoay vòng</button><button onclick="previewEmotion(2)">😠 Lùi + lắc</button><button onclick="previewEmotion(3)">😮 Giật mình</button><button onclick="previewEmotion(4)">😢 Buồn</button><button onclick="previewEmotion(5)">🤔 Suy nghĩ</button><button onclick="previewEmotion(6)">😴 Ngủ gật</button><button onclick="previewEmotion(7)">😎 Tự tin</button></div>
+                <div class="hint">Biểu cảm dùng đôi mắt robot vẽ trực tiếp trên màn hình; không cần tải ảnh.</div>
+            </fieldset><div id="faceStatus" class="statusline">Đang tải cấu hình...</div>
+        </article>
         <article class="card wide"><div class="card-head"><div><h2>Trạng thái hệ thống</h2><p>Thông tin được cập nhật tự động từ board.</p></div><span class="tag">LIVE</span></div><div class="stats"><div class="stat"><span>Kết nối</span><b id="state">-</b></div><div class="stat"><span>Địa chỉ IP</span><b id="ipStat">-</b></div><div class="stat"><span>Free heap</span><b id="heap">-</b></div></div></article>
 
         <article class="card"><div class="card-head"><div><h2>Điều khiển robot</h2><p>Giữ cấu hình bước/thời gian ở thẻ bên cạnh.</p></div><span class="tag">MOTION</span></div><div class="motor"><span class="empty"></span><button onclick="move('forward')">▲</button><span class="empty"></span><button onclick="move('left')">◀</button><button class="stop" onclick="stopRobot()">■</button><button onclick="move('right')">▶</button><span class="empty"></span><button onclick="move('backward')">▼</button><span class="empty"></span></div><div id="moveStatus" class="statusline">Sẵn sàng.</div></article>
@@ -58,10 +75,18 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
 <script>
     const $=id=>document.getElementById(id); let selectedMode=0, logSocket=null;
     function say(id,text,good=false){$(id).textContent=text;$(id).className='statusline'+(good?' good':'')}
-    async function json(url,options={}){const r=await fetch(url,options);let d={};try{d=await r.json()}catch(_){d={error:await r.text()}}if(!r.ok)throw new Error(d.error||'HTTP '+r.status);return d}
+    async function json(url,options={}){const r=await fetch(url,options);const text=await r.text();let d={};try{d=text?JSON.parse(text):{}}catch(_){d={error:text}}if(!r.ok)throw new Error(d.error||'HTTP '+r.status);return d}
     function chooseMode(mode){selectedMode=mode;document.querySelectorAll('.mode').forEach(b=>b.classList.toggle('active',Number(b.dataset.mode)===mode));}
     function appendLog(text){const box=$('consoleLog');box.textContent+=text;if(box.textContent.length>24000)box.textContent=box.textContent.slice(-20000);box.scrollTop=box.scrollHeight}
     function clearLogs(){$('consoleLog').textContent=''}
+    function facePayload(){return {eyes:$('faceEyes').checked,animation:$('faceAnimation').checked,follow_emotion:$('faceFollow').checked,motion:$('faceMotion').checked,intensity:Number($('faceIntensity').value),idle_emotion:Number($('faceIdle').value)}}
+    function showFaceConfig(d){$('faceEyes').checked=d.eyes;$('faceAnimation').checked=d.animation;$('faceFollow').checked=d.follow_emotion;$('faceMotion').checked=d.motion;$('faceIntensity').value=d.intensity;$('faceIntensityValue').textContent=d.intensity;$('faceIdle').value=d.idle_emotion}
+    async function loadFace(){try{showFaceConfig(await json('/api/face_config'));$('faceControls').disabled=false;say('faceStatus','Đã tải cấu hình đã lưu.',true)}catch(e){say('faceStatus','Không tải được cấu hình cảm xúc: '+e.message)}}
+    async function saveFace(){const payload=facePayload();$('faceControls').disabled=true;try{showFaceConfig(await json('/api/face_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));say('faceStatus','Đã lưu vào chip và áp dụng.',true)}catch(e){say('faceStatus',e.message)}finally{$('faceControls').disabled=false}}
+    function setEmotionMotion(enabled){$('faceMotion').checked=enabled;saveFace()}
+    async function previewEmotion(preset){try{const d=await json('/api/emotion/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preset})});say('faceStatus',d.result,true)}catch(e){say('faceStatus',e.message)}}
+    async function previewFace(){try{const d=await json('/api/face/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({emotion:Number($('faceIdle').value)})});say('faceStatus',d.result,true)}catch(e){say('faceStatus',e.message)}}
+    async function stopEmotionMotion(){try{await json('/api/stop',{method:'POST'});say('faceStatus','Đã dừng robot.',true)}catch(e){say('faceStatus',e.message)}}
     function toggleLogs(){
       if(logSocket){logSocket.close();return}
       const scheme=location.protocol==='https:'?'wss':'ws';
@@ -75,6 +100,7 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
       socket.onclose=e=>{clearTimeout(timer);if(logSocket!==socket)return;logSocket=null;$('logToggle').disabled=false;$('logToggle').textContent='Bật xem console';say('logStatus',failure||(e.wasClean?'Đang tắt.':'Mất kết nối nhật ký (mã '+e.code+').'))};
     }
     async function load(){
+      loadFace();
         try{const d=await json('/api/config');$('steps').value=d.steps;$('delay').value=d.delay_ms;$('left_inv').checked=!!d.left_inverted;$('right_inv').checked=!!d.right_inverted}catch(e){say('motorStatus',e.message)}
         try{const d=await json('/api/oled_config');$('oled_addr').value=d.addr;$('oled_sda').value=d.sda;$('oled_scl').value=d.scl;$('oled_width').value=d.width;$('oled_height').value=d.height;$('oled_rotation').value=d.rotation;$('oled_text').value=d.text||'';$('oled_speed').value=d.speed||2;$('oled_font').value=d.font_size||0;$('oled_contrast').value=d.contrast??255;$('contrastValue').textContent=$('oled_contrast').value;$('oled_invert').checked=!!d.invert;chooseMode(Number(d.mode||0))}catch(e){say('oledStatus',e.message)}
         try{const d=await json('/api/tft_config');$('tft_rotation').value=d.rotation}catch(e){say('tftStatus',e.message)}

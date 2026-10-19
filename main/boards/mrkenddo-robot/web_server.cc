@@ -4,9 +4,9 @@
 #include "robot_settings.h"
 #include "web_ui.h"
 
-#include <cmath>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -47,9 +47,7 @@ std::atomic<int> g_pending_log_jobs{0};
 
 class WebServerLogStream {
 public:
-    WebServerLogStream() : state_(std::make_shared<WebServerLogState>()) {
-        instance_.store(this);
-    }
+    WebServerLogStream() : state_(std::make_shared<WebServerLogState>()) { instance_.store(this); }
 
     ~WebServerLogStream() {
         Disable(-1);
@@ -76,8 +74,7 @@ public:
 
     void Disable(int client_fd) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!state_->active.load() ||
-            (client_fd >= 0 && state_->client_fd.load() != client_fd)) {
+        if (!state_->active.load() || (client_fd >= 0 && state_->client_fd.load() != client_fd)) {
             return;
         }
 
@@ -210,8 +207,7 @@ private:
         return result;
     }
 
-    void Queue(const std::shared_ptr<WebServerLogState>& state, const char* line,
-               size_t length) {
+    void Queue(const std::shared_ptr<WebServerLogState>& state, const char* line, size_t length) {
         int pending = g_pending_log_jobs.load();
         while (pending < kMaxPendingLogJobs &&
                !g_pending_log_jobs.compare_exchange_weak(pending, pending + 1)) {
@@ -442,7 +438,9 @@ WebServer* GetServer(httpd_req_t* req) { return static_cast<WebServer*>(req->use
 }  // namespace
 
 WebServer::WebServer(mrkenddo::RobotController& controller)
-    : server_(nullptr), controller_(controller), log_stream_(std::make_unique<WebServerLogStream>()) {}
+    : server_(nullptr),
+      controller_(controller),
+      log_stream_(std::make_unique<WebServerLogStream>()) {}
 
 WebServer::~WebServer() { Stop(); }
 
@@ -478,6 +476,10 @@ bool WebServer::Start(int port) {
         {"/api/status", HTTP_GET, ApiStatusHandler, this},
         {"/api/tft_config", HTTP_GET, ApiTftConfigHandler, this},
         {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
+        {"/api/face_config", HTTP_GET, ApiFaceConfigHandler, this},
+        {"/api/face_config", HTTP_POST, ApiFaceConfigHandler, this},
+        {"/api/face/preview", HTTP_POST, ApiFacePreviewHandler, this},
+        {"/api/emotion/preview", HTTP_POST, ApiEmotionPreviewHandler, this},
         {"/api/boot_config", HTTP_GET, ApiBootConfigHandler, this},
         {"/api/boot_config", HTTP_POST, ApiBootConfigHandler, this},
         {"/api/qr_config", HTTP_GET, ApiQrConfigHandler, this},
@@ -1179,6 +1181,89 @@ esp_err_t WebServer::ApiTftConfigHandler(httpd_req_t* req) {
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr)
         cJSON_AddStringToObject(response, "result", "TFT rotation scheduled");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiFaceConfigHandler(httpd_req_t* req) {
+    auto& controller = GetServer(req)->controller_;
+    auto config = controller.GetFaceConfig();
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (root == nullptr)
+            return ESP_FAIL;
+        const auto* eyes = cJSON_GetObjectItemCaseSensitive(root, "eyes");
+        const auto* animation = cJSON_GetObjectItemCaseSensitive(root, "animation");
+        const auto* follow = cJSON_GetObjectItemCaseSensitive(root, "follow_emotion");
+        const auto* motion = cJSON_GetObjectItemCaseSensitive(root, "motion");
+        const bool valid = cJSON_IsBool(eyes) && cJSON_IsBool(animation) && cJSON_IsBool(follow) &&
+                           cJSON_IsBool(motion) &&
+                           GetInteger(root, "intensity", 20, 100, &config.intensity) &&
+                           GetInteger(root, "idle_emotion", 0, mrkenddo::kFaceEmotionCount - 1,
+                                      &config.idle_emotion);
+        config.eyes = cJSON_IsTrue(eyes);
+        config.animation = cJSON_IsTrue(animation);
+        config.follow_emotion = cJSON_IsTrue(follow);
+        config.motion = cJSON_IsTrue(motion);
+        cJSON_Delete(root);
+        if (!valid) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Cấu hình cảm xúc không hợp lệ");
+            return ESP_FAIL;
+        }
+        if (!controller.ConfigureFace(config)) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                "Không lưu được cấu hình cảm xúc");
+            return ESP_FAIL;
+        }
+    }
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddBoolToObject(response, "eyes", config.eyes);
+        cJSON_AddBoolToObject(response, "animation", config.animation);
+        cJSON_AddBoolToObject(response, "follow_emotion", config.follow_emotion);
+        cJSON_AddBoolToObject(response, "motion", config.motion);
+        cJSON_AddNumberToObject(response, "intensity", config.intensity);
+        cJSON_AddNumberToObject(response, "idle_emotion", config.idle_emotion);
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiFacePreviewHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr)
+        return ESP_FAIL;
+    int emotion = 0;
+    const bool valid = GetInteger(root, "emotion", 0, mrkenddo::kFaceEmotionCount - 1, &emotion);
+    cJSON_Delete(root);
+    if (!valid || !GetServer(req)->controller_.PreviewFace(emotion)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Biểu cảm không hợp lệ");
+        return ESP_FAIL;
+    }
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr)
+        cJSON_AddStringToObject(response, "result",
+                                "Đang xem biểu cảm trong 5 giây; bánh xe không chuyển động");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiEmotionPreviewHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr)
+        return ESP_FAIL;
+    int preset = 0;
+    const bool valid = GetInteger(root, "preset", 0, 7, &preset);
+    cJSON_Delete(root);
+    if (!valid) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Kiểu cảm xúc không hợp lệ");
+        return ESP_FAIL;
+    }
+    if (!GetServer(req)->controller_.PreviewEmotion(preset)) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return httpd_resp_sendstr(req, "Robot đang bận; hãy dừng chuyển động trước khi chạy thử");
+    }
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr)
+        cJSON_AddStringToObject(response, "result", "Đang chạy thử cảm xúc và chuyển động");
     return SendJson(req, response);
 }
 

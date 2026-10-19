@@ -362,4 +362,37 @@ esp_err_t RobotSettings::SaveQr(const QrConfig& config) {
     });
 }
 
+FaceConfig RobotSettings::LoadFace() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    FaceConfig config;
+    uint8_t record[7] = {};
+    size_t length = sizeof(record);
+    NvsHandle handle("face_config", NVS_READONLY);
+    if (handle.error == ESP_OK && nvs_get_blob(handle.value, "record", record, &length) == ESP_OK &&
+        length == sizeof(record) && record[0] == 1 && record[1] <= 1 && record[2] <= 1 &&
+        record[3] <= 1 && record[4] <= 1 && record[5] >= 20 && record[5] <= 100 &&
+        record[6] < kFaceEmotionCount) {
+        config = {record[1] != 0, record[2] != 0, record[3] != 0,
+                  record[4] != 0, record[5],      record[6]};
+    }
+    return config;
+}
+
+esp_err_t RobotSettings::SaveFace(const FaceConfig& config) {
+    if (config.intensity < 20 || config.intensity > 100 || config.idle_emotion < 0 ||
+        config.idle_emotion >= kFaceEmotionCount)
+        return ESP_ERR_INVALID_ARG;
+    const uint8_t record[] = {1,
+                              config.eyes,
+                              config.animation,
+                              config.follow_emotion,
+                              config.motion,
+                              static_cast<uint8_t>(config.intensity),
+                              static_cast<uint8_t>(config.idle_emotion)};
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("face_config", [&record](nvs_handle_t handle) {
+        return nvs_set_blob(handle, "record", record, sizeof(record));
+    });
+}
+
 }  // namespace mrkenddo

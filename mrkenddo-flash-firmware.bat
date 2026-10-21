@@ -22,7 +22,7 @@ call "%IDF_EXPORT%"
 
 :: 3. Cau hinh Cong COM (Serial Port)
 :: De trong de tu dong tim port; hoac set co dinh: set "TARGET_PORT=COM3"
-set "TARGET_PORT=COM11"
+set "TARGET_PORT=COM6"
 
 if "%TARGET_PORT%"=="" (
     echo [INFO] Che do: Tu dong nhan dien cong COM [Auto-detect]...

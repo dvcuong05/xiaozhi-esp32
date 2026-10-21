@@ -27,13 +27,76 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     đã chuẩn hóa; deployment không cần repo hay service API Zing chạy riêng.
     Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
-- [ ] Read & play music from SD card
-- [ ] Read & play photos from SD card
 - [ ] Stream live television and support config from webserver
-- [ ] Load and show emotion from SD card and allow dynamic change
 - [ ] Feature ask chatbox to set and weak the alarm
 - [ ] Tính năng chuyển bài, pause, stop music dựa vào số lần chạm cảm biến chạm (music navigation with touch sensor)
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
+
+### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
+
+Ghi chú: đã đối chiếu câu hỏi và câu trả lời trong bản export của session
+ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi mục đã được chốt
+để triển khai.
+
+- [ ] **P0 - Khảo sát phần cứng trước khi lập trình:** xác nhận module
+      microSD, chân còn dùng được và xung đột bus với TFT; kiểm tra mức logic,
+      nguồn cấp và định dạng thẻ. Xác nhận mạch TTP223, VL53L1X, bộ phát/thu IR,
+      loại đèn Edison và driver. Với thông tin 3 V/120 mA, chưa được giả định
+      LED là addressable hay 120 mA cho từng đèn/cả cụm; không cấp dòng tải từ
+      GPIO ESP32.
+- [ ] **P1 - Nền tảng lưu trữ microSD:** tạo service quản lý mount/unmount,
+      lỗi/rút thẻ, cấu trúc thư mục và truy cập file; dùng FATFS qua SPI nếu
+      pin/bus thực tế phù hợp. Tác vụ đọc/ghi không chặn audio hoặc main loop.
+- [ ] **P1 - Phát nhạc và âm thanh offline:** duyệt/phát file local qua player
+      dùng chung; thiết kế Audio Manager để ưu tiên TTS, nhạc, hiệu ứng và tránh
+      tranh chấp I2S/loa. Bắt đầu với WAV; chỉ thêm MP3 sau khi đánh giá decoder,
+      CPU, RAM/PSRAM và dung lượng bộ đệm.
+- [ ] **P1 - Tương tác TTP223:** hỗ trợ chạm/nhấn giữ/chạm đôi có debounce;
+      ưu tiên vuốt/chạm để robot phản hồi cảm xúc và phát âm thanh local, sau đó
+      tùy chọn push-to-talk hoặc dừng chuyển động. Lệnh di chuyển phải qua
+      safety gate và luôn có thao tác dừng ưu tiên cao.
+- [ ] **P1 - Tránh vật cản bằng VL53L1X:** đọc ToF theo chu kỳ, dừng an toàn khi
+      cảm biến lỗi hoặc dữ liệu quá cũ; tích hợp vào routine khám phá/di chuyển
+      để giảm tốc, dừng hoặc đổi hướng. Ngưỡng phải hiệu chỉnh trên robot thật.
+- [ ] **P1 - Ngôn ngữ ánh sáng cho ba đèn sau:** quy ước trạng thái khởi động,
+      ready/listening/processing/speaking, vui khi chạm, di chuyển/rẽ, vật cản,
+      dừng khẩn cấp, pin yếu và lỗi. Tách hiệu ứng khỏi state machine; xác nhận
+      driver, PWM và tổng dòng trước khi bật hiệu ứng dài hoặc theo nhạc.
+- [ ] **P1 - Điều khiển thiết bị bằng IR:** thêm tool/lệnh tổng quát và phát mã
+      IR; bắt đầu với các lệnh TV Samsung phổ biến, đồng thời ghi rõ giới hạn
+      của remote Smart đời mới có thể cần Bluetooth/SmartThings cho một số lệnh.
+      Nếu cần học remote, bổ sung module thu tương thích và lưu mã đã học trên
+      microSD; kiểm tra tương thích model trước khi mở rộng sang máy lạnh.
+- [ ] **P2 - SmartThings qua MCP/backend:** sau khi xác nhận TV đã được thêm và
+      điều khiển được trong SmartThings, tích hợp qua service MCP ở
+      `xiaozhi-kenddo-services`; backend giữ credential và gọi API, ESP32 chỉ
+      gửi tool request/nhận kết quả. Không lưu token SmartThings trên robot.
+      IR và SmartThings là hai đường điều khiển riêng, không giả định thay thế
+      hoàn toàn cho nhau.
+- [ ] **P2 - Hồ sơ robot và tài nguyên trên thẻ:** cấu hình JSON có validate
+      cho tốc độ, ngưỡng cảm biến, âm lượng và chế độ; nạp âm thanh cảm xúc,
+      biểu cảm/animation OLED và tính cách từ file nhẹ, có fallback khi thiếu
+      hoặc hỏng. Không lưu Wi-Fi token, SmartThings token hay bí mật dạng rõ.
+- [ ] **P2 - Nhật ký và dữ liệu offline:** ghi sự kiện lỗi/reset, mất Wi-Fi,
+      dừng motor khẩn cấp và thống kê cảm biến để chẩn đoán; có giới hạn dung
+      lượng/ghi luân phiên. Không lưu hội thoại hoặc ghi âm mặc định; nếu thêm
+      ghi âm hay bộ nhớ hội thoại thì cần bật chủ động, kiểm soát thời hạn và
+      cung cấp cách xóa dữ liệu.
+- [ ] **P2 - Xem ảnh từ microSD trên TFT:** duyệt/chọn ảnh, giới hạn độ phân
+      giải và bộ nhớ giải mã, có đường quay về UI robot; làm sau khi chốt format
+      ảnh và đánh giá ảnh hưởng đến heap/PSRAM.
+- [ ] **P3 - Cầu nối loa Bluetooth:** chỉ làm prototype nếu thực sự cần loa BT;
+      dùng một ESP32 có Bluetooth Classic/A2DP làm co-processor nhận PCM từ S3
+      (đánh giá I2S trước), đo độ trễ và xử lý audio focus/reconnect. ESP32-S3
+      hiện tại không tự đảm nhiệm A2DP Classic.
+- [ ] **P3 - Laser chỉ điểm có kiểm soát:** xác minh class/công suất, bước sóng,
+      driver và hướng lắp trước. Mặc định tắt, lệnh bật có chủ ý và timeout;
+      chỉ chiếu cố định xuống mặt sàn/bề mặt an toàn, không quét tự động vào
+      người, thú cưng hay bề mặt phản quang. Dùng LED chiếu điểm thay laser cho
+      trò chơi với thú cưng.
+- [ ] **P3 - Cập nhật firmware từ microSD:** chỉ nghiên cứu sau các chức năng
+      lưu trữ cơ bản; cần xác thực ảnh firmware, kiểm tra toàn vẹn, OTA partition
+      và rollback an toàn, không ghi đè firmware đang chạy trực tiếp.
 
 ## Completed implementation
 

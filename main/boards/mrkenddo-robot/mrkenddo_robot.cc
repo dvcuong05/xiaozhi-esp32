@@ -31,6 +31,7 @@ private:
     Button boot_button_;
     Button volume_up_button_;
     Button volume_down_button_;
+    Button touch_button_;
     MrkenDDoRobotDisplay* display_ = nullptr;
     RobotDrive* drive_ = nullptr;
     mrkenddo::RobotSettings settings_;
@@ -127,6 +128,57 @@ private:
             GetAudioCodec()->SetOutputVolume(0);
             GetDisplay()->ShowNotification(Lang::Strings::MUTED);
         });
+
+        // The button component handles debounce and waits for the double-click
+        // window before emitting a single click. Its callbacks run off the main
+        // application task, so UI and conversation actions are scheduled there.
+        touch_button_.OnClick([this]() {
+            Application::GetInstance().Schedule([this]() {
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() != kDeviceStateIdle || controller_ == nullptr) {
+                    return;
+                }
+                static constexpr int kReactions[] = {1, 15, 4,
+                                                     8};  // happy, playful, surprised, laugh
+                auto config = controller_->GetFaceConfig();
+                size_t next_reaction = 0;
+                for (size_t i = 0; i < sizeof(kReactions) / sizeof(kReactions[0]); ++i) {
+                    if (kReactions[i] == config.idle_emotion) {
+                        next_reaction = (i + 1) % (sizeof(kReactions) / sizeof(kReactions[0]));
+                        break;
+                    }
+                }
+                config.idle_emotion = kReactions[next_reaction];
+                if (!controller_->ConfigureFace(config)) {
+                    ESP_LOGW(TAG, "Khong the luu bieu cam mac dinh tu cam bien cham");
+                    return;
+                }
+                app.PlaySound(Lang::Sounds::OGG_POPUP);
+            });
+        });
+
+        touch_button_.OnDoubleClick([]() {
+            auto& app = Application::GetInstance();
+            app.Schedule([]() {
+                auto& app = Application::GetInstance();
+                const auto state = app.GetDeviceState();
+                if (state == kDeviceStateIdle) {
+                    app.ToggleChatState();
+                } else if (state == kDeviceStateListening) {
+                    app.StopListening();
+                } else if (state == kDeviceStateSpeaking) {
+                    app.StartListening();
+                }
+            });
+        });
+
+        touch_button_.OnLongPress([this]() {
+            // Stop the wheels immediately, including an active routine or an
+            // emotion pulse. Do not route this safety action through the UI queue.
+            if (drive_ != nullptr) {
+                drive_->Stop();
+            }
+        });
     }
 
     void ShowIpAddress() {
@@ -214,7 +266,8 @@ public:
     MrkenDDoRobot()
         : boot_button_(BOOT_BUTTON_GPIO),
           volume_up_button_(VOLUME_UP_BUTTON_GPIO),
-          volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
+          volume_down_button_(VOLUME_DOWN_BUTTON_GPIO),
+          touch_button_(TOUCH_SENSOR_GPIO, true, 1200, 350) {
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot bat dau");
         esp_timer_create_args_t ip_display_timer_args = {
             .callback =

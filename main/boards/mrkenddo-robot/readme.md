@@ -14,8 +14,13 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 | OLED SDA/SCL | 2 / 1; I2C_NUM_1, địa chỉ mặc định 0x3C |
 | OLED / TFT | SSD1306 128×32 / ST7789 240×240 |
 | TFT CS/DC/RST/MOSI/SCLK/BL | 46 / 3 / 8 / 18 / 17 / 9 |
+| TTP223 I/O / VCC / GND | GPIO20 / 3,3 V / GND; ngõ ra mức cao khi chạm, mức thấp khi thả |
 
 Xem [`docs/circuit_diagram.png`](docs/circuit_diagram.png) hoặc tại https://app.cirkitdesigner.com/project/68109f8c-2d1c-428a-bdca-f183fb424fa7 Firmware giả định motor A ở bên trái, motor B ở bên phải; sơ đồ mạch chỉ cho biết cặp dây, không xác nhận vị trí thực tế trên thân robot. Motor B đảo chiều theo mặc định để hai bánh cùng tiến khi bấm Forward. Nếu lắp motor trái/phải khác giả định, dùng hai ô Reverse trên web để hiệu chỉnh. Không đổi GPIO của board hiện có chỉ để hỗ trợ phần cứng khác; board identity ảnh hưởng OTA.
+
+TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot đang khởi động hoặc phát nhạc/radio, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
+
+GPIO20 đồng thời là USB D+ của ESP32-S3. Biến thể này tắt USB Serial/JTAG và console USB phụ để dùng GPIO20 cho TTP223; tiếp tục nạp firmware/xem log qua cổng USB–UART. Không nối cổng USB native với máy tính trong lúc dùng cảm biến. Nếu cần khôi phục nạp qua USB native, tháo dây I/O của TTP223 khỏi GPIO20, giữ BOOT/GPIO0 khi reset rồi nạp bản firmware khác.
 
 ## Điều khiển và web API
 

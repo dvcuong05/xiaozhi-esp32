@@ -7,6 +7,9 @@
             "sdkconfig_append": [
                 "CONFIG_LV_USE_QRCODE=y",
                 "CONFIG_HTTPD_WS_SUPPORT=y",
+                "CONFIG_ESP_CONSOLE_SECONDARY_NONE=y",
+                "CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n",
+                "CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n",
                 "CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y",
                 "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/8m.csv\"",
                 "CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE=y",

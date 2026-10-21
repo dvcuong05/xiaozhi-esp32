@@ -31,6 +31,10 @@
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_38
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_39
 
+// TTP223 direct-mode output: HIGH while touched, LOW after release.
+// GPIO20 is shared with native USB D+; this board uses UART for firmware logs.
+#define TOUCH_SENSOR_GPIO GPIO_NUM_20
+
 // L298N dual DC motor driver: IN1/IN2 = motor A, IN3/IN4 = motor B
 #define STEPPER_INT1_GPIO       GPIO_NUM_11
 #define STEPPER_INT2_GPIO       GPIO_NUM_12

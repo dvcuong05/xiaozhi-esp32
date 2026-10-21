@@ -29,7 +29,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
 - [ ] Stream live television and support config from webserver
 - [ ] Feature ask chatbox to set and weak the alarm
-- [ ] Tính năng chuyển bài, pause, stop music dựa vào số lần chạm cảm biến chạm (music navigation with touch sensor)
+- [ ] Tạm hoãn theo yêu cầu: chuyển bài, pause, stop music bằng TTP223; cảm biến hiện chỉ điều khiển hành vi robot.
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
@@ -51,10 +51,15 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       dùng chung; thiết kế Audio Manager để ưu tiên TTS, nhạc, hiệu ứng và tránh
       tranh chấp I2S/loa. Bắt đầu với WAV; chỉ thêm MP3 sau khi đánh giá decoder,
       CPU, RAM/PSRAM và dung lượng bộ đệm.
-- [ ] **P1 - Tương tác TTP223:** hỗ trợ chạm/nhấn giữ/chạm đôi có debounce;
-      ưu tiên vuốt/chạm để robot phản hồi cảm xúc và phát âm thanh local, sau đó
-      tùy chọn push-to-talk hoặc dừng chuyển động. Lệnh di chuyển phải qua
-      safety gate và luôn có thao tác dừng ưu tiên cao.
+- [x] **P1 - Tương tác TTP223:** GPIO20, chạm đơn luân phiên biểu cảm mắt kèm
+      âm báo ngắn và lưu biểu cảm làm mặc định idle trong NVS khi robot rảnh
+      (không tự chạy bánh xe), chạm đôi bắt đầu hội thoại, hủy phiên nghe hoặc
+      ngắt lời để chuyển sang nghe thủ công tùy trạng thái; nhấn giữ dừng
+      motor/routine/nhịp cảm xúc ở mọi trạng thái. Dùng debounce và nhận diện
+      chạm đơn/đôi của thư viện nút bấm; tắt USB Serial/JTAG phụ của board.
+      Chưa kiểm chứng trên robot thật.
+- [ ] Âm thanh local và phản ứng chuyển động theo chạm: chỉ xem xét sau khi
+      thống nhất âm báo và có điều kiện an toàn cho bánh xe; không tự bật mặc định.
 - [ ] **P1 - Tránh vật cản bằng VL53L1X:** đọc ToF theo chu kỳ, dừng an toàn khi
       cảm biến lỗi hoặc dữ liệu quá cũ; tích hợp vào routine khám phá/di chuyển
       để giảm tốc, dừng hoặc đổi hướng. Ngưỡng phải hiệu chỉnh trên robot thật.

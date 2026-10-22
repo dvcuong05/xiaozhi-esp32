@@ -1,7 +1,7 @@
 #include "audio_service.h"
+#include <esp_log.h>
 #include <algorithm>
 #include <cstdlib>
-#include <esp_log.h>
 #include <cstring>
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
@@ -458,6 +458,12 @@ void AudioService::OpusCodecTask() {
             }
 
             lock.lock();
+            if (decoded) {
+                audio_queue_cv_.wait(lock, [this, generation]() {
+                    return service_stopped_.load() || generation != playback_generation_ ||
+                           audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+                });
+            }
             if (decoded && generation == playback_generation_ && !service_stopped_.load()) {
                 audio_playback_queue_.push_back(std::move(task));
             }
@@ -616,9 +622,10 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     }
 }
 
-bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
+bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait,
+                                           std::optional<uint32_t> expected_generation) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    const uint32_t generation = playback_generation_;
+    const uint32_t generation = expected_generation.value_or(playback_generation_);
     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
         if (wait) {
             audio_queue_cv_.wait(lock, [this, generation]() {
@@ -634,6 +641,35 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
     }
     playback_drained_notified_ = false;
     audio_decode_queue_.push_back(std::move(packet));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
+uint32_t AudioService::GetPlaybackGeneration() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return playback_generation_;
+}
+
+bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t playback_id,
+                                          uint32_t media_position_ms, AudioPlaybackSource source,
+                                          uint32_t generation) {
+    if (pcm.empty() || pcm.size() > 8192)
+        return false;
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    audio_queue_cv_.wait(lock, [this, generation]() {
+        return service_stopped_.load() || generation != playback_generation_ ||
+               audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+    });
+    if (service_stopped_.load() || generation != playback_generation_)
+        return false;
+    AudioTask task;
+    task.type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task.pcm = std::move(pcm);
+    task.playback_id = playback_id;
+    task.media_position_ms = media_position_ms;
+    task.source = source;
+    playback_drained_notified_ = false;
+    audio_playback_queue_.push_back(std::move(task));
     audio_queue_cv_.notify_all();
     return true;
 }

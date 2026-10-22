@@ -1,12 +1,13 @@
 #ifndef AUDIO_SERVICE_H
 #define AUDIO_SERVICE_H
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <array>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -148,7 +149,15 @@ public:
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
-    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
+                                 std::optional<uint32_t> expected_generation = std::nullopt);
+    int GetOutputSampleRate() const { return codec_ ? codec_->output_sample_rate() : 0; }
+    uint32_t GetPlaybackGeneration();
+    // Worker-only bounded enqueue for already normalized mono S16 PCM.
+    // A reset invalidates the generation, including producers waiting for space.
+    bool PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t playback_id,
+                                uint32_t media_position_ms, AudioPlaybackSource source,
+                                uint32_t generation);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);

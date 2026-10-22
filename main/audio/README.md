@@ -88,10 +88,28 @@ flowchart LR
     App[Application / network] --> DecodeQueue[audio_decode_queue_]
     DecodeQueue --> Opus[OpusCodecTask]
     Opus --> PlaybackQueue[audio_playback_queue_]
+    Media[SD / HTTP media worker] --> Decoder[AudioStreamDecoder]
+    Decoder -->|Ogg Opus packets| DecodeQueue
+    Decoder -->|MP3: decode, mono, resample| PlaybackQueue
     PlaybackQueue --> Output[AudioOutputTask]
     Output --> Codec[AudioCodec]
     Codec --> Speaker[Speaker]
 ```
+
+`AudioStreamDecoder` chọn decoder một lần từ signature đầu stream (`OggS`,
+`ID3` hoặc MPEG Layer III), kể cả khi header bị chia giữa nhiều lần đọc.
+`NotifyPlayer` giữ chung lifecycle, hủy, reconnect và subtitle cho SD/HTTP.
+Ogg/Opus tiếp tục đưa packet vào decode queue; MP3 dùng streaming parser/decoder
+Espressif, scratch PCM cố định 4.608 byte, trộn stereo về mono rồi resample sang
+sample rate loa trước khi gọi `PushPcmToPlaybackQueue`. Metadata nguồn, playback ID
+và timestamp đi qua cùng output task nên visualizer/subtitle dùng được với cả hai.
+Timestamp MP3 cộng theo số sample với phần dư, tránh trôi lyrics ở 44,1 kHz.
+
+MP3 được điều khiển bởi `CONFIG_ENABLE_MP3_PLAYBACK` (mặc định bật cho MrKenDDo
+Robot). Bộ giải mã và resampler được cấp phát theo phiên rồi giải phóng khi kết
+thúc; không có worker/buffer MP3 khi idle. PCM producer chờ hàng đợi có giới hạn
+trên media worker; generation token làm mất hiệu lực producer khi reset/dừng.
+Đường thoại WebSocket/MQTT và các sound effect vẫn dùng Opus như trước.
 
 Packet giữ metadata nguồn nội bộ `Conversation`, `Effect`, `Notification`
 hoặc `Media` qua decode/resample; metadata không được gửi trong WebSocket

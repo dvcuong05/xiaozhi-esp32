@@ -194,7 +194,9 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
 
     // Preserve existing MCP tool names and signed-unit API for callers.
     mcp.AddUserOnlyTool(
-        "move_motor", "Run both DC motors forward or backward for units * delay_ms milliseconds",
+        "move_motor",
+        "Chạy hai motor DC tiến/lùi theo số đơn vị steps có dấu; mỗi đơn vị chạy delay_ms "
+        "mili giây. Dùng khi người dùng yêu cầu robot di chuyển tiến hoặc lùi theo quãng ngắn.",
         PropertyList(std::vector<Property>{Property("steps", kPropertyTypeInteger, 0,
                                                     -RobotDrive::kMaxSteps, RobotDrive::kMaxSteps),
                                            Property("delay_ms", kPropertyTypeInteger, 0, 0, 100)}),
@@ -202,13 +204,14 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
             return MoveMotor(controller, properties);
         });
 
-    mcp.AddUserOnlyTool("stop_motor", "Stop both DC motors", PropertyList(),
+    mcp.AddUserOnlyTool("stop_motor", "Dừng ngay cả hai motor DC.", PropertyList(),
                         [&controller](const PropertyList& properties) {
                             return StopMotor(controller, properties);
                         });
 
     mcp.AddUserOnlyTool(
-        "set_motor_speed", "Set milliseconds per motor movement unit (not PWM speed)",
+        "set_motor_speed",
+        "Đặt thời lượng mỗi đơn vị điều khiển motor bằng mili giây; đây không phải tốc độ PWM.",
         PropertyList(std::vector<Property>{Property("delay_ms", kPropertyTypeInteger, 1, 100)}),
         [&controller](const PropertyList& properties) {
             return SetMotorDurationUnit(controller, properties);
@@ -217,9 +220,9 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
     // Register AI interaction tools
     mcp.AddTool(
         "self.web_chat.consume_pending",
-        "When the short wake/detect text is exactly 'web_chat', call this tool before replying. "
-        "The tool result is the user's real message from the robot web page. Answer that "
-        "message, not the trigger word. Only call this for a pending web chat message.",
+        "Khi văn bản kích hoạt ngắn chính xác là 'web_chat', gọi công cụ này trước khi trả lời. "
+        "Kết quả là nội dung thật người dùng gửi từ trang web robot. Hãy trả lời nội dung đó, "
+        "không trả lời từ khóa kích hoạt. Chỉ gọi khi có tin nhắn web chat đang chờ.",
         PropertyList(), [&controller](const PropertyList&) -> ToolResult {
             auto result = controller.ConsumeWebPrompt();
             if (!result) {
@@ -228,102 +231,126 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
             return std::move(*result);
         });
 
-    mcp.AddUserOnlyTool("toggle_chat", "Toggle the chat state (start/stop conversation)",
-                        PropertyList(), ToggleChat);
+    mcp.AddUserOnlyTool("toggle_chat", "Bật/tắt trạng thái trò chuyện của robot.", PropertyList(),
+                        ToggleChat);
 
-    mcp.AddUserOnlyTool("start_listening", "Start voice listening", PropertyList(), StartListening);
+    mcp.AddUserOnlyTool("start_listening",
+                        "Bắt đầu nghe lệnh thoại khi người dùng yêu cầu robot lắng nghe.",
+                        PropertyList(), StartListening);
 
-    mcp.AddUserOnlyTool("stop_listening", "Stop voice listening", PropertyList(), StopListening);
+    mcp.AddUserOnlyTool("stop_listening",
+                        "Dừng nghe lệnh thoại khi người dùng yêu cầu kết thúc chế độ nghe.",
+                        PropertyList(), StopListening);
 
     // AI-visible robot tools. Keep these separate from the legacy user-only
     // motor tools so the tenclass.net MCP session can call them from natural
     // language requests.
     Property direction("direction", kPropertyTypeString);
     direction.SetMaxLength(16);
-    mcp.AddTool("self.robot.move",
-                "Move the two-wheel robot for a short duration. Direction: forward, backward, "
-                "left, or right.",
-                PropertyList({direction, Property("duration_ms", kPropertyTypeInteger, 800, 100,
-                                                  RobotDrive::kMaxRunTimeMs)}),
-                [&controller](const PropertyList& properties) {
-                    return RobotMove(controller, properties);
-                });
-    mcp.AddTool("self.robot.stop", "Stop all robot motor movement immediately", PropertyList(),
-                [&controller](const PropertyList& properties) {
+    mcp.AddTool(
+        "self.robot.move",
+        "Điều khiển robot hai bánh di chuyển trong thời gian ngắn khi người dùng nói tiến, "
+        "lùi, rẽ trái hoặc rẽ phải. direction chỉ nhận forward, backward, left, right; "
+        "duration_ms là thời gian chạy tính bằng mili giây. Dùng self.robot.stop để dừng sớm.",
+        PropertyList({direction, Property("duration_ms", kPropertyTypeInteger, 800, 100,
+                                          RobotDrive::kMaxRunTimeMs)}),
+        [&controller](const PropertyList& properties) {
+            return RobotMove(controller, properties);
+        });
+    mcp.AddTool("self.robot.stop",
+                "Dừng ngay mọi chuyển động của robot; dùng khi người dùng nói dừng/đứng lại.",
+                PropertyList(), [&controller](const PropertyList& properties) {
                     return StopRobot(controller, properties);
                 });
     mcp.AddTool("self.robot.be_lively",
-                "Run a playful robot routine continuously with forward, backward, and turning "
-                "movements until stopped",
+                "Cho robot chạy chuyển động khám phá hiếu động lặp liên tục: tiến, lùi và xoay. "
+                "Dùng khi người dùng yêu cầu robot đi khám phá/chạy hiếu động; chỉ dừng khi gọi "
+                "self.robot.stop hoặc người dùng yêu cầu dừng.",
                 PropertyList(), [&controller](const PropertyList& properties) {
                     return StartLivelyRoutine(controller, properties);
                 });
-    mcp.AddTool("self.robot.dance", "Run a faster, energetic dancing routine", PropertyList(),
-                [&controller](const PropertyList& properties) {
+    mcp.AddTool("self.robot.dance",
+                "Cho robot thực hiện chuỗi chuyển động nhảy nhanh, vui nhộn khi người dùng yêu cầu "
+                "nhảy/múa.",
+                PropertyList(), [&controller](const PropertyList& properties) {
                     return StartDanceRoutine(controller, properties);
                 });
 
     Property emotion("emotion", kPropertyTypeString);
     emotion.SetMaxLength(32);
-    mcp.AddTool("self.robot.set_emotion",
-                "Set the custom TFT face emotion: neutral, happy, laugh, surprised, sad, angry, "
-                "sleepy, confused, love, dizzy, distracted, devil, confident, yawn, playful, "
-                "listening or speaking. Each expression has distinct eyes and animation.",
-                PropertyList({emotion}), [&controller](const PropertyList& properties) {
-                    return SetRobotEmotion(controller, properties);
-                });
+    mcp.AddTool(
+        "self.robot.set_emotion",
+        "Đổi biểu cảm khuôn mặt robot trên TFT theo yêu cầu như vui, cười, ngạc nhiên, buồn, "
+        "giận, buồn ngủ, bối rối, yêu thích, chóng mặt, mất tập trung, tự tin, ngáp hoặc tinh "
+        "nghịch. "
+        "emotion phải là một mã hỗ trợ: neutral, happy, laugh, surprised, sad, angry, sleepy, "
+        "confused, love, dizzy, distracted, devil, confident, yawn, playful, listening, speaking. "
+        "Không dùng công cụ này để đổi trạng thái hội thoại; listening/speaking chỉ đổi khuôn mặt.",
+        PropertyList({emotion}), [&controller](const PropertyList& properties) {
+            return SetRobotEmotion(controller, properties);
+        });
 
     Property oled_mode("mode", kPropertyTypeString);
     oled_mode.SetMaxLength(16);
-    mcp.AddTool("self.robot.set_oled_mode",
-                "Set the secondary OLED mode: clock, marquee, status, or off",
-                PropertyList({oled_mode}), [&controller](const PropertyList& properties) {
-                    return SetRobotOledMode(controller, properties);
-                });
+    mcp.AddTool(
+        "self.robot.set_oled_mode",
+        "Chọn chế độ màn hình OLED phụ: đồng hồ (clock), chữ chạy (marquee), trạng thái robot "
+        "(status) hoặc tắt màn (off). mode phải là một trong bốn giá trị này.",
+        PropertyList({oled_mode}), [&controller](const PropertyList& properties) {
+            return SetRobotOledMode(controller, properties);
+        });
     mcp.AddTool("self.robot.show_ip",
-                "Show the local Wi-Fi IP on the robot display and return it so the assistant can "
-                "tell the user",
+                "Hiển thị địa chỉ IP Wi-Fi nội bộ của robot và trả IP để thông báo cho người dùng. "
+                "Dùng khi người dùng hỏi IP/địa chỉ webserver; cần robot đã kết nối Wi-Fi.",
                 PropertyList(), [&controller](const PropertyList& properties) {
                     return ShowRobotIp(controller, properties);
                 });
     Property oled_text("text", kPropertyTypeString);
     oled_text.SetMaxLength(240);
-    mcp.AddTool("self.robot.show_oled_text",
-                "Show a custom sentence on the secondary OLED as scrolling text without changing "
-                "the saved OLED content",
-                PropertyList(
-                    {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000)}),
-                [&controller](const PropertyList& properties) {
-                    return ShowRobotOledText(controller, properties);
-                });
-    mcp.AddTool("self.robot.show_payment_qr",
-                "Show the configured bank payment QR code on the TFT for scanning",
-                PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
-                [&controller](const PropertyList& properties) {
-                    return ShowRobotPaymentQr(controller, properties);
-                });
-    mcp.AddTool("self.robot.get_status", "Get robot Wi-Fi, IP, and movement status", PropertyList(),
-                [&controller](const PropertyList& properties) {
-                    return GetRobotStatus(controller, properties);
-                });
+    mcp.AddTool(
+        "self.robot.show_oled_text",
+        "Hiển thị câu chữ do người dùng yêu cầu trên OLED phụ dưới dạng chữ chạy tạm thời; "
+        "không thay đổi nội dung OLED đã lưu. Truyền nguyên văn nội dung vào text và thời lượng "
+        "hiển thị vào duration_ms (1.000–30.000 ms).",
+        PropertyList(
+            {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000)}),
+        [&controller](const PropertyList& properties) {
+            return ShowRobotOledText(controller, properties);
+        });
+    mcp.AddTool(
+        "self.robot.show_payment_qr",
+        "Hiển thị mã QR thanh toán ngân hàng đã cấu hình sẵn trên TFT để khách quét. "
+        "Chỉ dùng khi người dùng yêu cầu hiện QR thanh toán; không tự tạo/sửa thông tin ngân hàng.",
+        PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
+        [&controller](const PropertyList& properties) {
+            return ShowRobotPaymentQr(controller, properties);
+        });
+    mcp.AddTool(
+        "self.robot.get_status",
+        "Lấy trạng thái kết nối Wi-Fi, địa chỉ IP và robot có đang chạy chuyển động hay không.",
+        PropertyList(), [&controller](const PropertyList& properties) {
+            return GetRobotStatus(controller, properties);
+        });
 
-    mcp.AddTool("self.network.ip2qrcode",
-                "Show a QR code opening this robot's current local webserver. Requires Wi-Fi; does "
-                "not change the saved bank QR.",
-                PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
-                [&controller](const PropertyList& properties) -> ToolResult {
-                    if (!controller.ShowIpQr(properties["duration_ms"].value<int>()))
-                        return std::unexpected("Cannot show IP QR; check Wi-Fi");
-                    return "Webserver IP QR display scheduled";
-                });
+    mcp.AddTool(
+        "self.network.ip2qrcode",
+        "Hiển thị QR tạm thời để mở webserver nội bộ hiện tại của robot. Dùng khi người dùng "
+        "yêu cầu QR truy cập robot/webserver; cần Wi-Fi và không làm thay đổi QR ngân hàng đã lưu.",
+        PropertyList({Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
+        [&controller](const PropertyList& properties) -> ToolResult {
+            if (!controller.ShowIpQr(properties["duration_ms"].value<int>()))
+                return std::unexpected("Cannot show IP QR; check Wi-Fi");
+            return "Webserver IP QR display scheduled";
+        });
     auto qr_payload = Property("payload", kPropertyTypeString);
     qr_payload.SetMaxLength(256);
     auto qr_caption = Property("caption", kPropertyTypeString, std::string{});
     qr_caption.SetMaxLength(96);
     mcp.AddTool(
         "self.robot.show_qr",
-        "Show a temporary QR from supplied URL/text. Does not save it. For bank payment always use "
-        "self.robot.show_payment_qr; never invent bank details.",
+        "Hiển thị QR tạm thời từ URL hoặc văn bản payload do người dùng cung cấp; không lưu lại. "
+        "Chỉ dùng khi người dùng yêu cầu tạo QR cho nội dung đã cho. Với QR thanh toán ngân hàng, "
+        "luôn dùng self.robot.show_payment_qr và không tự suy đoán thông tin tài khoản.",
         PropertyList({qr_payload, qr_caption,
                       Property("duration_ms", kPropertyTypeInteger, 30000, 5000, 120000)}),
         [&controller](const PropertyList& properties) -> ToolResult {

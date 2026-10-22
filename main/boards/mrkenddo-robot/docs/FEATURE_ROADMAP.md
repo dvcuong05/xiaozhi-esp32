@@ -15,6 +15,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 ## Planned features
 - [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot, giữ nguồn module 3,3 V để thử. Mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
 - [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
+- [x] MicroSD đợt 3: expose `sd_status`, `sd_search`, `sd_play`, `sd_stop` qua MCP service/device WSS; tìm MP3 theo ID3v2 title/artist/album/genre và fallback folder/file, phát bằng player local dùng chung. Quét/kết quả có giới hạn, không tạo catalog trên thẻ.
 - [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
     spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
     không bật vì boot/beep/thông báo/TTS. Dừng media thì khôi phục mắt robot.
@@ -29,9 +30,10 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     đã chuẩn hóa; deployment không cần repo hay service API Zing chạy riêng.
     Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
+- [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
 - [ ] Stream live television and support config from webserver
 - [ ] Feature ask chatbox to set and weak the alarm
-- [ ] Tạm hoãn theo yêu cầu: chuyển bài, pause, stop music bằng TTP223; cảm biến hiện chỉ điều khiển hành vi robot.
+- [ ] Tạm hoãn theo yêu cầu: chuyển bài và pause bằng TTP223; dừng nhạc/radio bằng double-tap đã triển khai ở trên.
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
@@ -53,12 +55,15 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       cam kết hot-plug. Kiểm thử nguồn/thẻ thật còn mở.
 - [x] **P1 - Phát nhạc và âm thanh offline:** duyệt/phát file local qua player
       dùng chung; thiết kế Audio Manager để ưu tiên TTS, nhạc, hiệu ứng và tránh
-      tranh chấp I2S/loa. Điều chỉnh sau rà soát player hiện tại: bắt đầu với
-      Ogg/Opus từ file qua decoder có sẵn. `/storage` gọi cùng `NotifyPlayer`,
-      `OggDemuxer` và decoder; TTS/voice vẫn giữ backend hiện tại. Khi file đang
-      chạy, thẻ được giữ mở và thao tác ghi/xóa/tải/tháo bị từ chối. Chưa có
-      playlist/tự chuyển bài, WAV PCM hoặc MP3; cần đánh giá riêng CPU,
-      RAM/PSRAM, app partition và bộ đệm trước khi mở rộng format.
+      tranh chấp I2S/loa. `/storage` phát `.mp3`, `.ogg`, `.opus` qua cùng
+      `NotifyPlayer`/`AudioStreamDecoder` như HTTP. MP3 dùng streaming decoder
+      Espressif, trộn stereo về mono/resample, giữ visualizer và timestamp subtitle.
+      Thẻ được giữ mở khi phát; thao tác ghi/xóa/tải/tháo bị từ chối. MCP dùng
+      passthrough cho MP3 nguồn hợp lệ, Opus cho codec khác/HLS hoặc đoạn cắt có
+      giới hạn thời gian. Không tạo player riêng hoặc đưa provider vào firmware.
+      Build ESP-IDF 6.1 đã qua; app còn 91.328 byte (~3%). Chưa có playlist/tự
+      chuyển bài hoặc WAV; nghe loa, heap/CPU, lyrics và ngắt phát trên robot
+      thật vẫn cần kiểm chứng.
 - [x] **P1 - Tương tác TTP223:** GPIO20, chạm đơn luân phiên biểu cảm mắt kèm
       âm báo ngắn và lưu biểu cảm làm mặc định idle trong NVS khi robot rảnh
       (không tự chạy bánh xe), chạm đôi bắt đầu hội thoại, hủy phiên nghe hoặc

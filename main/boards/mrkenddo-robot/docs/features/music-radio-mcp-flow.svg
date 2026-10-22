@@ -30,7 +30,7 @@
   <text class="small" x="488" y="303" text-anchor="middle">XiaoZhiMcpEndpoint.run_forever · WSS · MCP JSON-RPC qua loopback /mcp</text>
 
   <rect class="box" x="85" y="530" width="250" height="122" rx="14"/><text class="head" x="210" y="564" text-anchor="middle">Provider adapters</text><text class="label" x="210" y="593" text-anchor="middle">Zing MP3 / Radio Browser</text><text class="small" x="210" y="620" text-anchor="middle">search và resolve tại backend</text>
-  <rect class="box" x="430" y="530" width="270" height="122" rx="14"/><text class="head" x="565" y="564" text-anchor="middle">Bridge + Audio Proxy</text><text class="label" x="565" y="593" text-anchor="middle">TLS WSS command / ACK</text><text class="small" x="565" y="620" text-anchor="middle">FFmpeg → Ogg Opus qua HTTP</text>
+  <rect class="box" x="430" y="530" width="270" height="122" rx="14"/><text class="head" x="565" y="564" text-anchor="middle">Bridge + Audio Proxy</text><text class="label" x="565" y="593" text-anchor="middle">TLS WSS command / ACK</text><text class="small" x="565" y="620" text-anchor="middle">HTTP: MP3 / Ogg Opus</text>
   <path class="edge" d="M430 462H380V590H342"/><path class="edge" d="M565 496V523"/>
 
   <rect x="850" y="325" width="705" height="370" rx="22" fill="#0c1727" stroke="#3d755a" stroke-width="2"/>
@@ -41,7 +41,7 @@
   <path class="edgeG" d="M1165 442H1223"/>
   <path class="edgeG" d="M700 560H790V442H887"/><text class="small" x="795" y="546" text-anchor="middle">1 · lệnh điều khiển WSS</text>
   <rect class="robot" x="895" y="530" width="270" height="122" rx="14"/><text class="head" x="1030" y="564" text-anchor="middle">Application + state</text><text class="label" x="1030" y="593" text-anchor="middle">media: Idle → Notifying</text><text class="label" x="1030" y="620" text-anchor="middle">radio: Idle → Radio</text>
-  <rect class="robot" x="1230" y="530" width="280" height="122" rx="14"/><text class="head" x="1370" y="564" text-anchor="middle">Player / audio pipeline</text><text class="label" x="1370" y="593" text-anchor="middle">NotifyPlayer(Media)</text><text class="small" x="1370" y="620" text-anchor="middle">ContinuousStreamPlayer(Radio)</text>
+  <rect class="robot" x="1230" y="530" width="280" height="122" rx="14"/><text class="head" x="1370" y="564" text-anchor="middle">Player / audio pipeline</text><text class="label" x="1370" y="593" text-anchor="middle">NotifyPlayer / Radio wrapper</text><text class="small" x="1370" y="620" text-anchor="middle">AudioStreamDecoder → PCM / Opus</text>
   <path class="edgeG" d="M1370 496V520H1030V523"/><path class="edgeG" d="M1165 590H1223"/>
 
   <rect x="45" y="747" width="1510" height="325" rx="22" fill="#151c2a" stroke="#715d34" stroke-width="2"/>

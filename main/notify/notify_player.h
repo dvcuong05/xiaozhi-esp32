@@ -4,8 +4,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -28,7 +28,7 @@ struct StreamPlaybackOptions {
 };
 
 // Optional byte source for local media. The notification player remains
-// responsible for Ogg demuxing and decoder queueing; board-owned storage only
+// responsible for stream decoding and output queueing; board-owned storage only
 // supplies a bounded reader.
 class NotifyAudioInput {
 public:

@@ -9,12 +9,16 @@
 
 #include "board.h"
 #include "http.h"
-#include "ogg_demuxer.h"
+#include "stream_audio_decoder.h"
 
 namespace {
 constexpr int kHttpTimeoutMs = 5000;
 constexpr size_t kHttpReadBufferSize = 1024;
+#if CONFIG_ENABLE_MP3_PLAYBACK
+constexpr uint32_t kNotifyTaskStackSize = 8192;
+#else
 constexpr uint32_t kNotifyTaskStackSize = 6144;
+#endif
 constexpr UBaseType_t kNotifyTaskPriority = 2;
 const char* TAG = "NotifyPlayer";
 
@@ -158,7 +162,7 @@ void NotifyPlayer::OnPlaybackDrained() {
             media_position_ms = last_playback_position_ms_;
         }
     }
-    if (underrun_count != 0) {
+    if (underrun_count == 1 || (underrun_count != 0 && underrun_count % 32 == 0)) {
         ESP_LOGW(TAG, "Notification playback underrun #%lu at %lu ms",
                  static_cast<unsigned long>(underrun_count),
                  static_cast<unsigned long>(media_position_ms));
@@ -189,6 +193,7 @@ void NotifyPlayer::WorkerTask() {
     bool continuous = false;
     uint32_t reconnect_delay_ms = 1000;
     AudioPlaybackSource source = AudioPlaybackSource::Notification;
+    const uint32_t generation = audio_service_.GetPlaybackGeneration();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         continuous = options_.continuous;
@@ -202,48 +207,47 @@ void NotifyPlayer::WorkerTask() {
         }
 
         bool session_success = false;
-        auto demuxer = std::make_unique<OggDemuxer>();
-        uint32_t media_position_ms = 0;
         bool packet_error = false;
-        demuxer->OnPacket([this, playback_id, source, &media_position_ms,
-                           &packet_error](const uint8_t* data, int sample_rate,
-                                          int frame_duration_ms, size_t size) {
-            if (packet_error || IsCancelled(playback_id)) {
-                packet_error = true;
-                return;
-            }
-
-            auto packet = std::make_unique<AudioStreamPacket>();
-            packet->sample_rate = sample_rate;
-            packet->frame_duration = frame_duration_ms;
-            packet->playback_id = playback_id;
-            packet->media_position_ms = media_position_ms;
-            packet->source = source;
-            packet->payload.assign(data, data + size);
-
+        auto queue_frame = [&](auto&& enqueue) {
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (cancelled_ || !active_ || playback_id != playback_id_) {
-                    packet_error = true;
-                    return;
+                    return false;
                 }
                 playback_drained_ = false;
             }
-
-            if (!audio_service_.PushPacketToDecodeQueue(std::move(packet), true)) {
-                packet_error = true;
-                return;
-            }
+            if (!enqueue())
+                return false;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 stream_started_ = true;
             }
-            media_position_ms += frame_duration_ms;
-        });
+            return true;
+        };
+        AudioStreamDecoder decoder(
+            audio_service_.GetOutputSampleRate(),
+            [&](const uint8_t* data, size_t size, int rate, int duration, uint32_t position) {
+                return queue_frame([&]() {
+                    auto packet = std::make_unique<AudioStreamPacket>();
+                    packet->sample_rate = rate;
+                    packet->frame_duration = duration;
+                    packet->playback_id = playback_id;
+                    packet->media_position_ms = position;
+                    packet->source = source;
+                    packet->payload.assign(data, data + size);
+                    return audio_service_.PushPacketToDecodeQueue(std::move(packet), true,
+                                                                  generation);
+                });
+            },
+            [&](std::vector<int16_t>&& pcm, uint32_t position) {
+                return queue_frame([&]() {
+                    return audio_service_.PushPcmToPlaybackQueue(std::move(pcm), playback_id,
+                                                                 position, source, generation);
+                });
+            });
 
         auto consume = [&](const char* data, size_t size) {
-            demuxer->Process(reinterpret_cast<const uint8_t*>(data), size);
-            if (demuxer->HasError()) {
+            if (!decoder.Process(reinterpret_cast<const uint8_t*>(data), size)) {
                 packet_error = true;
                 return false;
             }
@@ -253,16 +257,16 @@ void NotifyPlayer::WorkerTask() {
         if (input_factory) {
             auto input = input_factory();
             if (!input || !input->Open()) {
-                ESP_LOGW(TAG, "Failed to open local Ogg audio source");
+                ESP_LOGW(TAG, "Failed to open local audio source");
             } else {
                 while (!packet_error && !IsCancelled(playback_id)) {
                     size_t size = 0;
                     if (!input->Read(buffer.data(), buffer.size(), size)) {
-                        ESP_LOGW(TAG, "Local Ogg audio read failed");
+                        ESP_LOGW(TAG, "Local audio read failed");
                         break;
                     }
                     if (size == 0) {
-                        session_success = demuxer->Finish();
+                        session_success = decoder.Finish();
                         break;
                     }
                     if (!consume(buffer.data(), size)) {
@@ -274,46 +278,44 @@ void NotifyPlayer::WorkerTask() {
         } else {
             auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
             if (http) {
-            http->SetTimeout(kHttpTimeoutMs);
-            http->SetHeader("Accept", "audio/ogg, application/ogg");
-            http->SetHeader("Accept-Encoding", "identity");
-            auto opened = http->Open("GET", audio_url);
-            if (opened) {
-                auto status = http->GetStatusCode();
-                if (status && *status >= 200 && *status < 300 && !IsCancelled(playback_id)) {
-                    while (!packet_error && !IsCancelled(playback_id)) {
-                        auto size = http->Read(buffer.data(), buffer.size());
-                        if (!size) {
-                            if (!IsCancelled(playback_id)) {
-                                ESP_LOGW(TAG, "Notification HTTP read failed: %s",
-                                         size.error().ToString().c_str());
+                http->SetTimeout(kHttpTimeoutMs);
+                http->SetHeader("Accept", "audio/mpeg, audio/ogg, application/ogg");
+                http->SetHeader("Accept-Encoding", "identity");
+                auto opened = http->Open("GET", audio_url);
+                if (opened) {
+                    auto status = http->GetStatusCode();
+                    if (status && *status >= 200 && *status < 300 && !IsCancelled(playback_id)) {
+                        while (!packet_error && !IsCancelled(playback_id)) {
+                            auto size = http->Read(buffer.data(), buffer.size());
+                            if (!size) {
+                                if (!IsCancelled(playback_id)) {
+                                    ESP_LOGW(TAG, "Notification HTTP read failed: %s",
+                                             size.error().ToString().c_str());
+                                }
+                                break;
                             }
-                            break;
-                        }
-                        if (*size == 0) {
-                            session_success = demuxer->Finish();
-                            if (!session_success && !continuous) {
-                                ESP_LOGE(
-                                    TAG,
-                                    "Notification Ogg stream ended before a complete audio stream");
+                            if (*size == 0) {
+                                session_success = decoder.Finish();
+                                if (!session_success && !continuous) {
+                                    ESP_LOGE(TAG, "Audio stream ended without valid MP3/Ogg audio");
+                                }
+                                break;
                             }
-                            break;
+                            if (!consume(buffer.data(), *size))
+                                break;
                         }
-                        if (!consume(buffer.data(), *size))
-                            break;
+                    } else if (!status) {
+                        ESP_LOGW(TAG, "Notification HTTP status failed: %s",
+                                 status.error().ToString().c_str());
+                    } else {
+                        ESP_LOGW(TAG, "Notification HTTP request returned status %d", *status);
                     }
-                } else if (!status) {
-                    ESP_LOGW(TAG, "Notification HTTP status failed: %s",
-                             status.error().ToString().c_str());
                 } else {
-                    ESP_LOGW(TAG, "Notification HTTP request returned status %d", *status);
+                    ESP_LOGW(TAG, "Failed to open notification HTTP request: %s",
+                             opened.error().ToString().c_str());
                 }
-            } else {
-                ESP_LOGW(TAG, "Failed to open notification HTTP request: %s",
-                         opened.error().ToString().c_str());
-            }
-            http->Close();
-            http.reset();
+                http->Close();
+                http.reset();
             } else {
                 ESP_LOGW(TAG, "Failed to create notification HTTP client");
             }
@@ -343,6 +345,7 @@ void NotifyPlayer::WorkerTask() {
                 callback = CompleteLocked(completed_playback_id);
             } else {
                 http_finished_ = true;
+                playback_drained_ = audio_service_.IsPlaybackIdle();
                 if (playback_drained_) {
                     callback = CompleteLocked(completed_playback_id);
                     report_success = true;

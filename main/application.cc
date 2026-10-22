@@ -1668,9 +1668,10 @@ void Application::RequestLocalMedia(MediaPlaybackMetadata metadata,
                                     NotifyPlayer::InputFactory input_factory) {
     if (!input_factory)
         return;
-    Schedule([this, metadata = std::move(metadata), input_factory = std::move(input_factory)]() mutable {
-        QueueMedia({}, std::move(metadata), {}, std::move(input_factory));
-    });
+    Schedule(
+        [this, metadata = std::move(metadata), input_factory = std::move(input_factory)]() mutable {
+            QueueMedia({}, std::move(metadata), {}, std::move(input_factory));
+        });
 }
 
 bool Application::HandleStreamPlaybackCommand(const cJSON* root, std::string* error) {
@@ -1723,8 +1724,7 @@ bool Application::HandleStreamPlaybackCommand(const cJSON* root, std::string* er
                 !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station)) {
                 return reject("media metadata is invalid or too long");
             }
-            const cJSON* duration =
-                cJSON_GetObjectItemCaseSensitive(metadata_json, "duration_ms");
+            const cJSON* duration = cJSON_GetObjectItemCaseSensitive(metadata_json, "duration_ms");
             if (duration != nullptr) {
                 if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||
                     std::floor(duration->valuedouble) != duration->valuedouble ||
@@ -1796,6 +1796,18 @@ bool Application::HandleDeviceBridgeCommand(const std::string& payload_json,
         accepted = HandleStreamPlaybackCommand(root, error);
         if (accepted) {
             cJSON_AddStringToObject(result, "status", "queued");
+        } else {
+            std::string board_result;
+            accepted =
+                Board::GetInstance().HandleDeviceBridgeCommand(payload_json, &board_result, error);
+            if (accepted) {
+                cJSON_Delete(result);
+                result = cJSON_Parse(board_result.c_str());
+                if (!cJSON_IsObject(result)) {
+                    cJSON_Delete(result);
+                    result = cJSON_CreateObject();
+                }
+            }
         }
     }
 

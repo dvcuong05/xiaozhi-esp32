@@ -13,11 +13,12 @@
 #include <unistd.h>
 #include <algorithm>
 #include <array>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 
 namespace mrkenddo {
 namespace {
@@ -32,10 +33,11 @@ constexpr char kTag[] = "RobotSD";
 using Code = SdStorage::Code;
 using Result = SdStorage::Result;
 
-class SdOggInput final : public NotifyAudioInput {
+class SdAudioInput final : public NotifyAudioInput {
 public:
-    SdOggInput(SdStorage& storage, std::string path) : storage_(storage), path_(std::move(path)) {}
-    ~SdOggInput() override { Close(); }
+    SdAudioInput(SdStorage& storage, std::string path)
+        : storage_(storage), path_(std::move(path)) {}
+    ~SdAudioInput() override { Close(); }
 
     bool Open() override { return static_cast<bool>(storage_.OpenAudioFile(path_, file_)); }
     bool Read(char* buffer, size_t capacity, size_t& bytes_read) override {
@@ -83,6 +85,173 @@ bool ValidUtf8(const std::string& text) {
             return false;
     }
     return left == 0;
+}
+
+void AppendUtf8(std::string& output, uint32_t value) {
+    if (value < 0x80) {
+        output.push_back(static_cast<char>(value));
+    } else if (value < 0x800) {
+        output.push_back(static_cast<char>(0xc0 | (value >> 6)));
+        output.push_back(static_cast<char>(0x80 | (value & 0x3f)));
+    } else if (value < 0x10000 && (value < 0xd800 || value > 0xdfff)) {
+        output.push_back(static_cast<char>(0xe0 | (value >> 12)));
+        output.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3f)));
+        output.push_back(static_cast<char>(0x80 | (value & 0x3f)));
+    }
+}
+
+std::string DecodeId3Text(const uint8_t* data, size_t size) {
+    if (!data || size < 2)
+        return {};
+    const uint8_t encoding = data[0];
+    std::string result;
+    if (encoding == 0 || encoding == 3) {
+        for (size_t i = 1; i < size && data[i] != 0; ++i) {
+            if (result.size() >= 128)
+                break;
+            if (encoding == 3) {
+                result.push_back(static_cast<char>(data[i]));
+            } else {
+                AppendUtf8(result, data[i]);
+            }
+        }
+        if (ValidUtf8(result))
+            return result;
+        return {};
+    }
+    if (encoding != 1 && encoding != 2)
+        return {};
+    size_t offset = 1;
+    bool little_endian = encoding == 1;
+    if (encoding == 1 && size >= 3 && data[1] == 0xff && data[2] == 0xfe) {
+        offset = 3;
+        little_endian = true;
+    } else if (encoding == 1 && size >= 3 && data[1] == 0xfe && data[2] == 0xff) {
+        offset = 3;
+        little_endian = false;
+    }
+    while (offset + 1 < size) {
+        uint16_t code = little_endian
+                            ? static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8))
+                            : static_cast<uint16_t>((data[offset] << 8) | data[offset + 1]);
+        offset += 2;
+        if (code == 0)
+            break;
+        if (code >= 0xd800 && code <= 0xdbff && offset + 1 < size) {
+            uint16_t low = little_endian
+                               ? static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8))
+                               : static_cast<uint16_t>((data[offset] << 8) | data[offset + 1]);
+            if (low >= 0xdc00 && low <= 0xdfff) {
+                offset += 2;
+                code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
+            }
+        }
+        AppendUtf8(result, code);
+        if (result.size() >= 128)
+            break;
+    }
+    return result;
+}
+
+uint32_t ReadSynchsafe(const uint8_t* value) {
+    return (static_cast<uint32_t>(value[0] & 0x7f) << 21) |
+           (static_cast<uint32_t>(value[1] & 0x7f) << 14) |
+           (static_cast<uint32_t>(value[2] & 0x7f) << 7) | (value[3] & 0x7f);
+}
+
+std::string FoldText(const std::string& value) {
+    std::string folded;
+    folded.reserve(value.size());
+    for (size_t i = 0; i < value.size();) {
+        const auto first = static_cast<uint8_t>(value[i]);
+        uint32_t code = first;
+        size_t length = 1;
+        if ((first & 0xe0) == 0xc0 && i + 1 < value.size()) {
+            code = ((first & 0x1f) << 6) | (static_cast<uint8_t>(value[i + 1]) & 0x3f);
+            length = 2;
+        } else if ((first & 0xf0) == 0xe0 && i + 2 < value.size()) {
+            code = ((first & 0x0f) << 12) | ((static_cast<uint8_t>(value[i + 1]) & 0x3f) << 6) |
+                   (static_cast<uint8_t>(value[i + 2]) & 0x3f);
+            length = 3;
+        } else if ((first & 0xf8) == 0xf0 && i + 3 < value.size()) {
+            code = ((first & 7) << 18) | ((static_cast<uint8_t>(value[i + 1]) & 0x3f) << 12) |
+                   ((static_cast<uint8_t>(value[i + 2]) & 0x3f) << 6) |
+                   (static_cast<uint8_t>(value[i + 3]) & 0x3f);
+            length = 4;
+        }
+        if ((code >= 0x00c0 && code <= 0x00d6) || (code >= 0x00d8 && code <= 0x00de))
+            code += 0x20;
+        else if ((code >= 0x0100 && code <= 0x012f && code % 2 == 0) ||
+                 (code >= 0x0132 && code <= 0x0137 && code % 2 == 0) ||
+                 (code >= 0x0139 && code <= 0x0148 && code % 2 == 1) ||
+                 (code >= 0x014a && code <= 0x0177 && code % 2 == 0) ||
+                 (code >= 0x0179 && code <= 0x017e && code % 2 == 1) ||
+                 (code >= 0x1ea0 && code <= 0x1ef8 && code % 2 == 0))
+            ++code;
+        else if (code == 0x0178)
+            code = 0x00ff;
+        AppendUtf8(folded, code);
+        i += length;
+    }
+    return folded;
+}
+
+bool HasAudioExtension(const std::string& path) {
+    auto dot = path.find_last_of('.');
+    if (dot == std::string::npos)
+        return false;
+    auto extension = FoldText(path.substr(dot));
+    return extension == ".mp3" || extension == ".ogg" || extension == ".opus";
+}
+
+void ReadId3Metadata(const std::string& full_path, SdStorage::MusicTrack& track, uint8_t* tag,
+                     size_t capacity) {
+    track.title = track.path.substr(track.path.find_last_of('/') + 1);
+    auto dot = track.title.find_last_of('.');
+    if (dot != std::string::npos)
+        track.title.resize(dot);
+    if (FoldText(track.path.substr(track.path.find_last_of('.'))) != ".mp3" || !tag ||
+        capacity == 0)
+        return;
+
+    std::unique_ptr<FILE, decltype(&fclose)> file(fopen(full_path.c_str(), "rb"), fclose);
+    if (!file)
+        return;
+    std::array<uint8_t, 10> header = {};
+    if (fread(header.data(), 1, header.size(), file.get()) != header.size() ||
+        std::memcmp(header.data(), "ID3", 3) != 0 || header[3] < 3 || header[3] > 4)
+        return;
+    const uint32_t tag_size = ReadSynchsafe(header.data() + 6);
+    const size_t read_size = std::min<size_t>(tag_size, capacity);
+    const size_t actual = fread(tag, 1, read_size, file.get());
+    size_t offset = 0;
+    while (offset + 10 <= actual) {
+        const uint8_t* frame = tag + offset;
+        if (frame[0] == 0)
+            break;
+        uint32_t frame_size = header[3] == 4
+                                  ? ReadSynchsafe(frame + 4)
+                                  : (static_cast<uint32_t>(frame[4]) << 24) |
+                                        (static_cast<uint32_t>(frame[5]) << 16) |
+                                        (static_cast<uint32_t>(frame[6]) << 8) | frame[7];
+        if (frame_size == 0 || frame_size > actual - offset - 10)
+            break;
+        std::string* destination = nullptr;
+        if (std::memcmp(frame, "TIT2", 4) == 0)
+            destination = &track.title;
+        else if (std::memcmp(frame, "TPE1", 4) == 0)
+            destination = &track.artist;
+        else if (std::memcmp(frame, "TALB", 4) == 0)
+            destination = &track.album;
+        else if (std::memcmp(frame, "TCON", 4) == 0)
+            destination = &track.genre;
+        if (destination) {
+            auto value = DecodeId3Text(frame + 10, frame_size);
+            if (!value.empty())
+                *destination = std::move(value);
+        }
+        offset += 10 + frame_size;
+    }
 }
 }  // namespace
 
@@ -381,6 +550,103 @@ SdStorage::Result SdStorage::List(const std::string& path, size_t offset, Listin
     return {};
 }
 
+SdStorage::Result SdStorage::SearchMusic(const std::string& query, const std::string& artist,
+                                         const std::string& album, const std::string& genre,
+                                         size_t limit, std::vector<MusicTrack>& tracks,
+                                         bool& truncated) {
+    if (limit == 0 || limit > 10 || query.size() > 96 || artist.size() > 96 || album.size() > 96 ||
+        genre.size() > 96)
+        return {Code::Invalid, "Gi?i h?n t�m ki?m nh?c kh�ng h?p l? (limit 1-10)."};
+    std::unique_lock<std::mutex> lock(io_mutex_, std::try_to_lock);
+    if (!lock)
+        return {Code::Busy, "Th? dang b?n."};
+    if (auto result = Ready(); !result)
+        return result;
+
+    if (!ValidUtf8(query) || !ValidUtf8(artist) || !ValidUtf8(album) || !ValidUtf8(genre))
+        return {Code::Invalid, "Search filters must be valid UTF-8."};
+    tracks.clear();
+    truncated = false;
+    const std::string query_folded = FoldText(query);
+    const std::string artist_folded = FoldText(artist);
+    const std::string album_folded = FoldText(album);
+    const std::string genre_folded = FoldText(genre);
+    constexpr size_t kMaxTagBytes = 16 * 1024;
+    std::unique_ptr<uint8_t[]> tag(new (std::nothrow) uint8_t[kMaxTagBytes]);
+    if (!tag)
+        return {Code::Unavailable, "Kh?ng d? b? nh? d? d?c ID3."};
+    size_t visited = 0;
+    size_t audio_files = 0;
+    std::function<void(const std::string&, unsigned)> scan = [&](const std::string& path,
+                                                                 unsigned depth) {
+        if (depth > 8 || truncated)
+            return;
+        std::string full;
+        if (!Resolve(path, full))
+            return;
+        DIR* raw = opendir(full.c_str());
+        if (!raw)
+            return;
+        std::unique_ptr<DIR, decltype(&closedir)> dir(raw, closedir);
+        while (auto* item = readdir(dir.get())) {
+            if (std::strcmp(item->d_name, ".") == 0 || std::strcmp(item->d_name, "..") == 0 ||
+                item->d_name[0] == '.')
+                continue;
+            if (++visited > 1500) {
+                truncated = true;
+                return;
+            }
+            if (visited % 32 == 0)
+                vTaskDelay(1);
+            std::string child_path = (path == "/" ? "" : path) + "/" + item->d_name;
+            std::string child_full;
+            if (!Resolve(child_path, child_full, false))
+                continue;
+            struct stat info = {};
+            if (stat(child_full.c_str(), &info) != 0)
+                continue;
+            if (S_ISDIR(info.st_mode)) {
+                scan(child_path, depth + 1);
+                if (truncated)
+                    return;
+                continue;
+            }
+            if (!S_ISREG(info.st_mode) || !HasAudioExtension(child_path))
+                continue;
+            if (++audio_files > 300) {
+                truncated = true;
+                return;
+            }
+            MusicTrack track;
+            track.path = child_path;
+            track.size = static_cast<uint64_t>(info.st_size);
+            ReadId3Metadata(child_full, track, tag.get(), kMaxTagBytes);
+            const std::string title = FoldText(track.title);
+            const std::string track_artist = FoldText(track.artist);
+            const std::string track_album = FoldText(track.album);
+            const std::string track_genre = FoldText(track.genre);
+            const std::string path_folded = FoldText(track.path);
+            if ((!query_folded.empty() && title.find(query_folded) == std::string::npos &&
+                 track_artist.find(query_folded) == std::string::npos &&
+                 track_album.find(query_folded) == std::string::npos &&
+                 path_folded.find(query_folded) == std::string::npos) ||
+                (!artist_folded.empty() && track_artist.find(artist_folded) == std::string::npos &&
+                 path_folded.find(artist_folded) == std::string::npos) ||
+                (!album_folded.empty() && track_album.find(album_folded) == std::string::npos) ||
+                (!genre_folded.empty() && track_genre.find(genre_folded) == std::string::npos &&
+                 path_folded.find(genre_folded) == std::string::npos))
+                continue;
+            if (tracks.size() == limit) {
+                truncated = true;
+                return;
+            }
+            tracks.push_back(std::move(track));
+        }
+    };
+    scan("/", 0);
+    return {};
+}
+
 SdStorage::Result SdStorage::MakeDirectory(const std::string& path) {
     std::string full;
     if (auto result = Resolve(path, full, false); !result)
@@ -597,8 +863,8 @@ SdStorage::Result SdStorage::Download(const std::string& path,
     return {};
 }
 
-SdStorage::Result SdStorage::CreateOggInput(const std::string& path,
-                                            NotifyPlayer::InputFactory& factory) {
+SdStorage::Result SdStorage::CreateAudioInput(const std::string& path,
+                                              NotifyPlayer::InputFactory& factory) {
     std::string full;
     if (auto result = Resolve(path, full, false); !result)
         return result;
@@ -615,13 +881,13 @@ SdStorage::Result SdStorage::CreateOggInput(const std::string& path,
                                 : path.substr(extension_pos);
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (extension != ".ogg")
-        return {Code::Invalid, "Hiện hỗ trợ phát file Ogg/Opus (.ogg)."};
+    if (extension != ".mp3" && extension != ".ogg" && extension != ".opus")
+        return {Code::Invalid, "Hỗ trợ phát MP3 và Ogg/Opus (.mp3, .ogg, .opus)."};
     struct stat info = {};
     if (stat(full.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0)
-        return {Code::Invalid, "File Ogg không tồn tại, rỗng hoặc không hợp lệ."};
+        return {Code::Invalid, "File âm thanh không tồn tại, rỗng hoặc không hợp lệ."};
 
-    factory = [this, path]() { return std::make_unique<SdOggInput>(*this, path); };
+    factory = [this, path]() { return std::make_unique<SdAudioInput>(*this, path); };
     return {};
 }
 
@@ -634,7 +900,7 @@ SdStorage::Result SdStorage::OpenAudioFile(const std::string& path, FILE*& file)
         return result;
     struct stat info = {};
     if (stat(full.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0)
-        return {Code::NotFound, "Không tìm thấy file Ogg hợp lệ."};
+        return {Code::NotFound, "Không tìm thấy file âm thanh hợp lệ."};
     file = fopen(full.c_str(), "rb");
     if (!file)
         return IoError("open local audio");

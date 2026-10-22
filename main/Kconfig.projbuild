@@ -1012,6 +1012,16 @@ config WAKE_WORD_DETECTION_IN_LISTENING
         which allows interrupting the current conversation.
         When disabled (default), wake word detection is turned off during listening.
 
+config ENABLE_MP3_PLAYBACK
+    bool "Enable MP3 playback for HTTP and local media"
+    default y if BOARD_TYPE_MRKENDDO_ROBOT
+    default n
+    help
+        Decode MP3 on the device using the Espressif streaming decoder.
+        Decoder/resampler memory is allocated only during MP3 playback.
+        Other boards can enable this when their flash/RAM budget permits it.
+        Conversation and built-in sounds continue to use Opus.
+
 config USE_AUDIO_PROCESSOR
     bool "Enable AFE Audio Processing"
     default y

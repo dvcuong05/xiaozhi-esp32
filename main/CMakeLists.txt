@@ -2,6 +2,7 @@
 set(SOURCES "audio/audio_codec.cc"
             "audio/audio_debugger.cc"
             "audio/audio_service.cc"
+            "audio/stream_audio_decoder.cc"
             "audio/demuxer/ogg_demuxer.cc"
             "notify/notify_player.cc"
             "stream/continuous_stream_player.cc"

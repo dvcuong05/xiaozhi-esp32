@@ -21,7 +21,9 @@
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
 #include <esp_timer.h>
+#include <cJSON.h>
 
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -161,6 +163,17 @@ private:
 
         touch_button_.OnDoubleClick([]() {
             auto& app = Application::GetInstance();
+            const auto state = app.GetDeviceState();
+            if (state == kDeviceStateRadio) {
+                app.RequestStopRadio();
+                return;
+            }
+            if (state == kDeviceStateNotifying) {
+                // Stops online or local media only; RequestStopMedia leaves
+                // unrelated notification sounds alone.
+                app.RequestStopMedia();
+                return;
+            }
             app.Schedule([]() {
                 auto& app = Application::GetInstance();
                 const auto state = app.GetDeviceState();
@@ -265,6 +278,137 @@ protected:
     const char* GetWifiConfigSsidPrefix() const override { return "MrKenDDo-Robot"; }
 
 public:
+    bool HandleDeviceBridgeCommand(const std::string& payload_json, std::string* result_json,
+                                   std::string* error) override {
+        auto reject = [error](const char* message) {
+            if (error)
+                *error = message;
+            return false;
+        };
+        cJSON* root = cJSON_ParseWithLength(payload_json.data(), payload_json.size());
+        const cJSON* type = cJSON_GetObjectItemCaseSensitive(root, "type");
+        if (!cJSON_IsObject(root) || !cJSON_IsString(type) || !type->valuestring ||
+            std::strncmp(type->valuestring, "sd.", 3) != 0) {
+            cJSON_Delete(root);
+            return reject("unsupported board command");
+        }
+        const std::string command(type->valuestring);
+        cJSON* response = cJSON_CreateObject();
+        bool accepted = false;
+        if (command == "sd.status") {
+            const auto status = sd_storage_.GetStatus();
+            cJSON_AddStringToObject(response, "state", status.state.c_str());
+            cJSON_AddStringToObject(response, "message", status.message.c_str());
+            cJSON_AddNumberToObject(response, "free_bytes", static_cast<double>(status.free_bytes));
+            cJSON_AddBoolToObject(response, "space_valid", status.space_valid);
+            accepted = true;
+        } else if (command == "sd.search") {
+            auto get_text = [&](const char* key, size_t max, std::string& value) {
+                const cJSON* item = cJSON_GetObjectItemCaseSensitive(root, key);
+                if (!item)
+                    return true;
+                if (!cJSON_IsString(item) || !item->valuestring ||
+                    std::strlen(item->valuestring) > max)
+                    return false;
+                value = item->valuestring;
+                return true;
+            };
+            std::string query, artist, album, genre;
+            const cJSON* limit_json = cJSON_GetObjectItemCaseSensitive(root, "limit");
+            int limit = cJSON_IsNumber(limit_json) ? limit_json->valueint : 5;
+            if (!get_text("query", 96, query) || !get_text("artist", 96, artist) ||
+                !get_text("album", 96, album) || !get_text("genre", 96, genre) || limit < 1 ||
+                limit > 10) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("invalid SD search filters or limit");
+            }
+            std::vector<mrkenddo::SdStorage::MusicTrack> tracks;
+            bool truncated = false;
+            auto search = sd_storage_.SearchMusic(query, artist, album, genre,
+                                                  static_cast<size_t>(limit), tracks, truncated);
+            if (!search) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(search.message.c_str());
+            }
+            cJSON_AddBoolToObject(response, "truncated", truncated);
+            cJSON* results = cJSON_AddArrayToObject(response, "results");
+            if (!results) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("out of memory creating SD search results");
+            }
+            for (const auto& track : tracks) {
+                cJSON* item = cJSON_CreateObject();
+                if (!item)
+                    continue;
+                cJSON_AddStringToObject(item, "path", track.path.c_str());
+                cJSON_AddStringToObject(item, "title", track.title.c_str());
+                cJSON_AddStringToObject(item, "artist", track.artist.c_str());
+                cJSON_AddStringToObject(item, "album", track.album.c_str());
+                cJSON_AddStringToObject(item, "genre", track.genre.c_str());
+                cJSON_AddNumberToObject(item, "size", static_cast<double>(track.size));
+                cJSON_AddItemToArray(results, item);
+            }
+            accepted = true;
+        } else if (command == "sd.play") {
+            const cJSON* path_json = cJSON_GetObjectItemCaseSensitive(root, "path");
+            if (!cJSON_IsString(path_json) || !path_json->valuestring ||
+                std::strlen(path_json->valuestring) > 192) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("sd.play requires a valid path from sd.search");
+            }
+            const std::string path(path_json->valuestring);
+            NotifyPlayer::InputFactory input;
+            auto play = sd_storage_.CreateAudioInput(path, input);
+            if (!play) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(play.message.c_str());
+            }
+            MediaPlaybackMetadata metadata;
+            const cJSON* title = cJSON_GetObjectItemCaseSensitive(root, "title");
+            const cJSON* artist = cJSON_GetObjectItemCaseSensitive(root, "artist");
+            if ((title && (!cJSON_IsString(title) || !title->valuestring ||
+                           std::strlen(title->valuestring) > 192)) ||
+                (artist && (!cJSON_IsString(artist) || !artist->valuestring ||
+                            std::strlen(artist->valuestring) > 128))) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("sd.play metadata is invalid or too long");
+            }
+            metadata.title = cJSON_IsString(title) && title->valuestring
+                                 ? title->valuestring
+                                 : path.substr(path.find_last_of('/') + 1);
+            if (cJSON_IsString(artist) && artist->valuestring)
+                metadata.artist = artist->valuestring;
+            Application::GetInstance().RequestLocalMedia(std::move(metadata), std::move(input));
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddStringToObject(response, "path", path.c_str());
+            accepted = true;
+        } else if (command == "sd.stop") {
+            Application::GetInstance().RequestStopMedia();
+            cJSON_AddStringToObject(response, "status", "queued");
+            accepted = true;
+        }
+
+        if (accepted && result_json) {
+            char* encoded = cJSON_PrintUnformatted(response);
+            if (encoded) {
+                *result_json = encoded;
+                cJSON_free(encoded);
+            }
+        } else if (!accepted && error) {
+            *error = "unsupported SD command";
+        }
+        ESP_LOGI(TAG, "Device bridge %s: %s", command.c_str(), accepted ? "accepted" : "rejected");
+        cJSON_Delete(response);
+        cJSON_Delete(root);
+        return accepted;
+    }
+
     MrkenDDoRobot()
         : boot_button_(BOOT_BUTTON_GPIO),
           volume_up_button_(VOLUME_UP_BUTTON_GPIO),

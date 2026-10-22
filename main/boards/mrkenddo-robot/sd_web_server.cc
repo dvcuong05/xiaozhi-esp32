@@ -302,12 +302,12 @@ esp_err_t SdWebServer::HandleRequest(httpd_req_t* req, bool& body_consumed) {
         return Reply(req, {Code::Invalid, "Thao tác không hợp lệ."});
     if (op == "play") {
         NotifyPlayer::InputFactory input_factory;
-        if (auto result = storage_.CreateOggInput(path, input_factory); !result)
+        if (auto result = storage_.CreateAudioInput(path, input_factory); !result)
             return Reply(req, result);
         MediaPlaybackMetadata metadata;
         metadata.title = path.substr(path.find_last_of('/') + 1);
         Application::GetInstance().RequestLocalMedia(std::move(metadata), std::move(input_factory));
-        return Reply(req, {Code::Ok, "Đã xếp file Ogg/Opus vào hàng đợi phát."});
+        return Reply(req, {Code::Ok, "Đã xếp file âm thanh vào hàng đợi phát."});
     }
     if (op == "stop") {
         Application::GetInstance().RequestStopMedia();

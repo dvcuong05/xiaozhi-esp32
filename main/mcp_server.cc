@@ -37,31 +37,31 @@ void McpServer::AddCommonTools() {
     // Do not add custom tools here.
     // Custom tools must be added in the board's InitializeTools function.
 
-    AddTool("self.get_device_status",
-            "Provides the real-time information of the device, including the current status of the "
-            "audio speaker, screen, battery, network, etc.\n"
-            "Use this tool for: \n"
-            "1. Answering questions about current condition (e.g. what is the current volume of "
-            "the audio speaker?)\n"
-            "2. As the first step to control the device (e.g. turn up / down the volume of the "
-            "audio speaker, etc.)",
-            PropertyList(), [&board](const PropertyList& properties) -> ReturnValue {
-                return board.GetDeviceStatusJson();
-            });
+    AddTool(
+        "self.get_device_status",
+        "Cung cấp trạng thái hiện tại của thiết bị như âm lượng loa, màn hình, pin và mạng.\n"
+        "Dùng khi người dùng hỏi robot đang ở trạng thái nào hoặc âm lượng hiện tại bao nhiêu.\n"
+        "Trước khi thay đổi âm lượng, hãy gọi công cụ này để đọc mức âm lượng hiện tại.",
+        PropertyList(), [&board](const PropertyList& properties) -> ReturnValue {
+            return board.GetDeviceStatusJson();
+        });
 
-    AddTool("self.audio_speaker.set_volume",
-            "Set the volume of the audio speaker. If the current volume is unknown, you must call "
-            "`self.get_device_status` tool first and then call this tool.",
-            PropertyList({Property("volume", kPropertyTypeInteger, 0, 100)}),
-            [&board](const PropertyList& properties) -> ReturnValue {
-                auto codec = board.GetAudioCodec();
-                codec->SetOutputVolume(properties["volume"].value<int>());
-                return true;
-            });
+    AddTool(
+        "self.audio_speaker.set_volume",
+        "Đặt âm lượng loa robot từ 0 đến 100 khi người dùng yêu cầu tăng, giảm hoặc đặt âm lượng. "
+        "Nếu chưa biết mức hiện tại, gọi self.get_device_status trước; sau đó đặt volume "
+        "theo yêu cầu, không tự suy đoán mức ban đầu.",
+        PropertyList({Property("volume", kPropertyTypeInteger, 0, 100)}),
+        [&board](const PropertyList& properties) -> ReturnValue {
+            auto codec = board.GetAudioCodec();
+            codec->SetOutputVolume(properties["volume"].value<int>());
+            return true;
+        });
 
     auto backlight = board.GetBacklight();
     if (backlight) {
-        AddTool("self.screen.set_brightness", "Set the brightness of the screen.",
+        AddTool("self.screen.set_brightness",
+                "Đặt độ sáng màn hình từ 0 đến 100 theo yêu cầu người dùng.",
                 PropertyList({Property("brightness", kPropertyTypeInteger, 0, 100)}),
                 [backlight](const PropertyList& properties) -> ReturnValue {
                     uint8_t brightness =
@@ -75,7 +75,7 @@ void McpServer::AddCommonTools() {
     auto display = board.GetDisplay();
     if (display && display->GetTheme() != nullptr) {
         AddTool("self.screen.set_theme",
-                "Set the theme of the screen. The theme can be `light` or `dark`.",
+                "Đổi giao diện sáng/tối của màn hình. Giá trị theme chỉ nhận `light` hoặc `dark`.",
                 PropertyList({Property("theme", kPropertyTypeString)}),
                 [display](const PropertyList& properties) -> ReturnValue {
                     auto theme_name = properties["theme"].value<std::string>();
@@ -92,12 +92,9 @@ void McpServer::AddCommonTools() {
     auto camera = board.GetCamera();
     if (camera) {
         AddTool("self.camera.take_photo",
-                "Always remember you have a camera. If the user asks you to see something, use "
-                "this tool to take a photo and then explain it.\n"
-                "Args:\n"
-                "  `question`: The question that you want to ask about the photo.\n"
-                "Return:\n"
-                "  A JSON object that provides the photo information.",
+                "Chụp ảnh bằng camera và giải thích ảnh khi người dùng yêu cầu xem/nhận diện "
+                "đối tượng trong khung hình. Truyền câu hỏi cần trả lời vào tham số question. "
+                "Kết quả trả về thông tin ảnh dưới dạng JSON.",
                 PropertyList({Property("question", kPropertyTypeString)}),
                 [camera](const PropertyList& properties) -> ToolResult {
                     // Lower the priority to do the camera capture
@@ -123,14 +120,16 @@ void McpServer::AddCommonTools() {
 
 void McpServer::AddUserOnlyTools() {
     // System tools
-    AddUserOnlyTool("self.get_system_info", "Get the system information", PropertyList(),
+    AddUserOnlyTool("self.get_system_info",
+                    "Lấy thông tin hệ thống và tài nguyên hiện tại của robot.", PropertyList(),
                     [this](const PropertyList& properties) -> ReturnValue {
                         auto& board = Board::GetInstance();
                         return board.GetSystemInfoJson();
                     });
 
-    AddUserOnlyTool("self.reboot", "Reboot the system", PropertyList(),
-                    [this](const PropertyList& properties) -> ReturnValue {
+    AddUserOnlyTool("self.reboot",
+                    "Khởi động lại robot. Chỉ gọi khi người dùng yêu cầu khởi động lại.",
+                    PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
                         auto& app = Application::GetInstance();
                         app.Schedule([&app]() {
                             ESP_LOGW(TAG, "User requested reboot");
@@ -144,10 +143,9 @@ void McpServer::AddUserOnlyTools() {
     // Firmware upgrade
     AddUserOnlyTool(
         "self.upgrade_firmware",
-        "Upgrade firmware from a specific URL. This will download and install the firmware, then "
-        "reboot the device.",
-        PropertyList({Property("url", kPropertyTypeString,
-                               "The URL of the firmware binary file to download and install")}),
+        "Cập nhật firmware từ URL do người dùng cung cấp; robot tải và cài firmware rồi tự khởi "
+        "động lại.",
+        PropertyList({Property("url", kPropertyTypeString)}),
         [this](const PropertyList& properties) -> ReturnValue {
             auto url = properties["url"].value<std::string>();
             ESP_LOGI(TAG, "User requested firmware upgrade from URL: %s", url.c_str());
@@ -168,7 +166,7 @@ void McpServer::AddUserOnlyTools() {
     auto display = Board::GetInstance().GetDisplay();
     if (display != nullptr && display->SupportsGuiOperations()) {
         AddUserOnlyTool("self.screen.get_info",
-                        "Information about the screen, including width, height, etc.",
+                        "Lấy thông tin màn hình như chiều rộng, chiều cao và loại màn hình.",
                         PropertyList(), [display](const PropertyList& properties) -> ReturnValue {
                             cJSON* json = cJSON_CreateObject();
                             cJSON_AddNumberToObject(json, "width", display->width());
@@ -179,7 +177,7 @@ void McpServer::AddUserOnlyTools() {
 
 #if CONFIG_LV_USE_SNAPSHOT
         AddUserOnlyTool(
-            "self.screen.snapshot", "Snapshot the screen and upload it to a specific URL",
+            "self.screen.snapshot", "Chụp ảnh màn hình và tải ảnh lên URL được chỉ định.",
             PropertyList({Property("url", kPropertyTypeString),
                           Property("quality", kPropertyTypeInteger, 80, 1, 100)}),
             [display](const PropertyList& properties) -> ToolResult {
@@ -263,7 +261,8 @@ void McpServer::AddUserOnlyTools() {
             });
 
         AddUserOnlyTool(
-            "self.screen.preview_image", "Preview an image on the screen",
+            "self.screen.preview_image",
+            "Tải và hiển thị ảnh xem trước trên màn hình robot từ URL.",
             PropertyList({Property("url", kPropertyTypeString)}),
             [display](const PropertyList& properties) -> ToolResult {
                 auto url = properties["url"].value<std::string>();
@@ -316,7 +315,7 @@ void McpServer::AddUserOnlyTools() {
 
     // Assets download url (always registered — Settings storage works regardless of partition
     // layout)
-    AddUserOnlyTool("self.assets.set_download_url", "Set the download url for the assets",
+    AddUserOnlyTool("self.assets.set_download_url", "Đặt URL tải bộ tài nguyên của robot.",
                     PropertyList({Property("url", kPropertyTypeString)}),
                     [](const PropertyList& properties) -> ReturnValue {
                         auto url = properties["url"].value<std::string>();

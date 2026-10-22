@@ -19,7 +19,7 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 
 Xem [`docs/circuit_diagram.png`](docs/circuit_diagram.png) hoặc tại https://app.cirkitdesigner.com/project/68109f8c-2d1c-428a-bdca-f183fb424fa7 Firmware giả định motor A ở bên trái, motor B ở bên phải; sơ đồ mạch chỉ cho biết cặp dây, không xác nhận vị trí thực tế trên thân robot. Motor B đảo chiều theo mặc định để hai bánh cùng tiến khi bấm Forward. Nếu lắp motor trái/phải khác giả định, dùng hai ô Reverse trên web để hiệu chỉnh. Không đổi GPIO của board hiện có chỉ để hỗ trợ phần cứng khác; board identity ảnh hưởng OTA.
 
-TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot đang khởi động hoặc phát nhạc/radio, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
+TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Khi đang phát nhạc online/SD hoặc radio, chạm đôi dừng player tương ứng và đưa robot về `idle`. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot khởi động, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
 
 GPIO20 đồng thời là USB D+ của ESP32-S3. Biến thể này tắt USB Serial/JTAG và console USB phụ để dùng GPIO20 cho TTP223; tiếp tục nạp firmware/xem log qua cổng USB–UART. Không nối cổng USB native với máy tính trong lúc dùng cảm biến. Nếu cần khôi phục nạp qua USB native, tháo dây I/O của TTP223 khỏi GPIO20, giữ BOOT/GPIO0 khi reset rồi nạp bản firmware khác.
 
@@ -42,10 +42,10 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `POST /api/storage?op=mkdir|delete|abort_upload&path=<đường dẫn URL-encoded>`: tạo thư mục, xóa file/thư mục cùng toàn bộ nội dung bên trong hoặc hủy file upload tạm. UI yêu cầu xác nhận khi xóa thư mục.
 - `POST /api/storage/upload?path=<đường dẫn URL-encoded>&offset=0&total=<số byte>`: body nhị phân tối đa 1 MiB/khối, file tối đa 1 GiB. Giao diện lấy kích thước khối từ API trạng thái; firmware nhận buffer 1 MiB trong PSRAM và báo lỗi rõ ràng nếu không cấp phát được. Firmware chỉ `fsync` trước khi chốt file hoàn chỉnh. Gửi khối tuần tự với offset chính xác. Ghi file tạm `.robot-upload`, đóng/sync rồi đổi tên sau khối cuối; từ chối file đích đã tồn tại. Không ghi đè âm thầm. Khi upload bị ngắt, dùng **Hủy upload dang dở** hoặc **Tháo thẻ an toàn**; sau mất điện, tải lại cùng đường dẫn từ offset 0 để thay file tạm còn sót.
 - `POST /api/storage?op=delete&path=<đường dẫn URL-encoded>`: xóa file hoặc xóa đệ quy thư mục cùng mọi file/thư mục bên trong. Giao diện hiện hộp xác nhận riêng cho xóa thư mục và nêu rõ thao tác không thể hoàn tác; không cho xóa gốc thẻ. Giới hạn độ sâu thư mục lồng là 16 cấp.
-- `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file `.ogg` chứa Opus trực tiếp từ microSD qua `NotifyPlayer`, `OggDemuxer` và decoder hiện có; không cần Wi-Fi/Internet để tải audio. UI chỉ hiện nút phát cho file `.ogg`; `POST /api/storage?op=stop` dừng playback. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để tránh hỏng luồng đọc; sau khi dừng có thể thao tác lại. TTS và điều khiển hội thoại tiếp tục dùng backend hiện tại.
+- `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file MP3 (`.mp3`) và Ogg/Opus (`.ogg`, `.opus`) trực tiếp từ microSD. `/storage` hiện nút Phát cho ba đuôi này; `POST /api/storage?op=stop` dừng playback. `SdAudioInput` chỉ đọc file có giới hạn, còn `NotifyPlayer` và `AudioStreamDecoder` dùng chung cho SD/HTTP. Decoder được chọn một lần từ nội dung đầu stream, nên đổi tên file không chuyển đổi định dạng. MP3 dùng parser/decoder streaming của Espressif, trộn stereo về mono và resample theo output của board; PCM đi qua cùng hàng đợi loa, visualizer và tiến độ subtitle. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để bảo vệ luồng đọc; sau khi dừng có thể thao tác lại. Không cần mạng để tải audio từ thẻ.
 - `GET /api/storage/download?path=<đường dẫn URL-encoded>`: tải file tối đa 1 GiB dạng attachment, đọc từng khối 4096 byte. Tác vụ file HTTP chạy bằng async request ở worker riêng, tối đa một tác vụ tại một thời điểm; motor Stop và các API điều khiển vẫn được HTTP task phục vụ. Tài nguyên I/O thẻ được tuần tự hóa với mount/unmount.
 
-MicroSD hiện hỗ trợ nền tảng lưu trữ/quản lý file và phát offline Ogg/Opus từ trang `/storage`. Có thể tạo các thư mục `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`; phát offline hiện chưa có playlist/tự chuyển bài và chưa hỗ trợ WAV/MP3. Sound pack, ghi log lên thẻ, slideshow và OTA từ SD vẫn là backlog riêng. Cấu hình NVS hiện có không được chuyển sang thẻ. Nguồn module giữ 3,3 V theo xác nhận của chủ robot; nếu mount lỗi, kiểm tra nguồn thực tại khe thẻ và loại module trước khi đổi dây.
+MicroSD hỗ trợ quản lý file và phát offline MP3/Ogg Opus từ `/storage`; chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho MrKenDDo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack, log lên thẻ, slideshow và OTA từ SD là backlog riêng; NVS không chuyển sang thẻ. Nguồn module giữ 3,3 V theo xác nhận của chủ robot; nếu mount lỗi, kiểm tra nguồn thực tại khe thẻ và loại module trước khi đổi dây.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
 - `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
 - `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
@@ -217,6 +217,26 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `sd_storage.*` | Sở hữu SPI2/thẻ/FatFs, worker mount và đo dung lượng; kiểm tra đường dẫn, tuần tự hóa file I/O, upload tạm và tháo thẻ. |
 | `sd_web_server.*`, `sd_web_ui.h` | Trang `/storage`, API file và worker async HTTP có giới hạn; không đưa truyền file vào task audio/LVGL hoặc HTTP điều khiển. |
 
+### Phát nhạc từ microSD bằng MCP
+
+Khi robot kết nối device-bridge WSS, MCP service cung cấp `sd_status`, `sd_search`,
+`sd_play` và `sd_stop`. Lệnh tìm kiếm duyệt tối đa 1.500 entry/300 file nhạc,
+trả tối đa 10 kết quả và đọc ID3v2.3/2.4 title/artist/album/genre trên MP3; nếu tag
+thiếu, tên file và cấu trúc thư mục vẫn được dùng để tìm. Có thể phân loại bằng
+tag genre hoặc tên thư mục (ví dụ `Remix/`, `Tru tinh/`). Không tạo catalog/cache
+chiếm dung lượng trên thẻ và không gửi file nhạc qua MCP/WSS.
+
+Luồng thao tác: chatbox gọi `sd_search` với tên bài/ca sĩ/thể loại, chọn kết quả
+phù hợp rồi gọi `sd_play` với `path` chính xác. Firmware kiểm tra path, tạo local
+audio input từ SD và đưa vào `Application::RequestLocalMedia`, dùng chung player
+MP3/Ogg Opus và TFT Audio Visualizer; dừng bằng `sd_stop`. Nếu kết quả báo
+`truncated=true`, hãy thu hẹp theo bài/thư mục hoặc artist/genre cụ thể. Quét có
+giới hạn để tránh giữ WSS quá lâu; file sau ngưỡng quét không có trong lần tìm đó.
+
+Các MCP tool SD đi qua device-bridge WSS đã xác thực, không dùng HTTP LAN hay
+provider nhạc bên ngoài. Thẻ phải mounted; `sd_stop` cũng xóa yêu cầu phát đang
+chờ nếu có.
+
 Luồng đổi chế độ OLED từ web và từ giọng nói đều là
 `HTTP/MCP → RobotController → RobotSettings → Application::Schedule → SecondaryDisplay`.
 NVS được lưu trước khi báo đã nhận cấu hình; việc khởi tạo lại panel chạy ở
@@ -273,7 +293,12 @@ bộ `Conversation`/`Effect`/`Notification`/`Media`, giữ qua bước decode/re
 `radio.start`/`POST /api/radio/start`, còn track qua `media.play` hoặc
 `POST /api/media/play` với metadata và subtitles có mốc thời gian. `/api/notify`
 vẫn dành cho thông báo; firmware không chứa provider, station ID hay logic Zing.
-MCP sở hữu tìm kiếm, resolve URL, chuyển đổi Ogg Opus và LRC; Zing client
+MCP truyền nguyên byte MP3 hợp lệ để giảm CPU chuyển mã; codec khác/HLS vẫn dùng
+Opus. Bitrate MP3 được giữ nguyên nên 128 kbps có thể tốn băng thông hơn Opus mono
+48 kbps cũ. Flash firmware hỗ trợ MP3 trước khi nâng MCP service. Hai sơ đồ
+music/radio trong docs đã cập nhật theo nhánh passthrough/fallback này.
+
+MCP sở hữu tìm kiếm, resolve URL, chính sách passthrough MP3/chuyển đổi Opus và LRC; Zing client
 Python được tích hợp ngay trong MCP server. Radio dùng
 `radio_search` cùng lifecycle `radio.start`/`radio.stop` riêng. Track có thể
 được thay hoặc dừng bằng `media.play`/`media.stop` và chờ hội thoại hiện tại về

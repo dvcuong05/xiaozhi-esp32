@@ -2,30 +2,30 @@
 #define BOARD_H
 
 #include <http.h>
-#include <web_socket.h>
 #include <mqtt.h>
+#include <network_interface.h>
 #include <udp.h>
+#include <web_socket.h>
+#include <functional>
 #include <string>
 #include <string_view>
-#include <functional>
-#include <network_interface.h>
 
-#include "led/led.h"
-#include "backlight.h"
-#include "camera.h"
 #include "assets.h"
+#include "backlight.h"
 #include "boot_sequence.h"
+#include "camera.h"
+#include "led/led.h"
 
 /**
  * Network events for unified callback
  */
 enum class NetworkEvent {
-    Scanning,              // Network is scanning (WiFi scanning, etc.)
-    Connecting,            // Network is connecting (data: SSID/network name)
-    Connected,             // Network connected successfully (data: SSID/network name)
-    Disconnected,          // Network disconnected
-    WifiConfigModeEnter,   // Entered WiFi configuration mode
-    WifiConfigModeExit,    // Exited WiFi configuration mode
+    Scanning,             // Network is scanning (WiFi scanning, etc.)
+    Connecting,           // Network is connecting (data: SSID/network name)
+    Connected,            // Network connected successfully (data: SSID/network name)
+    Disconnected,         // Network disconnected
+    WifiConfigModeEnter,  // Entered WiFi configuration mode
+    WifiConfigModeExit,   // Exited WiFi configuration mode
     // Cellular modem specific events
     ModemDetecting,        // Detecting modem (baud rate, module type)
     ModemErrorNoSim,       // No SIM card detected
@@ -50,8 +50,8 @@ class AudioCodec;
 class Display;
 class Board {
 private:
-    Board(const Board&) = delete; // 禁用拷贝构造函数
-    Board& operator=(const Board&) = delete; // 禁用赋值操作
+    Board(const Board&) = delete;             // 禁用拷贝构造函数
+    Board& operator=(const Board&) = delete;  // 禁用赋值操作
 
 protected:
     Board();
@@ -89,8 +89,17 @@ public:
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void StartNetwork() = 0;
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
+    // Optional handler for board-local commands arriving over the authenticated device bridge.
+    virtual bool HandleDeviceBridgeCommand(const std::string& payload_json,
+                                           std::string* result_json, std::string* error) {
+        (void)payload_json;
+        (void)result_json;
+        if (error != nullptr)
+            *error = "unsupported board command";
+        return false;
+    }
     virtual const char* GetNetworkStateIcon() = 0;
-    virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
+    virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging);
     virtual std::string GetSystemInfoJson();
     virtual void SetPowerSaveLevel(PowerSaveLevel level) = 0;
     virtual std::string GetBoardJson() = 0;
@@ -98,8 +107,6 @@ public:
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \
-void* create_board() { \
-    return new BOARD_CLASS_NAME(); \
-}
+    void* create_board() { return new BOARD_CLASS_NAME(); }
 
-#endif // BOARD_H
+#endif  // BOARD_H

@@ -13,6 +13,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
 ## Planned features
+- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot, giữ nguồn module 3,3 V để thử. Mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
+- [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
 - [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
     spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
     không bật vì boot/beep/thông báo/TTS. Dừng media thì khôi phục mắt robot.
@@ -44,13 +46,19 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       loại đèn Edison và driver. Với thông tin 3 V/120 mA, chưa được giả định
       LED là addressable hay 120 mA cho từng đèn/cả cụm; không cấp dòng tải từ
       GPIO ESP32.
-- [ ] **P1 - Nền tảng lưu trữ microSD:** tạo service quản lý mount/unmount,
-      lỗi/rút thẻ, cấu trúc thư mục và truy cập file; dùng FATFS qua SPI nếu
-      pin/bus thực tế phù hợp. Tác vụ đọc/ghi không chặn audio hoặc main loop.
-- [ ] **P1 - Phát nhạc và âm thanh offline:** duyệt/phát file local qua player
+- [x] **P1 - Nền tảng lưu trữ microSD:** `SdStorage` sở hữu SPI2/FatFs,
+      mount/unmount, trạng thái lỗi, truy cập file giới hạn và đồng bộ vòng đời.
+      Async HTTP worker phục vụ quản lý file, không chặn audio/main loop.
+      Không có chân card-detect: nhận lỗi khi I/O, cần remount thủ công; không
+      cam kết hot-plug. Kiểm thử nguồn/thẻ thật còn mở.
+- [x] **P1 - Phát nhạc và âm thanh offline:** duyệt/phát file local qua player
       dùng chung; thiết kế Audio Manager để ưu tiên TTS, nhạc, hiệu ứng và tránh
-      tranh chấp I2S/loa. Bắt đầu với WAV; chỉ thêm MP3 sau khi đánh giá decoder,
-      CPU, RAM/PSRAM và dung lượng bộ đệm.
+      tranh chấp I2S/loa. Điều chỉnh sau rà soát player hiện tại: bắt đầu với
+      Ogg/Opus từ file qua decoder có sẵn. `/storage` gọi cùng `NotifyPlayer`,
+      `OggDemuxer` và decoder; TTS/voice vẫn giữ backend hiện tại. Khi file đang
+      chạy, thẻ được giữ mở và thao tác ghi/xóa/tải/tháo bị từ chối. Chưa có
+      playlist/tự chuyển bài, WAV PCM hoặc MP3; cần đánh giá riêng CPU,
+      RAM/PSRAM, app partition và bộ đệm trước khi mở rộng format.
 - [x] **P1 - Tương tác TTP223:** GPIO20, chạm đơn luân phiên biểu cảm mắt kèm
       âm báo ngắn và lưu biểu cảm làm mặc định idle trong NVS khi robot rảnh
       (không tự chạy bánh xe), chạm đôi bắt đầu hội thoại, hủy phiên nghe hoặc
@@ -144,7 +152,7 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
 - [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
       decoder/renderer; thời lượng MCP hỗ trợ 5–120 giây, mặc định 30 giây.
 - [x] Build firmware bằng ESP-IDF 6.1 đã thành công cho ESP32-S3; binary
-      hiện còn khoảng 10% dung lượng app partition.
+      sau bổ sung microSD hiện còn khoảng 5% dung lượng app partition.
 
 ## Current implementation status
 
@@ -172,6 +180,8 @@ Không còn mục implementation nào đang chờ trong kế hoạch đã chốt
       URL proxy thuộc MCP server, không firmware.
 
 ## Hardware validation backlog
+- [ ] MicroSD: thử FAT32 với nguồn 3,3 V đang đấu; đọc log `RobotSD`, kiểm tra thiếu thẻ/lỗi mount vẫn có Wi-Fi/web/audio, mount lại và tháo an toàn. Sơ đồ PNG/SVG sẽ do chủ robot cập nhật.
+- [ ] Upload/download file có tên tiếng Việt, so SHA-256 trước/sau, file rỗng và nhiều khối; từ chối trùng tên, sai offset, vượt giới hạn và traversal. Thử ngắt upload, đầy thẻ, tháo thẻ lúc I/O; xác nhận web Stop và hội thoại vẫn phản hồi khi truyền file.
 
 - [ ] Sau refactor, xác nhận cấu hình NVS cũ vẫn được giữ; đổi mode OLED từ
       HTTP và MCP cho cùng kết quả, xoay TFT/OLED và reboot không mất cấu hình.

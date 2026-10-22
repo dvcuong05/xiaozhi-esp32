@@ -595,7 +595,7 @@ void Application::Run() {
 
             // A cancelled HTTP worker may take up to its read timeout to exit.
             // Retry a pending media command without blocking the main loop.
-            if (!pending_media_url_.empty()) {
+            if (pending_media_local_ || !pending_media_url_.empty()) {
                 TryStartPendingMedia();
             }
 
@@ -1577,15 +1577,17 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
 }
 
 void Application::StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
-                             std::vector<NotifySubtitle> subtitles) {
+                             std::vector<NotifySubtitle> subtitles,
+                             NotifyPlayer::InputFactory input_factory) {
     ESP_LOGI(TAG, "Media start title=%s artist=%s lyrics=%u", metadata.title.c_str(),
              metadata.artist.c_str(), static_cast<unsigned>(subtitles.size()));
     StartFiniteAudio(std::move(audio_url), std::move(subtitles), AudioPlaybackSource::Media,
-                     std::move(metadata));
+                     std::move(metadata), std::move(input_factory));
 }
 
 void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
-                                   AudioPlaybackSource source, MediaPlaybackMetadata metadata) {
+                                   AudioPlaybackSource source, MediaPlaybackMetadata metadata,
+                                   NotifyPlayer::InputFactory input_factory) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
         continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Ignoring notify message while device is busy");
@@ -1639,7 +1641,7 @@ void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubt
         [this](uint32_t id, bool success) {
             Schedule([this, id, success]() { HandleNotificationFinished(id, success); });
         },
-        options);
+        options, std::move(input_factory));
 
     if (!started) {
         ESP_LOGE(TAG, "Failed to start notification playback");
@@ -1659,6 +1661,15 @@ void Application::RequestMedia(std::string audio_url, MediaPlaybackMetadata meta
     Schedule([this, audio_url = std::move(audio_url), metadata = std::move(metadata),
               subtitles = std::move(subtitles)]() mutable {
         QueueMedia(std::move(audio_url), std::move(metadata), std::move(subtitles));
+    });
+}
+
+void Application::RequestLocalMedia(MediaPlaybackMetadata metadata,
+                                    NotifyPlayer::InputFactory input_factory) {
+    if (!input_factory)
+        return;
+    Schedule([this, metadata = std::move(metadata), input_factory = std::move(input_factory)]() mutable {
+        QueueMedia({}, std::move(metadata), {}, std::move(input_factory));
     });
 }
 
@@ -1799,12 +1810,15 @@ bool Application::HandleDeviceBridgeCommand(const std::string& payload_json,
 }
 
 void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
-                             std::vector<NotifySubtitle> subtitles) {
+                             std::vector<NotifySubtitle> subtitles,
+                             NotifyPlayer::InputFactory input_factory) {
     pending_radio_url_.clear();
     pending_radio_metadata_ = {};
     pending_media_url_ = std::move(audio_url);
     pending_media_metadata_ = std::move(metadata);
     pending_media_subtitles_ = std::move(subtitles);
+    pending_media_local_ = static_cast<bool>(input_factory);
+    pending_media_input_ = std::move(input_factory);
 
     if (GetDeviceState() == kDeviceStateRadio) {
         ESP_LOGI(TAG, "Replacing radio playback with requested media");
@@ -1826,6 +1840,8 @@ void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata meta
         pending_media_url_.clear();
         pending_media_metadata_ = {};
         pending_media_subtitles_.clear();
+        pending_media_input_ = {};
+        pending_media_local_ = false;
         if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
             ESP_LOGI(TAG, "Ignoring duplicate radio start; radio is already active");
             return;
@@ -1844,6 +1860,8 @@ void Application::RequestStopMedia() {
         pending_media_url_.clear();
         pending_media_metadata_ = {};
         pending_media_subtitles_.clear();
+        pending_media_input_ = {};
+        pending_media_local_ = false;
         if (GetDeviceState() == kDeviceStateNotifying &&
             finite_audio_source_ == AudioPlaybackSource::Media) {
             StopNotification();
@@ -1898,9 +1916,10 @@ void Application::HandleNotificationFinished(uint32_t playback_id, bool success)
 void Application::TryStartPendingRadio() {
     // Music and radio share the same one-slot pending command. Media wins if
     // one is present; request handlers clear the older command when replaced.
-    if (!pending_media_url_.empty()) {
+    if (pending_media_local_ || !pending_media_url_.empty()) {
         TryStartPendingMedia();
-        if (!pending_media_url_.empty() || GetDeviceState() != kDeviceStateIdle) {
+        if (pending_media_local_ || !pending_media_url_.empty() ||
+            GetDeviceState() != kDeviceStateIdle) {
             return;
         }
     }
@@ -1941,7 +1960,7 @@ void Application::TryStartPendingRadio() {
 }
 
 void Application::TryStartPendingMedia() {
-    if (pending_media_url_.empty()) {
+    if (!pending_media_local_ && pending_media_url_.empty()) {
         return;
     }
 
@@ -1972,7 +1991,11 @@ void Application::TryStartPendingMedia() {
     pending_media_metadata_ = {};
     auto subtitles = std::move(pending_media_subtitles_);
     pending_media_subtitles_.clear();
-    StartMedia(std::move(audio_url), std::move(metadata), std::move(subtitles));
+    auto input_factory = std::move(pending_media_input_);
+    pending_media_input_ = {};
+    pending_media_local_ = false;
+    StartMedia(std::move(audio_url), std::move(metadata), std::move(subtitles),
+               std::move(input_factory));
 }
 
 void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metadata) {

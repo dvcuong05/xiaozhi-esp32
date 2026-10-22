@@ -123,6 +123,7 @@ public:
     void RequestNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void RequestMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                       std::vector<NotifySubtitle> subtitles);
+    void RequestLocalMedia(MediaPlaybackMetadata metadata, NotifyPlayer::InputFactory input);
     void RequestStopNotification();
     void RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata = {});
     void RequestStopMedia();
@@ -181,6 +182,8 @@ private:
     std::string pending_media_url_;
     MediaPlaybackMetadata pending_media_metadata_;
     std::vector<NotifySubtitle> pending_media_subtitles_;
+    NotifyPlayer::InputFactory pending_media_input_;
+    bool pending_media_local_ = false;
     AudioPlaybackSource finite_audio_source_ = AudioPlaybackSource::Notification;
     std::unique_ptr<Ota> ota_;
 
@@ -237,11 +240,14 @@ private:
     void HideStartupWakeWordHint();
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
-                    std::vector<NotifySubtitle> subtitles);
+                    std::vector<NotifySubtitle> subtitles,
+                    NotifyPlayer::InputFactory input_factory = {});
     void StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
-                          AudioPlaybackSource source, MediaPlaybackMetadata metadata);
+                          AudioPlaybackSource source, MediaPlaybackMetadata metadata,
+                          NotifyPlayer::InputFactory input_factory = {});
     void QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
-                    std::vector<NotifySubtitle> subtitles);
+                    std::vector<NotifySubtitle> subtitles,
+                    NotifyPlayer::InputFactory input_factory = {});
     bool HandleStreamPlaybackCommand(const cJSON* root, std::string* error);
     void TryStartPendingMedia();
     void StopNotification();

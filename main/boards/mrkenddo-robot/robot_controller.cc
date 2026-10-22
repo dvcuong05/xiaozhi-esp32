@@ -1,6 +1,7 @@
 #include "robot_controller.h"
 
 #include "application.h"
+#include "board.h"
 #include "mrkenddo_robot_display.h"
 #include "secondary_display.h"
 
@@ -12,11 +13,12 @@ namespace mrkenddo {
 
 RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                                  SecondaryDisplay& secondary, MrkenDDoRobotDisplay& display,
-                                 std::function<void(int)> apply_tft_rotation)
+                                 std::function<void(int)> apply_tft_rotation, SdStorage& storage)
     : settings_(settings),
       drive_(drive),
       secondary_(secondary),
       display_(display),
+      storage_(storage),
       apply_tft_rotation_(std::move(apply_tft_rotation)) {
     const auto config = settings_.LoadMotor();
     drive_.SetInversion(config.left_inverted, config.right_inverted);
@@ -54,6 +56,18 @@ RobotController::~RobotController() {
 }
 
 FaceConfig RobotController::GetFaceConfig() const { return settings_.LoadFace(); }
+
+int RobotController::GetVolume() const {
+    return Board::GetInstance().GetAudioCodec()->output_volume();
+}
+
+bool RobotController::SetVolume(int volume) {
+    if (volume < 0 || volume > 100)
+        return false;
+    Application::GetInstance().Schedule(
+        [volume]() { Board::GetInstance().GetAudioCodec()->SetOutputVolume(volume); });
+    return true;
+}
 
 bool RobotController::ConfigureFace(const FaceConfig& config) {
     std::lock_guard<std::mutex> lock(config_mutex_);

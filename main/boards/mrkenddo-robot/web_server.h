@@ -8,6 +8,7 @@
 
 namespace mrkenddo {
 class RobotController;
+class SdWebServer;
 }  // namespace mrkenddo
 
 class WebServerLogStream;
@@ -48,11 +49,13 @@ private:
     static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrShowHandler(httpd_req_t* req);
+    static esp_err_t ApiVolumeHandler(httpd_req_t* req);
     static esp_err_t LogWebSocketHandler(httpd_req_t* req);
 
     httpd_handle_t server_;
     mrkenddo::RobotController& controller_;
     std::unique_ptr<WebServerLogStream> log_stream_;
+    std::unique_ptr<mrkenddo::SdWebServer> sd_web_;
 };
 
 #endif  // WEB_SERVER_H

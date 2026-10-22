@@ -7,6 +7,9 @@
             "sdkconfig_append": [
                 "CONFIG_LV_USE_QRCODE=y",
                 "CONFIG_HTTPD_WS_SUPPORT=y",
+                "CONFIG_FATFS_API_ENCODING_UTF_8=y",
+                "CONFIG_FATFS_API_ENCODING_ANSI_OEM=n",
+                "CONFIG_FATFS_FS_LOCK=4",
                 "CONFIG_ESP_CONSOLE_SECONDARY_NONE=y",
                 "CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n",
                 "CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n",

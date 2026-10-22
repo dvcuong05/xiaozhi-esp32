@@ -9,6 +9,7 @@
 #include "robot_drive.h"
 #include "robot_mcp_tools.h"
 #include "robot_settings.h"
+#include "sd_storage.h"
 #include "secondary_display.h"
 #include "web_server.h"
 #include "wifi_board.h"
@@ -36,6 +37,7 @@ private:
     RobotDrive* drive_ = nullptr;
     mrkenddo::RobotSettings settings_;
     mrkenddo::SecondaryDisplay secondary_display_{settings_};
+    mrkenddo::SdStorage sd_storage_;
     std::unique_ptr<mrkenddo::RobotController> controller_;
     WebServer* web_server_ = nullptr;
     bool web_server_started_ = false;
@@ -295,7 +297,7 @@ public:
                                 STEPPER_INT4_GPIO);
         controller_ = std::make_unique<mrkenddo::RobotController>(
             settings_, *drive_, secondary_display_, *display_,
-            [this](int rotation) { SetTftRotation(rotation); });
+            [this](int rotation) { SetTftRotation(rotation); }, sd_storage_);
         RegisterRobotMcpTools(*controller_);
         // Set default volume (0-100)
         GetAudioCodec()->SetOutputVolume(40);
@@ -342,7 +344,7 @@ public:
 
     virtual Display* GetDisplay() override { return display_; }
 
-    virtual void OnApplicationReady() override {}
+    virtual void OnApplicationReady() override { sd_storage_.Start(); }
 
     void OnBootEvent(const BootEvent& event) override { secondary_display_.OnBootEvent(event); }
 

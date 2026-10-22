@@ -28,6 +28,8 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
     </header>
 
     <section class="grid">
+        <article class="card"><div class="card-head"><div><h2>Thẻ nhớ microSD</h2><p>Quản lý file và dung lượng thẻ qua Wi-Fi.</p></div><span class="tag">STORAGE</span></div><a class="button primary" href="/storage" style="display:inline-block;text-decoration:none;padding:10px 16px;border-radius:12px;background:var(--accent);color:#06131e">Mở quản lý thẻ nhớ →</a></article>
+        <article class="card"><div class="card-head"><div><h2>Âm lượng loa</h2><p>Chỉnh trực tiếp trên robot từ 0 đến 100.</p></div><span class="tag">AUDIO</span></div><label for="speakerVolume">Âm lượng: <span id="speakerVolumeValue">40</span>%</label><input id="speakerVolume" class="range" type="range" min="0" max="100" value="40" oninput="$('speakerVolumeValue').textContent=this.value" onchange="saveVolume()"><div class="row" style="margin-top:10px"><button class="ghost" onclick="changeVolume(-10)">−10</button><button class="ghost" onclick="changeVolume(10)">+10</button><button class="ghost" onclick="loadVolume()">Đọc từ robot</button></div><div id="volumeStatus" class="statusline"></div></article>
         <article class="card wide">
             <div class="card-head"><div><h2>🎭 Cảm xúc & màn hình đôi mắt</h2><p>Khi nói chuyện, robot đổi biểu cảm và cử động bánh xe theo cảm xúc. Cấu hình được lưu vào chip.</p></div><span class="tag">TFT · CẢM XÚC</span></div>
             <fieldset id="faceControls" disabled style="border:0;padding:0;margin:0">
@@ -100,6 +102,7 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
       socket.onclose=e=>{clearTimeout(timer);if(logSocket!==socket)return;logSocket=null;$('logToggle').disabled=false;$('logToggle').textContent='Bật xem console';say('logStatus',failure||(e.wasClean?'Đang tắt.':'Mất kết nối nhật ký (mã '+e.code+').'))};
     }
     async function load(){
+      loadVolume();
       loadFace();
         try{const d=await json('/api/config');$('steps').value=d.steps;$('delay').value=d.delay_ms;$('left_inv').checked=!!d.left_inverted;$('right_inv').checked=!!d.right_inverted}catch(e){say('motorStatus',e.message)}
         try{const d=await json('/api/oled_config');$('oled_addr').value=d.addr;$('oled_sda').value=d.sda;$('oled_scl').value=d.scl;$('oled_width').value=d.width;$('oled_height').value=d.height;$('oled_rotation').value=d.rotation;$('oled_text').value=d.text||'';$('oled_speed').value=d.speed||2;$('oled_font').value=d.font_size||0;$('oled_contrast').value=d.contrast??255;$('contrastValue').textContent=$('oled_contrast').value;$('oled_invert').checked=!!d.invert;chooseMode(Number(d.mode||0))}catch(e){say('oledStatus',e.message)}
@@ -125,6 +128,9 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
     function qrInput(checkText=true){const payload=$('qr_payload').value;const caption=$('qr_caption').value;const duration_ms=Number($('qr_duration').value)*1000;if(checkText&&(new TextEncoder().encode(payload).length>256||new TextEncoder().encode(caption).length>96))throw new Error('Nội dung/chú thích vượt giới hạn byte UTF-8');if(!Number.isInteger(duration_ms)||duration_ms<5000||duration_ms>120000)throw new Error('Thời gian phải từ 5 đến 120 giây');return {payload,caption,duration_ms}}
     async function saveQr(){try{const {payload,caption}=qrInput();await json('/api/qr_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload,caption})});say('qrStatus','Đã lưu. Hãy quét kiểm tra đúng người nhận trước khi sử dụng.',true)}catch(e){say('qrStatus',e.message)}}
     async function showQr(type){try{const input=qrInput(type==='custom');if(type==='custom'&&!input.payload)throw new Error('Nhập nội dung QR để xem thử');const body={type,duration_ms:input.duration_ms};if(type==='custom')Object.assign(body,{payload:input.payload,caption:input.caption});await json('/api/qr/show',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});say('qrStatus','Đã xếp lịch hiển thị QR trong '+input.duration_ms/1000+' giây.',true)}catch(e){say('qrStatus',e.message)}}
+    async function loadVolume(){try{const d=await json('/api/volume');$('speakerVolume').value=d.volume;$('speakerVolumeValue').textContent=d.volume;say('volumeStatus','Đã đọc âm lượng hiện tại.',true)}catch(e){say('volumeStatus',e.message)}}
+    async function saveVolume(){try{const volume=Number($('speakerVolume').value);await json('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume})});say('volumeStatus','Đã gửi mức âm lượng '+volume+'%.',true)}catch(e){say('volumeStatus',e.message)}}
+    function changeVolume(delta){$('speakerVolume').value=Math.max(0,Math.min(100,Number($('speakerVolume').value)+delta));$('speakerVolumeValue').textContent=$('speakerVolume').value;saveVolume()}
     load();
     window.addEventListener('beforeunload',()=>{if(logSocket)logSocket.close()});
 </script>

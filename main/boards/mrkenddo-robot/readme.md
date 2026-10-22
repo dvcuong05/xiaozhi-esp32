@@ -1,6 +1,6 @@
 # MrKenDDo Robot
 
-Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiển thị đồng hồ/chữ chạy/trạng thái, micro và loa I2S simplex, ba nút bấm, LED và hai motor DC qua hai cầu H của L298N. Build chỉ chọn một board factory qua `DECLARE_BOARD(MrkenDDoRobot)`.
+Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiển thị đồng hồ/chữ chạy/trạng thái, micro và loa I2S simplex, nút bấm, TTP223, microSD, LED và hai motor DC qua hai cầu H của L298N. Build chỉ chọn một board factory qua `DECLARE_BOARD(MrkenDDoRobot)`.
 
 ## Phần cứng
 
@@ -8,7 +8,8 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 | --- | --- |
 | Micro I2S WS/SCK/DIN | 4 / 5 / 6; INMP441 L/R nối GND, slot trái |
 | Loa I2S DOUT/BCLK/LRCK | 7 / 15 / 16 |
-| LED / BOOT / âm lượng tăng-giảm | 48 / 0 / 38 / 39 |
+| LED / BOOT / tăng âm lượng | 48 / 0 / 38; nút giảm âm lượng GPIO39 đã bỏ theo wiring mới |
+| microSD CS/SCK/MOSI/MISO | 42 / 41 / 40 / 39; SPI2 riêng, 10 MHz, VCC 3,3 V / GND theo đấu nối hiện tại |
 | L298N IN1/IN2 (motor A) | 11 / 12 |
 | L298N IN3/IN4 (motor B) | 13 / 14 |
 | OLED SDA/SCL | 2 / 1; I2C_NUM_1, địa chỉ mặc định 0x3C |
@@ -33,6 +34,18 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET/POST /api/config`: cấu hình `steps`, `delay_ms`, `left_inverted`, `right_inverted`; lưu NVS namespace `motor_config`. Các client cũ không gửi hai cờ đảo chiều sẽ giữ giá trị đã lưu.
 - `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height, `rotation` (0 hoặc 180 độ), `mode` (`0=clock`, `1=marquee`, `2=status`, `3=off`), `text`, `speed`, `font_size`, `contrast` và `invert`; lưu NVS và khởi tạo lại OLED sau khi lưu. `POST /api/oled_message` đổi sang mode chữ chạy và cập nhật nội dung mà không reset I2C; `POST /api/oled_clear` tắt nội dung; `POST /api/oled_test` khởi tạo lại OLED.
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
+- `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10 thay cho nút giảm âm lượng GPIO39.
+- `GET /storage`: trang quản lý microSD; có liên kết từ dashboard chính. Dùng thẻ FAT32 để bring-up. Không có thẻ hoặc lỗi nguồn/dây sẽ báo lỗi trong trang này và log `RobotSD`, không làm firmware dừng boot. Firmware không tự format hay tự lặp mount liên tục.
+- `GET /api/storage?op=status`: trạng thái `mounting/mounted/unmounted/error`, tổng dung lượng, chỗ trống đã đo và upload đang dở. `space_valid=false` sau thao tác ghi/xóa; bấm **Cập nhật dung lượng** để đo lại ở worker.
+- `GET /api/storage?op=list&path=/&offset=0`: tối đa 24 mục/trang, trả `more` và `next_offset`; tên UTF-8, đường dẫn tối đa 192 byte, mỗi thành phần tối đa 120 byte. Đường dẫn bắt đầu từ gốc thẻ, không nhận `..`, file ẩn, tên kết thúc bằng dấu chấm/khoảng trắng hoặc tên dành cho upload tạm.
+- `POST /api/storage?op=mount|unmount|refresh`: xếp yêu cầu vào worker SD; response là đã nhận lệnh, cần đọc `status` để biết hoàn tất. Chỉ tháo thẻ khi trạng thái là `unmounted`; không có chân card-detect nên chưa hỗ trợ tự nhận biết cắm/rút thẻ.
+- `POST /api/storage?op=mkdir|delete|abort_upload&path=<đường dẫn URL-encoded>`: tạo thư mục, xóa file/thư mục cùng toàn bộ nội dung bên trong hoặc hủy file upload tạm. UI yêu cầu xác nhận khi xóa thư mục.
+- `POST /api/storage/upload?path=<đường dẫn URL-encoded>&offset=0&total=<số byte>`: body nhị phân tối đa 1 MiB/khối, file tối đa 1 GiB. Giao diện lấy kích thước khối từ API trạng thái; firmware nhận buffer 1 MiB trong PSRAM và báo lỗi rõ ràng nếu không cấp phát được. Firmware chỉ `fsync` trước khi chốt file hoàn chỉnh. Gửi khối tuần tự với offset chính xác. Ghi file tạm `.robot-upload`, đóng/sync rồi đổi tên sau khối cuối; từ chối file đích đã tồn tại. Không ghi đè âm thầm. Khi upload bị ngắt, dùng **Hủy upload dang dở** hoặc **Tháo thẻ an toàn**; sau mất điện, tải lại cùng đường dẫn từ offset 0 để thay file tạm còn sót.
+- `POST /api/storage?op=delete&path=<đường dẫn URL-encoded>`: xóa file hoặc xóa đệ quy thư mục cùng mọi file/thư mục bên trong. Giao diện hiện hộp xác nhận riêng cho xóa thư mục và nêu rõ thao tác không thể hoàn tác; không cho xóa gốc thẻ. Giới hạn độ sâu thư mục lồng là 16 cấp.
+- `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file `.ogg` chứa Opus trực tiếp từ microSD qua `NotifyPlayer`, `OggDemuxer` và decoder hiện có; không cần Wi-Fi/Internet để tải audio. UI chỉ hiện nút phát cho file `.ogg`; `POST /api/storage?op=stop` dừng playback. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để tránh hỏng luồng đọc; sau khi dừng có thể thao tác lại. TTS và điều khiển hội thoại tiếp tục dùng backend hiện tại.
+- `GET /api/storage/download?path=<đường dẫn URL-encoded>`: tải file tối đa 1 GiB dạng attachment, đọc từng khối 4096 byte. Tác vụ file HTTP chạy bằng async request ở worker riêng, tối đa một tác vụ tại một thời điểm; motor Stop và các API điều khiển vẫn được HTTP task phục vụ. Tài nguyên I/O thẻ được tuần tự hóa với mount/unmount.
+
+MicroSD hiện hỗ trợ nền tảng lưu trữ/quản lý file và phát offline Ogg/Opus từ trang `/storage`. Có thể tạo các thư mục `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`; phát offline hiện chưa có playlist/tự chuyển bài và chưa hỗ trợ WAV/MP3. Sound pack, ghi log lên thẻ, slideshow và OTA từ SD vẫn là backlog riêng. Cấu hình NVS hiện có không được chuyển sang thẻ. Nguồn module giữ 3,3 V theo xác nhận của chủ robot; nếu mount lỗi, kiểm tra nguồn thực tại khe thẻ và loại module trước khi đổi dây.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
 - `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
 - `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
@@ -124,7 +137,7 @@ Board chọn qua `config.json` → `scripts/build.py` → `main/Kconfig.projbuil
 
 ```powershell
 idf-init
-idf.py build
+.\mrkenddo-build-firmware.bat
 ```
 
 Lệnh build kiểm tra bản refactor, giữ wake word Jarvis đang được chọn:
@@ -140,6 +153,13 @@ python scripts/build.py mrkenddo-robot --name mrkenddo-robot --language vi-VN --
 Để chọn/build variant từ đầu, sau `idf-init` chạy `python scripts/build.py --list-boards` và `python scripts/build.py mrkenddo-robot --name mrkenddo-robot --language vi-VN`. Script variant có thể thay đổi `sdkconfig` và trạng thái build cục bộ. Có thể dùng `mrkenddo-build-firmware.bat` và `mrkenddo-flash-firmware.bat` sau khi kiểm tra đường dẫn ESP-IDF và cổng COM. Output firmware ở `build/`.
 
 Kiểm tra host/style: `python -m unittest discover -s scripts/tests -v`, `git diff --check` và `clang-format --dry-run -Werror` với các file C/C++ đã sửa. Không sửa thủ công `build/`, `managed_components/`, `components/`, `sdkconfig*` hay file generated/vendor.
+
+Đợt microSD đã kiểm tra build ESP-IDF 6.1 bằng batch, định dạng C/C++ và diff;
+48 host checks về board/build/language/CI selection đã đạt. Kiểm tra JavaScript
+bằng DOM/API giả lập đã qua tên UTF-8, upload nhiều khối đúng offset và dọn file
+tạm khi upload lỗi. Đây không phải kiểm thử thẻ thật. Bộ host test đầy đủ chưa
+đạt trên Windows: còn ca bị khóa thư mục tạm, lỗi chạy Bash và thiếu compiler
+C++ host; không coi các ca đó là pass.
 
 Test nhận diện nhạc/lyrics nằm tại `tests/music_session_test.cc`, chạy trên
 host bằng C++23 cùng `robot_music_session.cc` (không được compile vào firmware).
@@ -194,6 +214,8 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `robot_music_session.*` | Nhận diện marker tool nhạc tenclass trong `sentence_start`, giữ tên bài/lời hiện tại/dòng trước với giới hạn UTF-8; không thay giao thức hay đoán nhạc từ nội dung người dùng. |
 | `robot_qr_code.*` | Mã hóa text/URL thành QR động bằng Nayuki có sẵn trong LVGL, kiểm tra UTF-8, giữ ma trận module 1-bit; không tải ảnh hoặc tạo thông tin ngân hàng. |
 | `robot_drive.*` | Điều khiển motor, timeout và routine; nhận cấu hình từ controller thay vì tự đọc NVS. |
+| `sd_storage.*` | Sở hữu SPI2/thẻ/FatFs, worker mount và đo dung lượng; kiểm tra đường dẫn, tuần tự hóa file I/O, upload tạm và tháo thẻ. |
+| `sd_web_server.*`, `sd_web_ui.h` | Trang `/storage`, API file và worker async HTTP có giới hạn; không đưa truyền file vào task audio/LVGL hoặc HTTP điều khiển. |
 
 Luồng đổi chế độ OLED từ web và từ giọng nói đều là
 `HTTP/MCP → RobotController → RobotSettings → Application::Schedule → SecondaryDisplay`.

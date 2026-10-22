@@ -29,7 +29,14 @@
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_38
-#define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_39
+// GPIO39 now belongs to microSD MISO (confirmed product wiring).
+#define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_NC
+
+// Dedicated SPI2 bus; the TFT stays on SPI3.
+#define SD_CS_PIN   GPIO_NUM_42
+#define SD_SCK_PIN  GPIO_NUM_41
+#define SD_MOSI_PIN GPIO_NUM_40
+#define SD_MISO_PIN GPIO_NUM_39
 
 // TTP223 direct-mode output: HIGH while touched, LOW after release.
 // GPIO20 is shared with native USB D+; this board uses UART for firmware logs.

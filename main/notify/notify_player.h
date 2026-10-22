@@ -5,7 +5,9 @@
 #include <freertos/task.h>
 
 #include <cstdint>
+#include <cstddef>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -25,17 +27,29 @@ struct StreamPlaybackOptions {
     AudioPlaybackSource source = AudioPlaybackSource::Notification;
 };
 
+// Optional byte source for local media. The notification player remains
+// responsible for Ogg demuxing and decoder queueing; board-owned storage only
+// supplies a bounded reader.
+class NotifyAudioInput {
+public:
+    virtual ~NotifyAudioInput() = default;
+    virtual bool Open() = 0;
+    virtual bool Read(char* buffer, size_t capacity, size_t& bytes_read) = 0;
+    virtual void Close() = 0;
+};
+
 class NotifyPlayer {
 public:
     using SubtitleCallback = std::function<void(uint32_t playback_id, const std::string& text)>;
     using FinishedCallback = std::function<void(uint32_t playback_id, bool success)>;
+    using InputFactory = std::function<std::unique_ptr<NotifyAudioInput>()>;
 
     explicit NotifyPlayer(AudioService& audio_service);
     ~NotifyPlayer();
 
     bool Start(std::string audio_url, std::vector<NotifySubtitle> subtitles, uint32_t playback_id,
                SubtitleCallback subtitle_callback, FinishedCallback finished_callback,
-               StreamPlaybackOptions options = {});
+               StreamPlaybackOptions options = {}, InputFactory input_factory = {});
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
@@ -51,6 +65,7 @@ private:
     SubtitleCallback subtitle_callback_;
     FinishedCallback finished_callback_;
     StreamPlaybackOptions options_;
+    InputFactory input_factory_;
     TaskHandle_t task_handle_ = nullptr;
     uint32_t playback_id_ = 0;
     uint32_t last_playback_position_ms_ = 0;

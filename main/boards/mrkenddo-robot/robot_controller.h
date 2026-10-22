@@ -13,18 +13,23 @@ class MrkenDDoRobotDisplay;
 
 namespace mrkenddo {
 class SecondaryDisplay;
+class SdStorage;
 
 // Product commands shared by HTTP and MCP. Owns policy and delegates hardware,
 // storage and UI to their owners. Application remains the system state owner.
 class RobotController {
 public:
     RobotController(RobotSettings& settings, RobotDrive& drive, SecondaryDisplay& secondary,
-                    MrkenDDoRobotDisplay& display, std::function<void(int)> apply_tft_rotation);
+                    MrkenDDoRobotDisplay& display, std::function<void(int)> apply_tft_rotation,
+                    SdStorage& storage);
     ~RobotController();
     FaceConfig GetFaceConfig() const;
     bool ConfigureFace(const FaceConfig& config);
     bool PreviewEmotion(int preset);
     bool PreviewFace(int emotion);
+    SdStorage& Storage() { return storage_; }
+    int GetVolume() const;
+    bool SetVolume(int volume);
 
     MotorConfig GetMotorConfig() const;
     bool ConfigureMotor(const MotorConfig& config);
@@ -63,6 +68,7 @@ private:
     RobotDrive& drive_;
     SecondaryDisplay& secondary_;
     MrkenDDoRobotDisplay& display_;
+    SdStorage& storage_;
     std::function<void(int)> apply_tft_rotation_;
     WebChatBridge web_chat_;
     std::mutex config_mutex_;

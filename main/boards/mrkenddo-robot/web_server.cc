@@ -2,6 +2,7 @@
 #include "robot_controller.h"
 #include "robot_drive.h"
 #include "robot_settings.h"
+#include "sd_web_server.h"
 #include "web_ui.h"
 
 #include <algorithm>
@@ -440,7 +441,8 @@ WebServer* GetServer(httpd_req_t* req) { return static_cast<WebServer*>(req->use
 WebServer::WebServer(mrkenddo::RobotController& controller)
     : server_(nullptr),
       controller_(controller),
-      log_stream_(std::make_unique<WebServerLogStream>()) {}
+      log_stream_(std::make_unique<WebServerLogStream>()),
+      sd_web_(std::make_unique<mrkenddo::SdWebServer>(controller.Storage())) {}
 
 WebServer::~WebServer() { Stop(); }
 
@@ -485,12 +487,15 @@ bool WebServer::Start(int port) {
         {"/api/qr_config", HTTP_GET, ApiQrConfigHandler, this},
         {"/api/qr_config", HTTP_POST, ApiQrConfigHandler, this},
         {"/api/qr/show", HTTP_POST, ApiQrShowHandler, this},
+        {"/api/volume", HTTP_GET, ApiVolumeHandler, this},
+        {"/api/volume", HTTP_POST, ApiVolumeHandler, this},
     };
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = sizeof(uris) / sizeof(uris[0]);
+    config.max_uri_handlers = sizeof(uris) / sizeof(uris[0]) + mrkenddo::SdWebServer::kHandlerCount;
+    config.max_uri_len = 1024;
 
     esp_err_t ret = httpd_start(&server_, &config);
     if (ret != ESP_OK) {
@@ -508,6 +513,11 @@ bool WebServer::Start(int port) {
         }
     }
 
+    if (sd_web_->Register(server_) != ESP_OK) {
+        ESP_LOGE(TAG, "Khong the dang ky web microSD");
+        Stop();
+        return false;
+    }
     ESP_LOGW(TAG, "HTTP server cong %d khong co xac thuc; chi nen dung trong mang tin cay", port);
     ESP_LOGI(TAG, "HTTP server da khoi dong tren cong %d", port);
     return true;
@@ -515,6 +525,7 @@ bool WebServer::Start(int port) {
 
 void WebServer::Stop() {
     if (server_) {
+        sd_web_->StopTransfers();
         log_stream_->Disable(-1);
         httpd_stop(server_);
         log_stream_->SetServer(nullptr);
@@ -526,6 +537,26 @@ void WebServer::Stop() {
 esp_err_t WebServer::RootHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::ApiVolumeHandler(httpd_req_t* req) {
+    auto& controller = GetServer(req)->controller_;
+    int volume = controller.GetVolume();
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (!root)
+            return ESP_FAIL;
+        bool valid = GetInteger(root, "volume", 0, 100, &volume);
+        cJSON_Delete(root);
+        if (!valid || !controller.SetVolume(volume)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Volume must be 0..100");
+            return ESP_FAIL;
+        }
+    }
+    cJSON* response = cJSON_CreateObject();
+    if (response)
+        cJSON_AddNumberToObject(response, "volume", volume);
+    return SendJson(req, response);
 }
 
 esp_err_t WebServer::LogWebSocketHandler(httpd_req_t* req) {

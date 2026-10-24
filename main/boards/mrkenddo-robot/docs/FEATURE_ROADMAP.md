@@ -13,7 +13,11 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
 ## Planned features
-- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot, giữ nguồn module 3,3 V để thử. Mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
+- [x] Nâng cấu hình N16R8 lên flash 16 MiB: CSV riêng của board, NVS 64 KiB,
+      hai OTA slot 3,9375 MiB và assets 8 MiB; hướng dẫn chuyển lần đầu qua
+      USB/serial, backup flash và dọn phần mở rộng NVS. Cần xác nhận giữ cấu hình,
+      boot/assets và OTA/rollback trên robot thật.
+- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module đã nhận thẻ khi VCC được chuyển sang 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
 - [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
 - [x] MicroSD đợt 3: expose `sd_status`, `sd_search`, `sd_play`, `sd_stop` qua MCP service/device WSS; tìm MP3 theo ID3v2 title/artist/album/genre và fallback folder/file, phát bằng player local dùng chung. Quét/kết quả có giới hạn, không tạo catalog trên thẻ.
 - [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
@@ -31,6 +35,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
 - [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
+- [ ] Kết nối API và hiện camera giao thông HCM
 - [ ] Stream live television and support config from webserver
 - [ ] Feature ask chatbox to set and weak the alarm
 - [ ] Tạm hoãn theo yêu cầu: chuyển bài và pause bằng TTP223; dừng nhạc/radio bằng double-tap đã triển khai ở trên.
@@ -100,9 +105,13 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       lượng/ghi luân phiên. Không lưu hội thoại hoặc ghi âm mặc định; nếu thêm
       ghi âm hay bộ nhớ hội thoại thì cần bật chủ động, kiểm soát thời hạn và
       cung cấp cách xóa dữ liệu.
-- [ ] **P2 - Xem ảnh từ microSD trên TFT:** duyệt/chọn ảnh, giới hạn độ phân
-      giải và bộ nhớ giải mã, có đường quay về UI robot; làm sau khi chốt format
-      ảnh và đánh giá ảnh hưởng đến heap/PSRAM.
+- [x] **P2 - Xem ảnh từ microSD trên TFT:** `/robot/images/` làm root cố định,
+      thư mục con là album. Index lazy trên PSRAM tối đa 256 ảnh, làm mới sau thay
+      đổi file/mount; MCP hỗ trợ tìm ảnh, hiện JPEG, trình chiếu ngẫu nhiên có
+      giới hạn và dừng. Uploader web tối ưu ảnh ngay trên trình duyệt (đầu vào tối
+      đa 5 MiB, cạnh dài 480 px, JPEG đầu ra tối đa 512 KiB); firmware vẫn giữ
+      giới hạn giải mã 512 KiB/512 × 512 và giải mã ngoài task giao diện. Cần xác
+      nhận upload/hiển thị trên TFT thật.
 - [ ] **P3 - Cầu nối loa Bluetooth:** chỉ làm prototype nếu thực sự cần loa BT;
       dùng một ESP32 có Bluetooth Classic/A2DP làm co-processor nhận PCM từ S3
       (đánh giá I2S trước), đo độ trễ và xử lý audio focus/reconnect. ESP32-S3
@@ -112,10 +121,6 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       chỉ chiếu cố định xuống mặt sàn/bề mặt an toàn, không quét tự động vào
       người, thú cưng hay bề mặt phản quang. Dùng LED chiếu điểm thay laser cho
       trò chơi với thú cưng.
-- [ ] **P3 - Cập nhật firmware từ microSD:** chỉ nghiên cứu sau các chức năng
-      lưu trữ cơ bản; cần xác thực ảnh firmware, kiểm tra toàn vẹn, OTA partition
-      và rollback an toàn, không ghi đè firmware đang chạy trực tiếp.
-
 ## Completed implementation
 
 - [x] Refactor kiến trúc firmware: board khởi tạo phần cứng, HTTP/MCP cùng
@@ -156,8 +161,9 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       dùng font trong overlay boot-time để tránh phụ thuộc font assets.
 - [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
       decoder/renderer; thời lượng MCP hỗ trợ 5–120 giây, mặc định 30 giây.
-- [x] Build firmware bằng ESP-IDF 6.1 đã thành công cho ESP32-S3; binary
-      sau bổ sung microSD hiện còn khoảng 5% dung lượng app partition.
+- [x] Build firmware bằng ESP-IDF 6.1 cho ESP32-S3; cấu hình flash 16 MiB
+      cấp 3,9375 MiB cho mỗi OTA slot thay cho giới hạn 2,9375 MiB cũ.
+      Dung lượng trống thực tế phụ thuộc binary của từng lần build.
 
 ## Current implementation status
 
@@ -185,7 +191,7 @@ Không còn mục implementation nào đang chờ trong kế hoạch đã chốt
       URL proxy thuộc MCP server, không firmware.
 
 ## Hardware validation backlog
-- [ ] MicroSD: thử FAT32 với nguồn 3,3 V đang đấu; đọc log `RobotSD`, kiểm tra thiếu thẻ/lỗi mount vẫn có Wi-Fi/web/audio, mount lại và tháo an toàn. Sơ đồ PNG/SVG sẽ do chủ robot cập nhật.
+- [ ] MicroSD: xác nhận qua nhiều lần reboot với nguồn module 5 V, đọc log `RobotSD`, kiểm tra thiếu thẻ/lỗi mount vẫn có Wi-Fi/web/audio, mount lại và tháo an toàn. Sơ đồ PNG/SVG sẽ do chủ robot cập nhật.
 - [ ] Upload/download file có tên tiếng Việt, so SHA-256 trước/sau, file rỗng và nhiều khối; từ chối trùng tên, sai offset, vượt giới hạn và traversal. Thử ngắt upload, đầy thẻ, tháo thẻ lúc I/O; xác nhận web Stop và hội thoại vẫn phản hồi khi truyền file.
 
 - [ ] Sau refactor, xác nhận cấu hình NVS cũ vẫn được giữ; đổi mode OLED từ

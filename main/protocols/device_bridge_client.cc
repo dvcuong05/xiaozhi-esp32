@@ -3,12 +3,14 @@
 #include <atomic>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <utility>
 
-#include <cJSON.h>
 #include <esp_log.h>
+#include <cJSON.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <freertos/task.h>
 #include <web_socket.h>
 
@@ -19,12 +21,54 @@
 namespace {
 
 constexpr size_t kBridgeReceiveBufferSize = 12288;
+constexpr size_t kBridgeQueueDepth = 2;
 constexpr TickType_t kReconnectDelay = pdMS_TO_TICKS(5000);
 constexpr TickType_t kPingInterval = pdMS_TO_TICKS(20000);
 constexpr TickType_t kPongTimeout = pdMS_TO_TICKS(50000);
 // TLS handshakes use a deep esp-tls/mbedTLS call chain; 4 KB overflows before
 // the WebSocket bridge can finish connecting.
 constexpr uint32_t kTaskStackSize = 12288;
+
+struct BridgeFrame {
+    char* data;
+    size_t length;
+};
+
+// Each connection owns its inbox. The socket callback can outlive Run's local
+// reference, so keep it alive until the transport releases its callbacks.
+struct BridgeInbox {
+    QueueHandle_t queue = xQueueCreate(kBridgeQueueDepth, sizeof(BridgeFrame));
+    std::atomic_bool failed{false};
+
+    ~BridgeInbox() {
+        if (queue != nullptr) {
+            BridgeFrame frame;
+            while (xQueueReceive(queue, &frame, 0) == pdTRUE) {
+                delete[] frame.data;
+            }
+            vQueueDelete(queue);
+        }
+    }
+
+    void Push(const char* data, size_t length) {
+        if (failed.load()) {
+            return;
+        }
+        std::unique_ptr<char[]> copy(new (std::nothrow) char[length]);
+        if (copy != nullptr) {
+            std::memcpy(copy.get(), data, length);
+            BridgeFrame frame{copy.get(), length};
+            if (xQueueSend(queue, &frame, 0) == pdTRUE) {
+                copy.release();
+                return;
+            }
+        }
+        // Reconnect rather than retain an unbounded backlog or run a command
+        // on the TLS receive stack when the worker cannot accept it.
+        failed.store(true);
+        ESP_LOGW(TAG, "WSS receive queue full or allocation failed; reconnecting");
+    }
+};
 
 #if defined(CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE) && CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE
 constexpr bool kDeviceBridgeEnabled = true;
@@ -84,23 +128,29 @@ void DeviceBridgeClient::Run() {
             continue;
         }
 
+        auto inbox = std::make_shared<BridgeInbox>();
+        if (inbox->queue == nullptr) {
+            ESP_LOGE(TAG, "Failed to allocate WSS command queue");
+            vTaskDelay(kReconnectDelay);
+            continue;
+        }
+
         socket->SetReceiveBufferSize(kBridgeReceiveBufferSize);
         socket->SetHeader("Authorization", authorization.c_str());
         socket->SetHeader("X-Device-Id", kBridgeDeviceId);
         auto disconnected = std::make_shared<std::atomic_bool>(false);
         auto last_pong = std::make_shared<std::atomic<TickType_t>>(xTaskGetTickCount());
-        socket->OnData([this, raw_socket = socket.get()](const char* data, size_t length,
-                                                        bool binary) {
-            HandleMessage(raw_socket, data, length, binary);
+        socket->OnData([inbox](const char* data, size_t length, bool binary) {
+            if (!binary && data != nullptr && length != 0 && length <= kBridgeReceiveBufferSize) {
+                inbox->Push(data, length);
+            }
         });
         socket->OnDisconnected([disconnected]() { disconnected->store(true); });
         socket->OnError([disconnected](const NetworkError& error) {
             ESP_LOGW(TAG, "WSS transport error: %s", error.ToString().c_str());
             disconnected->store(true);
         });
-        socket->OnPong([last_pong](const char*, size_t) {
-            last_pong->store(xTaskGetTickCount());
-        });
+        socket->OnPong([last_pong](const char*, size_t) { last_pong->store(xTaskGetTickCount()); });
 
         ESP_LOGI(TAG, "Connecting to the MCP WSS bridge");
         auto connected = socket->Connect(kBridgeUri);
@@ -109,7 +159,7 @@ void DeviceBridgeClient::Run() {
         } else {
             ESP_LOGI(TAG, "MCP WSS bridge connected");
             TickType_t last_ping = xTaskGetTickCount();
-            while (socket->IsConnected() && !disconnected->load()) {
+            while (socket->IsConnected() && !disconnected->load() && !inbox->failed.load()) {
                 const TickType_t now = xTaskGetTickCount();
                 if (now - last_ping >= kPingInterval) {
                     socket->Ping();
@@ -119,12 +169,21 @@ void DeviceBridgeClient::Run() {
                     ESP_LOGW(TAG, "WSS bridge heartbeat timed out");
                     break;
                 }
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                BridgeFrame frame;
+                if (xQueueReceive(inbox->queue, &frame, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                    std::unique_ptr<char[]> message(frame.data);
+                    if (socket->IsConnected() && !disconnected->load() && !inbox->failed.load()) {
+                        // JSON parsing, board I/O and ACKs run on this task's
+                        // 12 KiB stack, never on the 4 KiB ssl_receive task.
+                        HandleMessage(socket.get(), message.get(), frame.length, false);
+                    }
+                }
             }
         }
 
         socket->Close();
         socket.reset();
+        inbox.reset();
         ESP_LOGI(TAG, "WSS bridge disconnected; retrying in 5 seconds");
         vTaskDelay(kReconnectDelay);
     }
@@ -156,8 +215,8 @@ void DeviceBridgeClient::HandleMessage(void* socket_context, const char* data, s
     char* command_json = cJSON_PrintUnformatted(payload);
     std::string result_json;
     std::string error;
-    const bool accepted = command_json != nullptr &&
-                          command_handler_(command_json, &result_json, &error);
+    const bool accepted =
+        command_json != nullptr && command_handler_(command_json, &result_json, &error);
     cJSON_free(command_json);
 
     cJSON* response = cJSON_CreateObject();
@@ -166,12 +225,14 @@ void DeviceBridgeClient::HandleMessage(void* socket_context, const char* data, s
     cJSON_AddBoolToObject(response, "ok", accepted);
     if (accepted) {
         cJSON* result = cJSON_ParseWithLength(result_json.c_str(), result_json.size());
-        cJSON_AddItemToObject(response, "result", cJSON_IsObject(result) ? result : cJSON_CreateObject());
+        cJSON_AddItemToObject(response, "result",
+                              cJSON_IsObject(result) ? result : cJSON_CreateObject());
         if (result != nullptr && !cJSON_IsObject(result)) {
             cJSON_Delete(result);
         }
     } else {
-        cJSON_AddStringToObject(response, "error", error.empty() ? "invalid command" : error.c_str());
+        cJSON_AddStringToObject(response, "error",
+                                error.empty() ? "invalid command" : error.c_str());
     }
     const std::string encoded = PrintJson(response);
     cJSON_Delete(response);

@@ -9,7 +9,7 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 | Micro I2S WS/SCK/DIN | 4 / 5 / 6; INMP441 L/R nối GND, slot trái |
 | Loa I2S DOUT/BCLK/LRCK | 7 / 15 / 16 |
 | LED / BOOT / tăng âm lượng | 48 / 0 / 38; nút giảm âm lượng GPIO39 đã bỏ theo wiring mới |
-| microSD CS/SCK/MOSI/MISO | 42 / 41 / 40 / 39; SPI2 riêng, 10 MHz, VCC 3,3 V / GND theo đấu nối hiện tại |
+| microSD CS/SCK/MOSI/MISO | 42 / 41 / 40 / 39; SPI2 riêng, 10 MHz; VCC module 5 V / GND chung theo thử nghiệm phần cứng đã nhận thẻ |
 | L298N IN1/IN2 (motor A) | 11 / 12 |
 | L298N IN3/IN4 (motor B) | 13 / 14 |
 | OLED SDA/SCL | 2 / 1; I2C_NUM_1, địa chỉ mặc định 0x3C |
@@ -36,6 +36,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
 - `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10 thay cho nút giảm âm lượng GPIO39.
 - `GET /storage`: trang quản lý microSD; có liên kết từ dashboard chính. Dùng thẻ FAT32 để bring-up. Không có thẻ hoặc lỗi nguồn/dây sẽ báo lỗi trong trang này và log `RobotSD`, không làm firmware dừng boot. Firmware không tự format hay tự lặp mount liên tục.
+- Ảnh dùng root cố định `/robot/images/`; tạo album bằng thư mục con, ví dụ `/robot/images/Gia-dinh/` hoặc `/robot/images/Du-lich/`. Khi tải ảnh qua trang `/storage`, trình duyệt nhận ảnh đầu vào tối đa 5 MiB, áp dụng chiều EXIF, thu vừa cạnh dài 480 px và nén thành JPEG tối đa 512 KiB trước khi upload; ảnh trong suốt được ghép nền trắng. Tên file đầu ra đổi sang `.jpg`; file trùng tên sẽ bị từ chối. Chuyển đổi chạy trên máy mở trình duyệt, không dùng RAM robot. Chép file trực tiếp vào thẻ sẽ bỏ qua bước này. Trong `/storage`, file `.jpg`/`.jpeg` có nút `Xem TFT`. Qua chat, MCP `sd_photo_search` tìm theo tên file/album, `sd_photo_show` hiện ảnh cụ thể tối đa 120 giây, `sd_album_random` chiếu ngẫu nhiên tối đa 50 ảnh và `sd_album_stop` dừng/đóng ảnh. Index đường dẫn gọn được dựng lười khi tìm lần đầu, cấp phát khoảng 52 KiB trên PSRAM cho 256 ảnh và tự làm mới sau upload/xóa/tạo thư mục hoặc mount lại; không cache bitmap, không ghi catalog lên thẻ. Nếu vượt giới hạn, kết quả báo `truncated`. JPEG lưu trên thẻ giới hạn 512 KiB và 512 × 512 pixel. Màn hình ảnh được ưu tiên sau boot và audio visualizer, còn QR vẫn ở trên cùng.
 - `GET /api/storage?op=status`: trạng thái `mounting/mounted/unmounted/error`, tổng dung lượng, chỗ trống đã đo và upload đang dở. `space_valid=false` sau thao tác ghi/xóa; bấm **Cập nhật dung lượng** để đo lại ở worker.
 - `GET /api/storage?op=list&path=/&offset=0`: tối đa 24 mục/trang, trả `more` và `next_offset`; tên UTF-8, đường dẫn tối đa 192 byte, mỗi thành phần tối đa 120 byte. Đường dẫn bắt đầu từ gốc thẻ, không nhận `..`, file ẩn, tên kết thúc bằng dấu chấm/khoảng trắng hoặc tên dành cho upload tạm.
 - `POST /api/storage?op=mount|unmount|refresh`: xếp yêu cầu vào worker SD; response là đã nhận lệnh, cần đọc `status` để biết hoàn tất. Chỉ tháo thẻ khi trạng thái là `unmounted`; không có chân card-detect nên chưa hỗ trợ tự nhận biết cắm/rút thẻ.
@@ -45,7 +46,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file MP3 (`.mp3`) và Ogg/Opus (`.ogg`, `.opus`) trực tiếp từ microSD. `/storage` hiện nút Phát cho ba đuôi này; `POST /api/storage?op=stop` dừng playback. `SdAudioInput` chỉ đọc file có giới hạn, còn `NotifyPlayer` và `AudioStreamDecoder` dùng chung cho SD/HTTP. Decoder được chọn một lần từ nội dung đầu stream, nên đổi tên file không chuyển đổi định dạng. MP3 dùng parser/decoder streaming của Espressif, trộn stereo về mono và resample theo output của board; PCM đi qua cùng hàng đợi loa, visualizer và tiến độ subtitle. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để bảo vệ luồng đọc; sau khi dừng có thể thao tác lại. Không cần mạng để tải audio từ thẻ.
 - `GET /api/storage/download?path=<đường dẫn URL-encoded>`: tải file tối đa 1 GiB dạng attachment, đọc từng khối 4096 byte. Tác vụ file HTTP chạy bằng async request ở worker riêng, tối đa một tác vụ tại một thời điểm; motor Stop và các API điều khiển vẫn được HTTP task phục vụ. Tài nguyên I/O thẻ được tuần tự hóa với mount/unmount.
 
-MicroSD hỗ trợ quản lý file và phát offline MP3/Ogg Opus từ `/storage`; chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho MrKenDDo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack, log lên thẻ, slideshow và OTA từ SD là backlog riêng; NVS không chuyển sang thẻ. Nguồn module giữ 3,3 V theo xác nhận của chủ robot; nếu mount lỗi, kiểm tra nguồn thực tại khe thẻ và loại module trước khi đổi dây.
+MicroSD hỗ trợ quản lý file, phát offline MP3/Ogg Opus và xem JPEG trên TFT. Chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho MrKenDDo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack và nhật ký offline vẫn là backlog riêng; NVS không chuyển sang thẻ. Module hiện hoạt động với VCC 5 V theo thử nghiệm của chủ robot; chỉ cấp nguồn theo thông số của đúng module đang dùng.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
 - `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
 - `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
@@ -154,6 +155,74 @@ python scripts/build.py mrkenddo-robot --name mrkenddo-robot --language vi-VN --
 
 Kiểm tra host/style: `python -m unittest discover -s scripts/tests -v`, `git diff --check` và `clang-format --dry-run -Werror` với các file C/C++ đã sửa. Không sửa thủ công `build/`, `managed_components/`, `components/`, `sdkconfig*` hay file generated/vendor.
 
+Module N16R8 dùng flash 16 MiB và PSRAM 8 MiB. Variant kế thừa flash 16 MiB
+từ `sdkconfig.defaults`, chọn CSV riêng
+`main/boards/mrkenddo-robot/partitions/16m.csv`; giữ nguyên board identity.
+Không sửa bảng phân vùng chung của board khác.
+
+| Phân vùng | Offset | Dung lượng | Vai trò |
+| --- | --- | --- | --- |
+| `nvs` | `0x9000` | 64 KiB | Wi-Fi và cấu hình bền vững, gấp 4 lần bản cũ |
+| `otadata` | `0x19000` | 8 KiB | Metadata chọn OTA slot |
+| `phy_init` | `0x1b000` | 4 KiB | Vùng PHY |
+| `ota_0` | `0x20000` | 4.128.768 byte (3,9375 MiB) | Firmware slot 0 |
+| `ota_1` | `0x410000` | 4.128.768 byte (3,9375 MiB) | Firmware slot 1 |
+| `assets` | `0x800000` | 8 MiB | Assets/font/model dùng bởi firmware |
+
+Mỗi OTA slot tăng 1 MiB so với bảng 8 MiB cũ. Tên/subtype `assets` giữ theo
+pipeline assets hiện có, không phải filesystem SD để người dùng chép file vào.
+Nâng flash không tăng RAM nội hoặc PSRAM; thẻ SD tiếp tục chứa nhạc, ảnh và
+tài nguyên tùy chọn. Bộ nhớ runtime cần đo riêng trước khi thay buffer/allocator.
+
+Kiểm tra ngày 22/10/2026: ESP-IDF 6.1 build thành công bằng batch, firmware
+2.998.720 byte; mỗi OTA slot còn 1.130.048 byte (khoảng 27%, so với khoảng 3%
+trong slot cũ). Assets sinh ra 561.019 byte, vừa partition 8 MiB. CSV đã qua
+kiểm tra ESP-IDF và 24 host checks về build/board selection đạt; chưa flash
+hoặc xác nhận NVS/OTA trên phần cứng trong lần kiểm tra này.
+
+**Lần đầu chuyển từ bản 8 MiB sang 16 MiB:** nạp qua USB/serial cả bootloader,
+partition table, OTA metadata, firmware và assets; OTA ứng dụng không chuyển
+được bảng phân vùng này. NVS vẫn bắt đầu tại `0x9000`, nhưng phần mở rộng
+`0xd000..0x18fff` chứa metadata/PHY cũ nên phải dọn một lần trước khi flash.
+Chỉ áp dụng quy trình dưới đây khi robot đang dùng bảng cũ
+`partitions/v2/8m.csv` với NVS 16 KiB, `otadata=0xd000`, `assets=0x600000`.
+Không lặp lại bước erase khi robot đã chạy bảng mới vì vùng đó đã thuộc NVS.
+Thực hiện liên tiếp bước erase và flash, không khởi động firmware cũ ở giữa.
+
+Sau khi build thành công, đóng serial monitor; thay `COM6` nếu cổng thực tế khác.
+Sao lưu toàn bộ 8 MiB flash cũ ra thư mục cá nhân, kiểm tra lệnh thành công và
+file đúng 8.388.608 byte trước bước erase. Backup có thể chứa mật khẩu/token;
+không commit, upload hoặc chia sẻ file này.
+
+```powershell
+idf-init
+$backupDir = Join-Path $env:LOCALAPPDATA 'MrKenDDo\backups'
+New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+$backupPath = Join-Path $backupDir ('flash-8m-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bin')
+python -m esptool --chip esp32s3 --port COM6 --after no-reset read-flash 0 0x800000 $backupPath
+if ($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $backupPath).Length -ne 0x800000) { throw 'Backup flash khong hoan tat; dung nang cap.' }
+# Chỉ chạy một lần trên bảng 8 MiB cũ đã xác nhận ở trên:
+python -m esptool --chip esp32s3 --port COM6 --after no-reset erase-region 0xd000 0xc000
+if ($LASTEXITCODE -ne 0) { throw 'Khong don duoc vung mo rong NVS; dung nang cap.' }
+idf.py -p COM6 flash monitor
+```
+
+Lệnh erase chỉ xóa phần mở rộng, giữ nguyên 16 KiB NVS gốc tại
+`0x9000..0xcfff`; flash sẽ ghi OTA metadata mới tại `0x19000`, firmware tại
+`0x20000` và assets tại `0x800000`. Không dùng `erase-flash` nếu muốn giữ cấu hình.
+Sau khi chuyển thành công, các lần nạp tiếp dùng `mrkenddo-flash-firmware.bat`
+như bình thường. Muốn giữ NVS, dùng `idf.py flash` nạp từng image theo manifest;
+merged image có padding phủ vùng NVS nên có thể xóa cấu hình dù dùng bảng mới.
+Không flash lại bảng cũ 8 MiB lên robot đã chuyển.
+OTA về sau cũng phải dùng ứng dụng build với cấu hình 16 MiB mới.
+Backup là điểm khôi phục khi cần trở lại bản cũ; không restore nó vào bảng mới
+như một bản cập nhật ứng dụng.
+
+Kiểm tra sau flash: log nhận flash 16 MiB/PSRAM 8 MiB, bảng phân vùng đúng,
+Wi-Fi/cấu hình OLED/TFT/âm lượng còn giữ, assets load thành công, MCP kết nối,
+SD mount và phát MP3. Kiểm chứng OTA/rollback riêng trên robot; build thành công
+chưa xác nhận các bước phần cứng này.
+
 Đợt microSD đã kiểm tra build ESP-IDF 6.1 bằng batch, định dạng C/C++ và diff;
 48 host checks về board/build/language/CI selection đã đạt. Kiểm tra JavaScript
 bằng DOM/API giả lập đã qua tên UTF-8, upload nhiều khối đúng offset và dọn file
@@ -225,6 +294,19 @@ trả tối đa 10 kết quả và đọc ID3v2.3/2.4 title/artist/album/genre t
 thiếu, tên file và cấu trúc thư mục vẫn được dùng để tìm. Có thể phân loại bằng
 tag genre hoặc tên thư mục (ví dụ `Remix/`, `Tru tinh/`). Không tạo catalog/cache
 chiếm dung lượng trên thẻ và không gửi file nhạc qua MCP/WSS.
+
+Callback WSS chỉ sao chép frame vào hàng đợi giới hạn hai frame (tối đa 12 KiB
+mỗi frame). Task `device_bridge` có stack 12 KiB xử lý JSON, lệnh SD và ACK;
+không quét thư mục/đọc ID3 trên stack 4 KiB của `ssl_receive`. Hàng đợi riêng
+cho từng kết nối, tự giải phóng khi reconnect; nếu đầy hoặc thiếu bộ nhớ thì
+đóng/kết nối lại thay vì chạy lệnh ngay trong callback nhận mạng. Tìm nhạc
+duyệt bằng vòng lặp với trạng thái trên heap, tối đa tám cấp thư mục dưới gốc,
+không tăng stack theo độ sâu thư mục. Đây là bản sửa lỗi tràn stack khi gọi
+`sd_search`; cần thử lại lệnh tìm/phát liên tiếp trên thẻ thật sau khi flash.
+Build ESP-IDF 6.1 và kiểm tra định dạng của bản sửa đạt. Host suite đầy đủ chưa
+đạt do khóa thư mục tạm/encoding Windows, thiếu compiler host và token trong
+môi trường test; kiểm tra riêng pipeline variant robot với token giả chỉ dùng
+trong test đã đạt. Chưa coi kết quả build là xác nhận hết reboot trên thẻ thật.
 
 Luồng thao tác: chatbox gọi `sd_search` với tên bài/ca sĩ/thể loại, chọn kết quả
 phù hợp rồi gọi `sd_play` với `path` chính xác. Firmware kiểm tra path, tạo local

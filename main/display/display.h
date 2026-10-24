@@ -97,6 +97,7 @@ public:
     }
     virtual void LoadAssets() {}
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image);
+    virtual void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms);
     virtual bool SetTextFont(std::shared_ptr<LvglFont> text_font) {
         (void)text_font;
         return false;

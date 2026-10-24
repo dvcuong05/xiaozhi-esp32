@@ -43,6 +43,8 @@ public:
     void OnAudioPlaybackStopped() override;
     void SetMediaMetadata(const MediaPlaybackMetadata& metadata) override;
     void SetMediaSubtitle(const char* text) override;
+    void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
+    void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) override;
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const mrkenddo::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
@@ -52,7 +54,7 @@ protected:
 
 private:
     enum class BootState { Pending, Active, Finished };
-    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer };
+    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer, SdImage };
 
     std::unique_ptr<mrkenddo::RobotScreenLayout> screen_layout_;
     std::unique_ptr<RobotEyesView> robot_eyes_;
@@ -66,6 +68,11 @@ private:
     std::shared_ptr<const mrkenddo::RobotQrCode> payment_qr_code_;
     lv_timer_t* payment_qr_timer_ = nullptr;
     lv_obj_t* audio_visualizer_ = nullptr;
+    lv_obj_t* sd_image_overlay_ = nullptr;
+    lv_obj_t* sd_image_view_ = nullptr;
+    lv_timer_t* sd_image_timer_ = nullptr;
+    std::unique_ptr<LvglImage> sd_image_;
+    bool sd_image_active_ = false;
     lv_obj_t* music_title_ = nullptr;
     lv_obj_t* music_artist_ = nullptr;
     lv_obj_t* music_lyric_ = nullptr;
@@ -85,6 +92,7 @@ private:
 
     static void OnBootConsoleTimer(lv_timer_t* timer);
     static void OnPaymentQrTimer(lv_timer_t* timer);
+    static void OnSdImageTimer(lv_timer_t* timer);
     static void DrawPaymentQr(lv_event_t* event);
     // Called with the display lock held (including LVGL timer callbacks).
     UiMode GetUiMode() const;

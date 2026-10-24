@@ -2,8 +2,13 @@
 #include "sd_web_ui.h"
 
 #include "application.h"
+#include "board.h"
+#include "display/display.h"
+#include "display/lvgl_display/jpg/jpeg_to_image.h"
+#include "display/lvgl_display/lvgl_image.h"
 
 #include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <cJSON.h>
 #include <array>
 #include <cstdio>
@@ -15,6 +20,65 @@ namespace mrkenddo {
 namespace {
 using Result = SdStorage::Result;
 using Code = SdStorage::Code;
+constexpr char kTag[] = "RobotSD";
+std::atomic<bool> g_sd_image_decode_busy{false};
+std::atomic<uint32_t> g_sd_image_request_id{0};
+
+void FinishImageTask(std::unique_ptr<struct ShowImageJob>& job);
+
+struct ShowImageJob {
+    std::unique_ptr<uint8_t, decltype(&heap_caps_free)> jpeg{nullptr, heap_caps_free};
+    size_t jpeg_size = 0;
+    size_t expected_width = 0;
+    size_t expected_height = 0;
+    uint32_t duration_ms = 30000;
+    uint32_t request_id = 0;
+};
+
+void FinishImageTask(std::unique_ptr<ShowImageJob>& job) {
+    job.reset();
+    g_sd_image_decode_busy.store(false);
+    vTaskDelete(nullptr);
+}
+
+void DecodeAndShowImage(void* context) {
+    std::unique_ptr<ShowImageJob> job(static_cast<ShowImageJob*>(context));
+    uint8_t* decoded = nullptr;
+    size_t decoded_size = 0, width = 0, height = 0, stride = 0;
+    const auto error = jpeg_to_image(job->jpeg.get(), job->jpeg_size, &decoded, &decoded_size,
+                                     &width, &height, &stride);
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "JPEG decode failed: %s", esp_err_to_name(error));
+        FinishImageTask(job);
+        return;
+    }
+    if (width != job->expected_width || height != job->expected_height || decoded_size == 0) {
+        heap_caps_free(decoded);
+        ESP_LOGW(kTag, "JPEG dimensions changed or decoded output is invalid");
+        FinishImageTask(job);
+        return;
+    }
+
+    auto image = std::make_unique<LvglAllocatedImage>(decoded, decoded_size, width, height, stride,
+                                                      LV_COLOR_FORMAT_RGB565);
+    if (!image->IsValid()) {
+        ESP_LOGW(kTag, "Decoded JPEG could not be wrapped for LVGL");
+        image.reset();
+        FinishImageTask(job);
+        return;
+    }
+    auto holder = std::make_shared<std::unique_ptr<LvglImage>>(std::move(image));
+    const auto request_id = job->request_id;
+    const auto duration_ms = job->duration_ms;
+    Application::GetInstance().Schedule([holder, request_id, duration_ms]() {
+        if (request_id != g_sd_image_request_id.load())
+            return;
+        auto* display = Board::GetInstance().GetDisplay();
+        if (display != nullptr)
+            display->SetPreviewImage(std::move(*holder), duration_ms);
+    });
+    FinishImageTask(job);
+}
 
 esp_err_t Json(httpd_req_t* req, cJSON* value) {
     if (!value)
@@ -118,12 +182,139 @@ std::string Attachment(const std::string& path) {
 }
 }  // namespace
 
-SdWebServer::SdWebServer(SdStorage& storage) : storage_(storage), idle_(xSemaphoreCreateBinary()) {}
+SdWebServer::SdWebServer(SdStorage& storage)
+    : storage_(storage),
+      idle_(xSemaphoreCreateBinary()),
+      slideshow_done_(xSemaphoreCreateBinary()) {}
 
 SdWebServer::~SdWebServer() {
+    StopSlideshow();
     StopTransfers();
     if (idle_)
         vSemaphoreDelete(idle_);
+    if (slideshow_done_)
+        vSemaphoreDelete(slideshow_done_);
+}
+
+SdStorage::Result SdWebServer::ShowPhoto(const std::string& path, uint32_t duration_ms) {
+    if (duration_ms < 5000 || duration_ms > 120000)
+        return {SdStorage::Code::Invalid, "Thời lượng hiển thị phải từ 5 đến 120 giây."};
+    bool expected = false;
+    if (!g_sd_image_decode_busy.compare_exchange_strong(expected, true))
+        return {SdStorage::Code::Busy, "Một ảnh khác đang được giải mã."};
+    auto* job = new (std::nothrow) ShowImageJob();
+    if (job == nullptr) {
+        g_sd_image_decode_busy.store(false);
+        return {SdStorage::Code::Unavailable, "Không đủ bộ nhớ để nạp ảnh."};
+    }
+    job->request_id = ++g_sd_image_request_id;
+    uint8_t* jpeg = nullptr;
+    size_t jpeg_size = 0, width = 0, height = 0;
+    auto result = storage_.ReadPhotoJpeg(path, jpeg, jpeg_size, width, height);
+    if (!result) {
+        delete job;
+        g_sd_image_decode_busy.store(false);
+        return result;
+    }
+    job->jpeg.reset(jpeg);
+    job->jpeg_size = jpeg_size;
+    job->expected_width = width;
+    job->expected_height = height;
+    job->duration_ms = duration_ms;
+    if (xTaskCreate(DecodeAndShowImage, "sd_image", 16384, job, 2, nullptr) != pdPASS) {
+        delete job;
+        g_sd_image_decode_busy.store(false);
+        return {SdStorage::Code::Unavailable, "Không tạo được task giải mã ảnh."};
+    }
+    return {};
+}
+
+SdStorage::Result SdWebServer::StartRandomSlideshow(const std::string& album, uint32_t interval_ms,
+                                                    size_t max_photos) {
+    if (album.size() > 96 || interval_ms < 5000 || interval_ms > 60000 || max_photos == 0 ||
+        max_photos > 50)
+        return {SdStorage::Code::Invalid,
+                "Album không hợp lệ; thời gian 5-60 giây, tối đa 50 ảnh."};
+    if (slideshow_done_ == nullptr)
+        return {SdStorage::Code::Unavailable, "Không đủ tài nguyên để quản lý trình chiếu."};
+    SdStorage::Photo sample;
+    if (auto result = storage_.RandomPhoto(album, sample); !result)
+        return result;
+    std::lock_guard<std::mutex> lock(slideshow_mutex_);
+    if (slideshow_task_ != nullptr)
+        return {SdStorage::Code::Busy, "Đang có album ảnh được trình chiếu."};
+    if (slideshow_done_)
+        xSemaphoreTake(slideshow_done_, 0);
+    slideshow_running_.store(true);
+    if (xTaskCreate(SlideshowTask, "sd_slideshow", 6144, this, 2, &slideshow_task_) != pdPASS) {
+        slideshow_task_ = nullptr;
+        slideshow_running_.store(false);
+        return {SdStorage::Code::Unavailable, "Không tạo được tác vụ trình chiếu album."};
+    }
+    // The task reads the SD index asynchronously; MCP/WSS only waits for this
+    // bounded start acknowledgement, never for a full directory scan.
+    slideshow_album_ = album;
+    slideshow_interval_ms_ = interval_ms;
+    slideshow_max_photos_ = max_photos;
+    return {};
+}
+
+void SdWebServer::SlideshowTask(void* context) {
+    auto* server = static_cast<SdWebServer*>(context);
+    std::string album;
+    uint32_t interval_ms;
+    size_t max_photos;
+    {
+        std::lock_guard<std::mutex> lock(server->slideshow_mutex_);
+        album = server->slideshow_album_;
+        interval_ms = server->slideshow_interval_ms_;
+        max_photos = server->slideshow_max_photos_;
+    }
+    for (size_t shown = 0; shown < max_photos && server->slideshow_running_.load(); ++shown) {
+        SdStorage::Photo photo;
+        const auto result = server->storage_.RandomPhoto(album, photo);
+        if (!result) {
+            ESP_LOGW(kTag, "Slideshow stopped: %s", result.message.c_str());
+            break;
+        }
+        auto show = server->ShowPhoto(photo.path, std::min<uint32_t>(120000, interval_ms + 1000));
+        for (unsigned retry = 0; !show && show.code == SdStorage::Code::Busy && retry < 20 &&
+                                 server->slideshow_running_.load();
+             ++retry) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            show = server->ShowPhoto(photo.path, std::min<uint32_t>(120000, interval_ms + 1000));
+        }
+        if (!show)
+            ESP_LOGW(kTag, "Could not show slideshow image: %s", show.message.c_str());
+        for (uint32_t waited = 0; waited < interval_ms && server->slideshow_running_.load();
+             waited += 250)
+            vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    server->slideshow_running_.store(false);
+    {
+        std::lock_guard<std::mutex> lock(server->slideshow_mutex_);
+        server->slideshow_task_ = nullptr;
+    }
+    if (server->slideshow_done_)
+        xSemaphoreGive(server->slideshow_done_);
+    vTaskDelete(nullptr);
+}
+
+void SdWebServer::StopSlideshow() {
+    TaskHandle_t task = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(slideshow_mutex_);
+        slideshow_running_.store(false);
+        task = slideshow_task_;
+    }
+    if (task != nullptr && task != xTaskGetCurrentTaskHandle() && slideshow_done_)
+        xSemaphoreTake(slideshow_done_, portMAX_DELAY);
+    ++g_sd_image_request_id;
+    Application::GetInstance().Schedule([]() {
+        auto* display = Board::GetInstance().GetDisplay();
+        if (display != nullptr)
+            display->SetPreviewImage(nullptr);
+    });
 }
 
 esp_err_t SdWebServer::Register(httpd_handle_t server) {
@@ -312,6 +503,36 @@ esp_err_t SdWebServer::HandleRequest(httpd_req_t* req, bool& body_consumed) {
     if (op == "stop") {
         Application::GetInstance().RequestStopMedia();
         return Reply(req, {Code::Ok, "Đã gửi yêu cầu dừng phát media."});
+    }
+    if (op == "show") {
+        bool expected = false;
+        if (!g_sd_image_decode_busy.compare_exchange_strong(expected, true))
+            return Reply(req, {Code::Busy, "Một ảnh khác đang được giải mã."});
+        auto* job = new (std::nothrow) ShowImageJob();
+        if (job == nullptr) {
+            g_sd_image_decode_busy.store(false);
+            return Reply(req, {Code::Unavailable, "Không đủ bộ nhớ để nạp ảnh."});
+        }
+        job->request_id = ++g_sd_image_request_id;
+        uint8_t* jpeg = nullptr;
+        size_t jpeg_size = 0, width = 0, height = 0;
+        auto result = storage_.ReadJpeg(path, jpeg, jpeg_size, width, height);
+        if (!result) {
+            delete job;
+            g_sd_image_decode_busy.store(false);
+            return Reply(req, result);
+        }
+        job->jpeg.reset(jpeg);
+        job->jpeg_size = jpeg_size;
+        job->expected_width = width;
+        job->expected_height = height;
+        job->duration_ms = 30000;
+        if (xTaskCreate(DecodeAndShowImage, "sd_image", 16384, job, 2, nullptr) != pdPASS) {
+            delete job;
+            g_sd_image_decode_busy.store(false);
+            return Reply(req, {Code::Unavailable, "Không tạo được task giải mã ảnh."});
+        }
+        return Reply(req, {Code::Ok, "Đang giải mã ảnh và chuyển lên TFT trong 30 giây."});
     }
     if (op == "upload") {
         uint64_t offset = 0, total = 0;

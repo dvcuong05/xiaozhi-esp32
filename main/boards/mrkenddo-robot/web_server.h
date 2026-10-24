@@ -3,6 +3,8 @@
 
 #include <esp_err.h>
 #include <esp_http_server.h>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -20,6 +22,10 @@ public:
 
     bool Start(int port = 80);
     void Stop();
+    bool ShowSdPhoto(const std::string& path, uint32_t duration_ms, std::string& error);
+    bool StartSdSlideshow(const std::string& album, uint32_t interval_ms, size_t max_photos,
+                          std::string& error);
+    void StopSdSlideshow();
 
 private:
     static esp_err_t RootHandler(httpd_req_t* req);

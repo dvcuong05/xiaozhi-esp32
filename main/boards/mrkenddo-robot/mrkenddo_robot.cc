@@ -352,6 +352,115 @@ public:
                 cJSON_AddItemToArray(results, item);
             }
             accepted = true;
+        } else if (command == "sd.photo.search") {
+            auto get_text = [&](const char* key, size_t max, std::string& value) {
+                const cJSON* item = cJSON_GetObjectItemCaseSensitive(root, key);
+                if (!item)
+                    return true;
+                if (!cJSON_IsString(item) || !item->valuestring ||
+                    std::strlen(item->valuestring) > max)
+                    return false;
+                value = item->valuestring;
+                return true;
+            };
+            std::string query, album;
+            const cJSON* limit_json = cJSON_GetObjectItemCaseSensitive(root, "limit");
+            int limit = cJSON_IsNumber(limit_json) ? limit_json->valueint : 5;
+            if (!get_text("query", 96, query) || !get_text("album", 96, album) || limit < 1 ||
+                limit > 10) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("invalid photo search filters or limit");
+            }
+            std::vector<mrkenddo::SdStorage::Photo> photos;
+            bool truncated = false;
+            auto search = sd_storage_.SearchPhotos(query, album, static_cast<size_t>(limit), photos,
+                                                   truncated);
+            if (!search) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(search.message.c_str());
+            }
+            cJSON_AddBoolToObject(response, "truncated", truncated);
+            cJSON_AddNumberToObject(response, "count", photos.size());
+            cJSON* results = cJSON_AddArrayToObject(response, "results");
+            if (!results) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("out of memory creating photo search results");
+            }
+            for (const auto& photo : photos) {
+                cJSON* item = cJSON_CreateObject();
+                if (!item)
+                    continue;
+                cJSON_AddStringToObject(item, "path", photo.path.c_str());
+                cJSON_AddStringToObject(item, "name", photo.name.c_str());
+                cJSON_AddStringToObject(item, "album", photo.album.c_str());
+                cJSON_AddNumberToObject(item, "size", static_cast<double>(photo.size));
+                cJSON_AddItemToArray(results, item);
+            }
+            accepted = true;
+        } else if (command == "sd.photo.show") {
+            const cJSON* path_json = cJSON_GetObjectItemCaseSensitive(root, "path");
+            const cJSON* duration_json = cJSON_GetObjectItemCaseSensitive(root, "duration_seconds");
+            const int duration_seconds =
+                cJSON_IsNumber(duration_json) ? duration_json->valueint : 30;
+            if (!cJSON_IsString(path_json) || !path_json->valuestring ||
+                std::strlen(path_json->valuestring) > 192 || duration_seconds < 5 ||
+                duration_seconds > 120) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("sd.photo.show requires a photo path and duration 5..120 seconds");
+            }
+            std::string error_message;
+            if (!web_server_ || !web_server_->ShowSdPhoto(path_json->valuestring,
+                                                          duration_seconds * 1000, error_message)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(error_message.empty() ? "HTTP/photo service unavailable"
+                                                    : error_message.c_str());
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddNumberToObject(response, "duration_seconds", duration_seconds);
+            accepted = true;
+        } else if (command == "sd.album.random") {
+            const cJSON* album_json = cJSON_GetObjectItemCaseSensitive(root, "album");
+            const cJSON* interval_json = cJSON_GetObjectItemCaseSensitive(root, "interval_seconds");
+            const cJSON* count_json = cJSON_GetObjectItemCaseSensitive(root, "max_photos");
+            const std::string album = cJSON_IsString(album_json) && album_json->valuestring
+                                          ? album_json->valuestring
+                                          : "";
+            const int interval_seconds =
+                cJSON_IsNumber(interval_json) ? interval_json->valueint : 15;
+            const int max_photos = cJSON_IsNumber(count_json) ? count_json->valueint : 10;
+            if (album.size() > 96 || interval_seconds < 5 || interval_seconds > 60 ||
+                max_photos < 1 || max_photos > 50) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("album slideshow limits: interval 5..60, max_photos 1..50");
+            }
+            std::string error_message;
+            if (!web_server_ ||
+                !web_server_->StartSdSlideshow(album, interval_seconds * 1000,
+                                               static_cast<size_t>(max_photos), error_message)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(error_message.empty() ? "HTTP/photo service unavailable"
+                                                    : error_message.c_str());
+            }
+            cJSON_AddStringToObject(response, "status", "started");
+            cJSON_AddNumberToObject(response, "interval_seconds", interval_seconds);
+            cJSON_AddNumberToObject(response, "max_photos", max_photos);
+            accepted = true;
+        } else if (command == "sd.album.stop") {
+            if (!web_server_) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("photo service unavailable");
+            }
+            web_server_->StopSdSlideshow();
+            cJSON_AddStringToObject(response, "status", "stopped");
+            accepted = true;
         } else if (command == "sd.play") {
             const cJSON* path_json = cJSON_GetObjectItemCaseSensitive(root, "path");
             if (!cJSON_IsString(path_json) || !path_json->valuestring ||
@@ -444,7 +553,7 @@ public:
             [this](int rotation) { SetTftRotation(rotation); }, sd_storage_);
         RegisterRobotMcpTools(*controller_);
         // Set default volume (0-100)
-        GetAudioCodec()->SetOutputVolume(40);
+        GetAudioCodec()->SetOutputVolume(60);
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
         }

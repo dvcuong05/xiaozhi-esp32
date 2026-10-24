@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include "application.h"
 #include "assets/lang_config.h"
 #include "audio_codec.h"
@@ -18,6 +19,9 @@ Display::Display() {}
 Display::~Display() {}
 
 void Display::SetPreviewImage(std::unique_ptr<LvglImage> image) {}
+void Display::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) {
+    SetPreviewImage(std::move(image));
+}
 
 void Display::SetStatus(const char* status) { ESP_LOGW(TAG, "SetStatus: %s", status); }
 

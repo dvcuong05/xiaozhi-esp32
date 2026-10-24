@@ -4,7 +4,9 @@
 
 #include <driver/sdspi_host.h>
 #include <driver/spi_common.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 
@@ -29,6 +31,7 @@ constexpr uint32_t kUnmountCommand = 2;
 constexpr uint32_t kRefreshCommand = 3;
 constexpr uint32_t kStopCommand = 4;
 constexpr unsigned kMaxDeleteDepth = 16;
+constexpr size_t kMaxPhotoIndexEntries = 256;
 constexpr char kTag[] = "RobotSD";
 using Code = SdStorage::Code;
 using Result = SdStorage::Result;
@@ -262,6 +265,7 @@ SdStorage::~SdStorage() {
     }
     if (stopped_)
         vSemaphoreDelete(stopped_);
+    InvalidatePhotoIndex();
 }
 
 void SdStorage::Start() {
@@ -383,6 +387,7 @@ void SdStorage::Mount() {
         return;
     }
     card_ = card;
+    InvalidatePhotoIndex();
     SetState("mounted", "MicroSD sẵn sàng.");
     RefreshSpace();
     ESP_LOGI(kTag, "SD ready: %s, SPI2 10MHz", card->cid.name);
@@ -412,6 +417,7 @@ void SdStorage::Unmount() {
         spi_bus_free(SPI2_HOST);
         bus_initialized_ = false;
     }
+    InvalidatePhotoIndex();
     SetState("unmounted", "Đã ngắt kết nối. Có thể tháo thẻ.");
 }
 
@@ -577,28 +583,34 @@ SdStorage::Result SdStorage::SearchMusic(const std::string& query, const std::st
         return {Code::Unavailable, "Kh?ng d? b? nh? d? d?c ID3."};
     size_t visited = 0;
     size_t audio_files = 0;
-    std::function<void(const std::string&, unsigned)> scan = [&](const std::string& path,
-                                                                 unsigned depth) {
-        if (depth > 8 || truncated)
-            return;
-        std::string full;
-        if (!Resolve(path, full))
-            return;
-        DIR* raw = opendir(full.c_str());
-        if (!raw)
-            return;
-        std::unique_ptr<DIR, decltype(&closedir)> dir(raw, closedir);
-        while (auto* item = readdir(dir.get())) {
+    using Directory = std::unique_ptr<DIR, decltype(&closedir)>;
+    struct ScanDirectory {
+        std::string path;
+        Directory handle;
+    };
+    // Keep the bounded traversal state on the heap. Recursive scanning grows
+    // the caller's task stack once per nested directory, including ID3/FatFs.
+    std::vector<ScanDirectory> directories;
+    directories.reserve(9);  // Root plus eight directory levels.
+    DIR* root = opendir(kMount);
+    if (!root)
+        return IoError("opendir");
+    directories.push_back({"/", Directory(root, closedir)});
+    while (!directories.empty() && !truncated) {
+        auto& directory = directories.back();
+        auto* item = readdir(directory.handle.get());
+        if (item) {
             if (std::strcmp(item->d_name, ".") == 0 || std::strcmp(item->d_name, "..") == 0 ||
                 item->d_name[0] == '.')
                 continue;
             if (++visited > 1500) {
                 truncated = true;
-                return;
+                break;
             }
             if (visited % 32 == 0)
                 vTaskDelay(1);
-            std::string child_path = (path == "/" ? "" : path) + "/" + item->d_name;
+            std::string child_path =
+                (directory.path == "/" ? "" : directory.path) + "/" + item->d_name;
             std::string child_full;
             if (!Resolve(child_path, child_full, false))
                 continue;
@@ -606,16 +618,17 @@ SdStorage::Result SdStorage::SearchMusic(const std::string& query, const std::st
             if (stat(child_full.c_str(), &info) != 0)
                 continue;
             if (S_ISDIR(info.st_mode)) {
-                scan(child_path, depth + 1);
-                if (truncated)
-                    return;
+                if (directories.size() < 9) {
+                    if (DIR* child = opendir(child_full.c_str()))
+                        directories.push_back({std::move(child_path), Directory(child, closedir)});
+                }
                 continue;
             }
             if (!S_ISREG(info.st_mode) || !HasAudioExtension(child_path))
                 continue;
             if (++audio_files > 300) {
                 truncated = true;
-                return;
+                break;
             }
             MusicTrack track;
             track.path = child_path;
@@ -638,13 +651,215 @@ SdStorage::Result SdStorage::SearchMusic(const std::string& query, const std::st
                 continue;
             if (tracks.size() == limit) {
                 truncated = true;
-                return;
+                break;
             }
             tracks.push_back(std::move(track));
+        } else {
+            directories.pop_back();
         }
-    };
-    scan("/", 0);
+    }
     return {};
+}
+
+void SdStorage::InvalidatePhotoIndex() {
+    if (photo_index_ != nullptr)
+        heap_caps_free(photo_index_);
+    photo_index_ = nullptr;
+    photo_count_ = 0;
+    photo_index_valid_ = false;
+    photo_index_truncated_ = false;
+}
+
+SdStorage::Result SdStorage::BuildPhotoIndex() {
+    if (photo_index_valid_)
+        return {};
+    if (photo_index_ != nullptr) {
+        heap_caps_free(photo_index_);
+        photo_index_ = nullptr;
+    }
+    photo_count_ = 0;
+    photo_index_truncated_ = false;
+    if (auto result = Ready(); !result)
+        return result;
+
+    constexpr char kPhotoRoot[] = "/robot/images";
+    constexpr size_t kMaxVisitedEntries = 2000;
+    constexpr char kPhotoRootPrefix[] = "/robot/images/";
+    using Directory = std::unique_ptr<DIR, decltype(&closedir)>;
+    struct ScanDirectory {
+        std::string path;
+        Directory handle;
+    };
+    std::vector<ScanDirectory> directories;
+    directories.reserve(9);
+    DIR* root = opendir((std::string(kMount) + kPhotoRoot).c_str());
+    if (root == nullptr) {
+        if (errno != ENOENT)
+            return IoError("open photo root");
+        photo_index_valid_ = true;
+        return {};
+    }
+    photo_index_ = static_cast<PhotoIndexEntry*>(heap_caps_calloc(
+        kMaxPhotoIndexEntries, sizeof(PhotoIndexEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (photo_index_ == nullptr) {
+        closedir(root);
+        return {Code::Unavailable, "Không đủ PSRAM để lập chỉ mục ảnh."};
+    }
+    directories.push_back({kPhotoRoot, Directory(root, closedir)});
+    size_t visited = 0;
+    while (!directories.empty()) {
+        auto& directory = directories.back();
+        errno = 0;
+        dirent* item = readdir(directory.handle.get());
+        if (item == nullptr) {
+            if (errno != 0)
+                return IoError("read photo directory");
+            directories.pop_back();
+            continue;
+        }
+        if (std::strcmp(item->d_name, ".") == 0 || std::strcmp(item->d_name, "..") == 0 ||
+            item->d_name[0] == '.')
+            continue;
+        if (++visited > kMaxVisitedEntries) {
+            photo_index_truncated_ = true;
+            break;
+        }
+        if (visited % 32 == 0)
+            vTaskDelay(1);
+        const std::string path = directory.path + "/" + item->d_name;
+        std::string full;
+        if (!Resolve(path, full, false))
+            continue;
+        struct stat info = {};
+        if (stat(full.c_str(), &info) != 0)
+            continue;
+        if (S_ISDIR(info.st_mode)) {
+            if (directories.size() < 9) {
+                if (DIR* child = opendir(full.c_str()))
+                    directories.push_back({path, Directory(child, closedir)});
+            } else {
+                photo_index_truncated_ = true;
+            }
+            continue;
+        }
+        const auto extension_pos = path.find_last_of('.');
+        if (!S_ISREG(info.st_mode) || extension_pos == std::string::npos)
+            continue;
+        const auto extension = FoldText(path.substr(extension_pos));
+        if (extension != ".jpg" && extension != ".jpeg")
+            continue;
+        if (photo_count_ >= kMaxPhotoIndexEntries) {
+            photo_index_truncated_ = true;
+            break;
+        }
+        if (path.size() >= sizeof(photo_index_[photo_count_].path) ||
+            path.rfind(kPhotoRootPrefix, 0) != 0) {
+            photo_index_truncated_ = true;
+            continue;
+        }
+        std::memcpy(photo_index_[photo_count_].path, path.c_str(), path.size() + 1);
+        photo_index_[photo_count_].size = static_cast<uint64_t>(info.st_size);
+        ++photo_count_;
+    }
+    photo_index_valid_ = true;
+    return {};
+}
+
+SdStorage::Result SdStorage::SearchPhotos(const std::string& query, const std::string& album,
+                                          size_t limit, std::vector<Photo>& photos,
+                                          bool& truncated) {
+    if (query.size() > 96 || album.size() > 96 || limit == 0 || limit > 10 || !ValidUtf8(query) ||
+        !ValidUtf8(album))
+        return {Code::Invalid, "Bộ lọc ảnh không hợp lệ (giới hạn 1-10 kết quả)."};
+    std::unique_lock<std::mutex> lock(io_mutex_, std::try_to_lock);
+    if (!lock)
+        return {Code::Busy, "Thẻ đang bận."};
+    if (auto result = BuildPhotoIndex(); !result)
+        return result;
+
+    photos.clear();
+    truncated = photo_index_truncated_;
+    const auto query_folded = FoldText(query);
+    const auto album_folded = FoldText(album);
+    for (size_t i = 0; i < photo_count_; ++i) {
+        const auto& entry = photo_index_[i];
+        const std::string path(entry.path);
+        const auto slash = path.find_last_of('/');
+        const auto extension_pos = path.find_last_of('.');
+        Photo photo;
+        photo.path = path;
+        photo.size = entry.size;
+        photo.name = path.substr(slash + 1, extension_pos - slash - 1);
+        constexpr size_t kPhotoRootLength = sizeof("/robot/images") - 1;
+        if (slash > kPhotoRootLength)
+            photo.album = path.substr(kPhotoRootLength + 1, slash - kPhotoRootLength - 1);
+        const auto path_folded = FoldText(path);
+        const auto photo_album = FoldText(photo.album);
+        if ((!query_folded.empty() && path_folded.find(query_folded) == std::string::npos) ||
+            (!album_folded.empty() && photo_album.find(album_folded) == std::string::npos))
+            continue;
+        if (photos.size() == limit) {
+            truncated = true;
+            break;
+        }
+        photos.push_back(photo);
+    }
+    return {};
+}
+
+SdStorage::Result SdStorage::RandomPhoto(const std::string& album, Photo& photo) {
+    if (album.size() > 96 || !ValidUtf8(album))
+        return {Code::Invalid, "Tên album không hợp lệ."};
+    std::unique_lock<std::mutex> lock(io_mutex_, std::try_to_lock);
+    if (!lock)
+        return {Code::Busy, "Thẻ đang bận."};
+    if (auto result = BuildPhotoIndex(); !result)
+        return result;
+
+    const auto album_folded = FoldText(album);
+    size_t matches = 0;
+    for (size_t i = 0; i < photo_count_; ++i) {
+        const std::string path(photo_index_[i].path);
+        const auto slash = path.find_last_of('/');
+        constexpr size_t kPhotoRootLength = sizeof("/robot/images") - 1;
+        const std::string item_album =
+            slash > kPhotoRootLength
+                ? path.substr(kPhotoRootLength + 1, slash - kPhotoRootLength - 1)
+                : "";
+        if (album_folded.empty() || FoldText(item_album).find(album_folded) != std::string::npos)
+            ++matches;
+    }
+    if (matches == 0)
+        return {Code::NotFound, "Không tìm thấy ảnh trong album."};
+    size_t selected = esp_random() % matches;
+    for (size_t i = 0; i < photo_count_; ++i) {
+        const std::string path(photo_index_[i].path);
+        const auto slash = path.find_last_of('/');
+        constexpr size_t kPhotoRootLength = sizeof("/robot/images") - 1;
+        const std::string item_album =
+            slash > kPhotoRootLength
+                ? path.substr(kPhotoRootLength + 1, slash - kPhotoRootLength - 1)
+                : "";
+        if (!album_folded.empty() && FoldText(item_album).find(album_folded) == std::string::npos)
+            continue;
+        if (selected-- == 0) {
+            const auto extension_pos = path.find_last_of('.');
+            photo.path = path;
+            photo.size = photo_index_[i].size;
+            photo.name = path.substr(slash + 1, extension_pos - slash - 1);
+            photo.album = item_album;
+            return {};
+        }
+    }
+    return {Code::NotFound, "Không chọn được ảnh ngẫu nhiên."};
+}
+
+SdStorage::Result SdStorage::ReadPhotoJpeg(const std::string& path, uint8_t*& data, size_t& size,
+                                           size_t& width, size_t& height) {
+    constexpr char kPhotoRoot[] = "/robot/images/";
+    if (path.rfind(kPhotoRoot, 0) != 0)
+        return {Code::Invalid, "Ảnh MCP chỉ được đọc trong /robot/images/."};
+    return ReadJpeg(path, data, size, width, height);
 }
 
 SdStorage::Result SdStorage::MakeDirectory(const std::string& path) {
@@ -660,6 +875,7 @@ SdStorage::Result SdStorage::MakeDirectory(const std::string& path) {
         return {Code::Busy, "Đang phát file từ thẻ. Dừng phát rồi thử lại."};
     if (mkdir(full.c_str(), 0775) == 0) {
         InvalidateSpace();
+        InvalidatePhotoIndex();
         return {};
     }
     if (errno == EEXIST)
@@ -691,6 +907,7 @@ SdStorage::Result SdStorage::Remove(const std::string& path) {
     int rc = is_directory ? rmdir(full.c_str()) : unlink(full.c_str());
     if (rc == 0) {
         InvalidateSpace();
+        InvalidatePhotoIndex();
         return {};
     }
     if (is_directory && (errno == ENOTEMPTY || errno == EEXIST))
@@ -803,6 +1020,7 @@ SdStorage::Result SdStorage::Upload(const std::string& path, uint64_t offset, ui
     if (upload_offset_ == total) {
         if (rename(temporary.c_str(), full.c_str()) != 0)
             return IoError("commit upload");
+        InvalidatePhotoIndex();
         ClearUpload();
     }
     return {};
@@ -860,6 +1078,96 @@ SdStorage::Result SdStorage::Download(const std::string& path,
         }
         vTaskDelay(1);
     }
+    return {};
+}
+
+SdStorage::Result SdStorage::ReadJpeg(const std::string& path, uint8_t*& data, size_t& size,
+                                      size_t& width, size_t& height) {
+    data = nullptr;
+    size = width = height = 0;
+    std::string full;
+    if (auto result = Resolve(path, full, false); !result)
+        return result;
+
+    const size_t basename = path.find_last_of('/') + 1;
+    const size_t extension_pos = path.find_last_of('.');
+    std::string extension = extension_pos == std::string::npos || extension_pos < basename
+                                ? ""
+                                : path.substr(extension_pos);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (extension != ".jpg" && extension != ".jpeg")
+        return {Code::Invalid, "Chỉ hỗ trợ ảnh JPEG (.jpg, .jpeg)."};
+
+    std::unique_lock<std::mutex> lock(io_mutex_, std::try_to_lock);
+    if (!lock)
+        return {Code::Busy, "Thẻ đang bận."};
+    if (auto result = Ready(); !result)
+        return result;
+
+    constexpr size_t kMaxJpegBytes = 512 * 1024;
+    struct stat info = {};
+    if (stat(full.c_str(), &info) != 0)
+        return errno == ENOENT ? Result{Code::NotFound, "Không tìm thấy ảnh."}
+                               : IoError("stat JPEG");
+    if (!S_ISREG(info.st_mode) || info.st_size < 4 ||
+        static_cast<uint64_t>(info.st_size) > kMaxJpegBytes)
+        return {Code::Limit, "Ảnh JPEG phải có dung lượng tối đa 512 KiB."};
+
+    const auto length = static_cast<size_t>(info.st_size);
+    auto* buffer =
+        static_cast<uint8_t*>(heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!buffer)
+        return {Code::Unavailable, "Không đủ PSRAM để nạp ảnh JPEG."};
+    std::unique_ptr<uint8_t, decltype(&heap_caps_free)> owner(buffer, heap_caps_free);
+    std::unique_ptr<FILE, decltype(&fclose)> file(fopen(full.c_str(), "rb"), fclose);
+    if (!file)
+        return IoError("open JPEG");
+    if (fread(buffer, 1, length, file.get()) != length || ferror(file.get()))
+        return IoError("read JPEG");
+
+    // Validate dimensions before decoding so malformed images cannot request
+    // an unbounded RGB565 frame buffer from the JPEG decoder.
+    if (buffer[0] != 0xff || buffer[1] != 0xd8)
+        return {Code::Invalid, "File không phải ảnh JPEG hợp lệ."};
+    size_t position = 2;
+    bool found_dimensions = false;
+    while (position + 4 <= length) {
+        while (position < length && buffer[position] != 0xff)
+            ++position;
+        while (position < length && buffer[position] == 0xff)
+            ++position;
+        if (position >= length)
+            break;
+        const uint8_t marker = buffer[position++];
+        if (marker == 0xd9 || marker == 0xda)
+            break;
+        if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7))
+            continue;
+        if (position + 2 > length)
+            break;
+        const size_t segment_length = (static_cast<size_t>(buffer[position]) << 8) |
+                                      static_cast<size_t>(buffer[position + 1]);
+        if (segment_length < 2 || segment_length > length - position)
+            break;
+        const bool is_sof =
+            (marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) ||
+            (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf);
+        if (is_sof) {
+            if (segment_length < 7)
+                break;
+            height = (static_cast<size_t>(buffer[position + 3]) << 8) | buffer[position + 4];
+            width = (static_cast<size_t>(buffer[position + 5]) << 8) | buffer[position + 6];
+            found_dimensions = width != 0 && height != 0 && width <= 512 && height <= 512;
+            break;
+        }
+        position += segment_length;
+    }
+    if (!found_dimensions)
+        return {Code::Limit, "JPEG không hợp lệ hoặc vượt giới hạn 512 × 512 pixel."};
+
+    size = length;
+    data = owner.release();
     return {};
 }
 

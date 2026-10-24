@@ -54,6 +54,12 @@ public:
         std::string genre;
         uint64_t size = 0;
     };
+    struct Photo {
+        std::string path;
+        std::string name;
+        std::string album;
+        uint64_t size = 0;
+    };
     static constexpr size_t kChunkBytes = 4096;
     // Larger HTTP chunks reduce request and worker-task overhead on the LAN.
     static constexpr size_t kUploadChunkBytes = 1024 * 1024;
@@ -68,12 +74,19 @@ public:
     Result SearchMusic(const std::string& query, const std::string& artist,
                        const std::string& album, const std::string& genre, size_t limit,
                        std::vector<MusicTrack>& tracks, bool& truncated);
+    Result SearchPhotos(const std::string& query, const std::string& album, size_t limit,
+                        std::vector<Photo>& photos, bool& truncated);
+    Result RandomPhoto(const std::string& album, Photo& photo);
+    Result ReadPhotoJpeg(const std::string& path, uint8_t*& data, size_t& size, size_t& width,
+                         size_t& height);
     Result MakeDirectory(const std::string& path);
     Result Remove(const std::string& path);
     Result Upload(const std::string& path, uint64_t offset, uint64_t total, const char* chunk,
                   size_t chunk_size);
     Result AbortUpload(const std::string& path);
     Result Download(const std::string& path, const std::function<bool(const char*, size_t)>& sink);
+    Result ReadJpeg(const std::string& path, uint8_t*& data, size_t& size, size_t& width,
+                    size_t& height);
     Result CreateAudioInput(const std::string& path, NotifyPlayer::InputFactory& factory);
     Result OpenAudioFile(const std::string& path, FILE*& file);
     bool ReadAudioFile(FILE* file, char* buffer, size_t capacity, size_t& bytes_read);
@@ -91,6 +104,14 @@ private:
     std::string upload_path_;
     uint64_t upload_total_ = 0;
     uint64_t upload_offset_ = 0;
+    struct PhotoIndexEntry {
+        char path[193];
+        uint64_t size;
+    };
+    PhotoIndexEntry* photo_index_ = nullptr;
+    size_t photo_count_ = 0;
+    bool photo_index_valid_ = false;
+    bool photo_index_truncated_ = false;
 
     static void Worker(void* context);
     void Mount();
@@ -100,6 +121,8 @@ private:
     void InvalidateSpace();
     void ClearUpload();
     Result RemoveTree(const std::string& full_path, unsigned depth);
+    Result BuildPhotoIndex();
+    void InvalidatePhotoIndex();
     Result IoError(const char* operation);
     Result Ready() const;
     static Result Resolve(const std::string& path, std::string& full, bool allow_root = true);

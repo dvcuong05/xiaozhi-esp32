@@ -22,6 +22,16 @@ MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
         lv_timer_delete(payment_qr_timer_);
         payment_qr_timer_ = nullptr;
     }
+    if (sd_image_timer_ != nullptr) {
+        lv_timer_delete(sd_image_timer_);
+        sd_image_timer_ = nullptr;
+    }
+    sd_image_.reset();
+    if (sd_image_overlay_ != nullptr) {
+        lv_obj_delete(sd_image_overlay_);
+        sd_image_overlay_ = nullptr;
+        sd_image_view_ = nullptr;
+    }
     if (boot_console_timer_ != nullptr) {
         lv_timer_delete(boot_console_timer_);
         boot_console_timer_ = nullptr;
@@ -151,6 +161,19 @@ void MrkenDDoRobotDisplay::SetupUI() {
     RenderMusicInfo();
 
     lv_obj_add_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN);
+
+    sd_image_overlay_ = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(sd_image_overlay_, width_, height_);
+    lv_obj_center(sd_image_overlay_);
+    lv_obj_set_style_bg_color(sd_image_overlay_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(sd_image_overlay_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sd_image_overlay_, 0, 0);
+    lv_obj_set_style_radius(sd_image_overlay_, 0, 0);
+    lv_obj_set_style_pad_all(sd_image_overlay_, 0, 0);
+    lv_obj_clear_flag(sd_image_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+    sd_image_view_ = lv_image_create(sd_image_overlay_);
+    lv_obj_center(sd_image_view_);
+    lv_obj_add_flag(sd_image_overlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
@@ -163,6 +186,9 @@ MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
     // Keep boot console/IP presentation uninterrupted by startup audio.
     if (boot_state_ == BootState::Finished && audio_playback_active_) {
         return UiMode::AudioVisualizer;
+    }
+    if (sd_image_active_) {
+        return UiMode::SdImage;
     }
     return UiMode::NormalFace;
 }
@@ -186,8 +212,64 @@ void MrkenDDoRobotDisplay::ApplyUiMode() {
     }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
+    set_visible(sd_image_overlay_, mode == UiMode::SdImage);
     set_visible(payment_qr_overlay_, mode == UiMode::PaymentQr);
     HideLegacyEmoji();
+}
+
+void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
+    SetPreviewImage(std::move(image), 30000);
+}
+
+void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) {
+    DisplayLockGuard lock(this);
+    if (!lock || sd_image_overlay_ == nullptr || sd_image_view_ == nullptr)
+        return;
+    if (!image) {
+        if (sd_image_timer_ != nullptr) {
+            lv_timer_delete(sd_image_timer_);
+            sd_image_timer_ = nullptr;
+        }
+        sd_image_active_ = false;
+        lv_image_set_src(sd_image_view_, nullptr);
+        sd_image_.reset();
+        ApplyUiMode();
+        return;
+    }
+
+    const auto* descriptor = image->image_dsc();
+    if (descriptor == nullptr || descriptor->header.w == 0 || descriptor->header.h == 0)
+        return;
+    if (sd_image_timer_ != nullptr) {
+        lv_timer_delete(sd_image_timer_);
+        sd_image_timer_ = nullptr;
+    }
+    sd_image_ = std::move(image);
+    lv_image_set_src(sd_image_view_, descriptor);
+    const auto scale_x = static_cast<uint32_t>(256 * width_ / descriptor->header.w);
+    const auto scale_y = static_cast<uint32_t>(256 * height_ / descriptor->header.h);
+    lv_image_set_scale(sd_image_view_, std::min(scale_x, scale_y));
+    sd_image_active_ = true;
+    ApplyUiMode();
+    sd_image_timer_ = lv_timer_create(OnSdImageTimer, duration_ms, this);
+    if (sd_image_timer_ != nullptr) {
+        lv_timer_set_repeat_count(sd_image_timer_, 1);
+    } else {
+        sd_image_active_ = false;
+        lv_image_set_src(sd_image_view_, nullptr);
+        sd_image_.reset();
+        ApplyUiMode();
+    }
+}
+
+void MrkenDDoRobotDisplay::OnSdImageTimer(lv_timer_t* timer) {
+    auto* display = static_cast<MrkenDDoRobotDisplay*>(lv_timer_get_user_data(timer));
+    display->sd_image_timer_ = nullptr;
+    display->sd_image_active_ = false;
+    lv_image_set_src(display->sd_image_view_, nullptr);
+    display->sd_image_.reset();
+    display->ApplyUiMode();
+    lv_timer_delete(timer);
 }
 
 void MrkenDDoRobotDisplay::SetBehaviorCallbacks(std::function<void(bool)> speaking,

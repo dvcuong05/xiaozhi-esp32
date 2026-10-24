@@ -446,6 +446,22 @@ WebServer::WebServer(mrkenddo::RobotController& controller)
 
 WebServer::~WebServer() { Stop(); }
 
+bool WebServer::ShowSdPhoto(const std::string& path, uint32_t duration_ms, std::string& error) {
+    sd_web_->StopSlideshow();
+    auto result = sd_web_->ShowPhoto(path, duration_ms);
+    error = result.message;
+    return static_cast<bool>(result);
+}
+
+bool WebServer::StartSdSlideshow(const std::string& album, uint32_t interval_ms, size_t max_photos,
+                                 std::string& error) {
+    auto result = sd_web_->StartRandomSlideshow(album, interval_ms, max_photos);
+    error = result.message;
+    return static_cast<bool>(result);
+}
+
+void WebServer::StopSdSlideshow() { sd_web_->StopSlideshow(); }
+
 bool WebServer::Start(int port) {
     if (port < 1 || port > 65535 || server_ != nullptr) {
         ESP_LOGE(TAG, "Cong HTTP khong hop le hoac server da chay: %d", port);
@@ -524,6 +540,8 @@ bool WebServer::Start(int port) {
 }
 
 void WebServer::Stop() {
+    if (sd_web_)
+        sd_web_->StopSlideshow();
     if (server_) {
         sd_web_->StopTransfers();
         log_stream_->Disable(-1);

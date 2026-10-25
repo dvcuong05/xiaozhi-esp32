@@ -931,6 +931,16 @@ esp_err_t WebServer::ApiMoveHandler(httpd_req_t* req) {
             return ESP_FAIL;
         }
     }
+    const int duration_delay_ms =
+        delay_ms == 0 ? server->controller_.GetMotorConfig().delay_ms : delay_ms;
+    const auto requested_duration_ms = static_cast<long long>(std::abs(steps)) * duration_delay_ms;
+    if (requested_duration_ms > RobotDrive::kMaxRunTimeMs) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(
+            req, HTTPD_400_BAD_REQUEST,
+            "Lệnh di chuyển vượt giới hạn an toàn 10 giây; hãy giảm steps hoặc delay_ms");
+        return ESP_FAIL;
+    }
     bool started = direction_item == nullptr ? server->controller_.Step(steps, delay_ms)
                                              : server->controller_.Move(direction, steps, delay_ms);
     cJSON_Delete(root);

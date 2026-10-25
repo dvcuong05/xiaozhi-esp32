@@ -3,6 +3,7 @@
 #include "mcp_server.h"
 #include "robot_controller.h"
 #include "robot_drive.h"
+#include "sd_storage.h"
 
 #include <esp_log.h>
 #include <expected>
@@ -159,8 +160,27 @@ static ToolResult GetRobotStatus(mrkenddo::RobotController& controller, const Pr
     const bool connected = wifi.IsConnected();
     const std::string ip = connected ? wifi.GetIpAddress() : "";
     const bool moving = controller.IsRoutineRunning();
-    return "{\"wifi_connected\":" + std::string(connected ? "true" : "false") + ",\"ip\":\"" + ip +
-           "\",\"routine_running\":" + std::string(moving ? "true" : "false") + "}";
+    const bool mcp_connected = Application::GetInstance().IsDeviceBridgeConnected();
+    const auto sd = controller.Storage().GetStatus();
+    auto* status = cJSON_CreateObject();
+    if (status == nullptr)
+        return std::unexpected("Could not allocate robot status response");
+
+    cJSON_AddBoolToObject(status, "wifi_connected", connected);
+    cJSON_AddStringToObject(status, "ip", ip.c_str());
+    cJSON_AddBoolToObject(status, "routine_running", moving);
+    cJSON_AddBoolToObject(status, "mcp_server_connected", mcp_connected);
+    cJSON_AddBoolToObject(status, "sd_card_mounted", sd.state == "mounted");
+    cJSON_AddStringToObject(status, "sd_card_state", sd.state.c_str());
+    cJSON_AddStringToObject(status, "sd_card_message", sd.message.c_str());
+
+    char* json = cJSON_PrintUnformatted(status);
+    cJSON_Delete(status);
+    if (json == nullptr)
+        return std::unexpected("Could not encode robot status response");
+    std::string result(json);
+    cJSON_free(json);
+    return result;
 }
 
 // MCP Tool: Toggle chat state
@@ -392,7 +412,11 @@ void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
         });
     mcp.AddTool(
         "self.robot.get_status",
-        "Lấy trạng thái kết nối Wi-Fi, địa chỉ IP và robot có đang chạy chuyển động hay không.",
+        "Kiểm tra tình trạng robot khi người dùng hỏi. Trả về Wi-Fi/IP, chuyển động, kết nối "
+        "WSS bridge tới MCP server và trạng thái microSD. mcp_server_connected=true nghĩa là "
+        "robot đang giữ kết nối bridge tới server. sd_card_mounted=true nghĩa là thẻ đã mount "
+        "và dùng được; nếu false hãy đọc sd_card_state/message. Phần cứng không có chân "
+        "card-detect nên không thể khẳng định thẻ vật lý đã cắm khi trạng thái chưa mount.",
         PropertyList(), [&controller](const PropertyList& properties) {
             return GetRobotStatus(controller, properties);
         });

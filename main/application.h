@@ -77,6 +77,9 @@ public:
     void Run();
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
+    bool IsDeviceBridgeConnected() const {
+        return device_bridge_client_ != nullptr && device_bridge_client_->IsConnected();
+    }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
 
     /**

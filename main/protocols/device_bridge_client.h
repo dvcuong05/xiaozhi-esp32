@@ -1,6 +1,7 @@
 #ifndef DEVICE_BRIDGE_CLIENT_H_
 #define DEVICE_BRIDGE_CLIENT_H_
 
+#include <atomic>
 #include <functional>
 #include <string>
 
@@ -11,6 +12,7 @@ public:
 
     explicit DeviceBridgeClient(CommandHandler command_handler);
     void Start();
+    bool IsConnected() const { return connected_.load(std::memory_order_acquire); }
 
 private:
     static void TaskEntry(void* context);
@@ -19,6 +21,7 @@ private:
 
     CommandHandler command_handler_;
     bool started_ = false;
+    std::atomic_bool connected_{false};
 };
 
 #endif  // DEVICE_BRIDGE_CLIENT_H_

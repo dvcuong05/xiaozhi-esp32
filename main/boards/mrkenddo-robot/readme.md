@@ -589,7 +589,7 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.robot.be_lively` chay lap vo han chuoi tien/lui/quay trong task rieng cho den khi goi `self.robot.stop` hoac gui lenh di chuyen moi; `self.robot.dance` chay routine ngan co gioi han.
 - `self.robot.set_emotion`: doi mat TFT sang cac emotion custom nhu `happy`, `sad`, `surprised`, `sleepy` hoac `confused`.
 - `self.robot.set_oled_mode`: chon `clock`, `marquee`, `status` hoac `off` va luu mode vao NVS.
-- `self.robot.show_ip` va `self.robot.get_status`: hien/tra ve IP local va trang thai Wi-Fi, IP, routine.
+- `self.robot.show_ip` và `self.robot.get_status`: hiển thị IP local và kiểm tra Wi-Fi, IP, routine, kết nối WSS bridge tới MCP server cùng trạng thái microSD đã mount. `sd_card_mounted=true` nghĩa là thẻ SD sẵn sàng; board không có chân card-detect nên trạng thái chưa mount không xác nhận được thẻ vật lý có đang cắm hay không.
 - `self.robot.show_oled_text`: hien mot cau tuy chon bang marquee tren OLED trong thoi gian tam thoi, khong ghi de noi dung da luu. Vi du: "Hien tren OLED: Xin chao moi nguoi".
 - `self.robot.show_payment_qr`: hien ma QR tai khoan ngan hang tren TFT trong thoi gian tam thoi. Vi du: "Hien ma QR thanh toan".
 - `self.network.ip2qrcode`: hiện QR mở webserver theo IP Wi-Fi hiện tại, không thay QR ngân hàng.

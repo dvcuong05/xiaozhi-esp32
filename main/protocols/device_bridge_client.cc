@@ -145,10 +145,14 @@ void DeviceBridgeClient::Run() {
                 inbox->Push(data, length);
             }
         });
-        socket->OnDisconnected([disconnected]() { disconnected->store(true); });
-        socket->OnError([disconnected](const NetworkError& error) {
+        socket->OnDisconnected([this, disconnected]() {
+            disconnected->store(true);
+            connected_.store(false, std::memory_order_release);
+        });
+        socket->OnError([this, disconnected](const NetworkError& error) {
             ESP_LOGW(TAG, "WSS transport error: %s", error.ToString().c_str());
             disconnected->store(true);
+            connected_.store(false, std::memory_order_release);
         });
         socket->OnPong([last_pong](const char*, size_t) { last_pong->store(xTaskGetTickCount()); });
 
@@ -157,6 +161,9 @@ void DeviceBridgeClient::Run() {
         if (!connected) {
             ESP_LOGW(TAG, "WSS connect failed: %s", connected.error().ToString().c_str());
         } else {
+            connected_.store(socket->IsConnected() && !disconnected->load() &&
+                                 !inbox->failed.load(),
+                             std::memory_order_release);
             ESP_LOGI(TAG, "MCP WSS bridge connected");
             TickType_t last_ping = xTaskGetTickCount();
             while (socket->IsConnected() && !disconnected->load() && !inbox->failed.load()) {
@@ -181,6 +188,7 @@ void DeviceBridgeClient::Run() {
             }
         }
 
+        connected_.store(false, std::memory_order_release);
         socket->Close();
         socket.reset();
         inbox.reset();

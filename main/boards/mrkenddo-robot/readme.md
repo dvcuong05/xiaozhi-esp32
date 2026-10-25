@@ -19,7 +19,7 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 
 Xem [`docs/circuit_diagram.png`](docs/circuit_diagram.png) hoặc tại https://app.cirkitdesigner.com/project/68109f8c-2d1c-428a-bdca-f183fb424fa7 Firmware giả định motor A ở bên trái, motor B ở bên phải; sơ đồ mạch chỉ cho biết cặp dây, không xác nhận vị trí thực tế trên thân robot. Motor B đảo chiều theo mặc định để hai bánh cùng tiến khi bấm Forward. Nếu lắp motor trái/phải khác giả định, dùng hai ô Reverse trên web để hiệu chỉnh. Không đổi GPIO của board hiện có chỉ để hỗ trợ phần cứng khác; board identity ảnh hưởng OTA.
 
-TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Khi đang phát nhạc online/SD hoặc radio, chạm đôi dừng player tương ứng và đưa robot về `idle`. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot khởi động, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
+TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Khi phát danh sách album/ca sĩ từ SD, chạm đơn chuyển ngay sang bài kế trong cùng danh sách; chạm đơn khi phát track riêng, nhạc online hoặc radio không đổi bài. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Khi đang phát nhạc online/SD hoặc radio, chạm đôi dừng player tương ứng và đưa robot về `idle`. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot khởi động, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
 
 GPIO20 đồng thời là USB D+ của ESP32-S3. Biến thể này tắt USB Serial/JTAG và console USB phụ để dùng GPIO20 cho TTP223; tiếp tục nạp firmware/xem log qua cổng USB–UART. Không nối cổng USB native với máy tính trong lúc dùng cảm biến. Nếu cần khôi phục nạp qua USB native, tháo dây I/O của TTP223 khỏi GPIO20, giữ BOOT/GPIO0 khi reset rồi nạp bản firmware khác.
 
@@ -36,7 +36,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
 - `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10 thay cho nút giảm âm lượng GPIO39.
 - `GET /storage`: trang quản lý microSD; có liên kết từ dashboard chính. Dùng thẻ FAT32 để bring-up. Không có thẻ hoặc lỗi nguồn/dây sẽ báo lỗi trong trang này và log `RobotSD`, không làm firmware dừng boot. Firmware không tự format hay tự lặp mount liên tục.
-- Ảnh dùng root cố định `/robot/images/`; tạo album bằng thư mục con, ví dụ `/robot/images/Gia-dinh/` hoặc `/robot/images/Du-lich/`. Khi tải ảnh qua trang `/storage`, trình duyệt nhận ảnh đầu vào tối đa 5 MiB, áp dụng chiều EXIF, thu vừa cạnh dài 480 px và nén thành JPEG tối đa 512 KiB trước khi upload; ảnh trong suốt được ghép nền trắng. Tên file đầu ra đổi sang `.jpg`; file trùng tên sẽ bị từ chối. Chuyển đổi chạy trên máy mở trình duyệt, không dùng RAM robot. Chép file trực tiếp vào thẻ sẽ bỏ qua bước này. Trong `/storage`, file `.jpg`/`.jpeg` có nút `Xem TFT`. Qua chat, MCP `sd_photo_search` tìm theo tên file/album, `sd_photo_show` hiện ảnh cụ thể tối đa 120 giây, `sd_album_random` chiếu ngẫu nhiên tối đa 50 ảnh và `sd_album_stop` dừng/đóng ảnh. Index đường dẫn gọn được dựng lười khi tìm lần đầu, cấp phát khoảng 52 KiB trên PSRAM cho 256 ảnh và tự làm mới sau upload/xóa/tạo thư mục hoặc mount lại; không cache bitmap, không ghi catalog lên thẻ. Nếu vượt giới hạn, kết quả báo `truncated`. JPEG lưu trên thẻ giới hạn 512 KiB và 512 × 512 pixel. Màn hình ảnh được ưu tiên sau boot và audio visualizer, còn QR vẫn ở trên cùng.
+- Ảnh dùng root cố định `/robot/images/`; tạo album bằng thư mục con, ví dụ `/robot/images/Gia-dinh/` hoặc `/robot/images/Du-lich/`. Khi tải ảnh qua trang `/storage`, trình duyệt nhận ảnh đầu vào tối đa 5 MiB, áp dụng chiều EXIF, thu vừa cạnh dài 480 px và nén thành JPEG tối đa 512 KiB trước khi upload; ảnh trong suốt được ghép nền trắng. Tên file đầu ra đổi sang `.jpg`; file trùng tên sẽ bị từ chối. Chuyển đổi chạy trên máy mở trình duyệt, không dùng RAM robot. Chép file trực tiếp vào thẻ sẽ bỏ qua bước này. Trong `/storage`, file `.jpg`/`.jpeg` có nút `Xem TFT`; thư mục con trực tiếp của `/robot/images/` có nút `Trình chiếu album` chọn thứ tự tuần tự (theo tên đường dẫn, không lặp) hoặc ngẫu nhiên (xáo trộn, không lặp), đặt thời gian 5–60 giây mỗi ảnh (mặc định 15 giây), xem hết ảnh đã index rồi tự về mặt robot và nút `Dừng trình chiếu album`. Qua chat, MCP `sd_photo_search` tìm theo tên file/album, `sd_photo_show` hiện ảnh cụ thể tối đa 120 giây, `sd_album_random` chiếu ngẫu nhiên tối đa 50 ảnh và `sd_album_stop` dừng/đóng ảnh. Index đường dẫn gọn được dựng lười khi tìm lần đầu, cấp phát khoảng 52 KiB trên PSRAM cho 256 ảnh và tự làm mới sau upload/xóa/tạo thư mục hoặc mount lại; không cache bitmap, không ghi catalog lên thẻ. Nếu vượt giới hạn, kết quả báo `truncated`. JPEG lưu trên thẻ giới hạn 512 KiB và 512 × 512 pixel. Màn hình ảnh được ưu tiên sau boot và audio visualizer, còn QR vẫn ở trên cùng.
 - `GET /api/storage?op=status`: trạng thái `mounting/mounted/unmounted/error`, tổng dung lượng, chỗ trống đã đo và upload đang dở. `space_valid=false` sau thao tác ghi/xóa; bấm **Cập nhật dung lượng** để đo lại ở worker.
 - `GET /api/storage?op=list&path=/&offset=0`: tối đa 24 mục/trang, trả `more` và `next_offset`; tên UTF-8, đường dẫn tối đa 192 byte, mỗi thành phần tối đa 120 byte. Đường dẫn bắt đầu từ gốc thẻ, không nhận `..`, file ẩn, tên kết thúc bằng dấu chấm/khoảng trắng hoặc tên dành cho upload tạm.
 - `POST /api/storage?op=mount|unmount|refresh`: xếp yêu cầu vào worker SD; response là đã nhận lệnh, cần đọc `status` để biết hoàn tất. Chỉ tháo thẻ khi trạng thái là `unmounted`; không có chân card-detect nên chưa hỗ trợ tự nhận biết cắm/rút thẻ.
@@ -288,36 +288,136 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 
 ### Phát nhạc từ microSD bằng MCP
 
-Khi robot kết nối device-bridge WSS, MCP service cung cấp `sd_status`, `sd_search`,
-`sd_play` và `sd_stop`. Lệnh tìm kiếm duyệt tối đa 1.500 entry/300 file nhạc,
-trả tối đa 10 kết quả và đọc ID3v2.3/2.4 title/artist/album/genre trên MP3; nếu tag
-thiếu, tên file và cấu trúc thư mục vẫn được dùng để tìm. Có thể phân loại bằng
-tag genre hoặc tên thư mục (ví dụ `Remix/`, `Tru tinh/`). Không tạo catalog/cache
-chiếm dung lượng trên thẻ và không gửi file nhạc qua MCP/WSS.
+Nhạc được lưu **một bản duy nhất, trực tiếp trong `/robot/music/`**, ví dụ
+`/robot/music/Sơn Tùng M-TP - Em của ngày hôm qua.mp3`. Không cần thư mục ca sĩ,
+album hoặc thể loại. Firmware tự tạo `/robot/music` sau mount nếu thẻ ghi được.
+Index bỏ qua thư mục con, file ẩn, file rỗng và file upload tạm; file đã nằm ở nơi
+khác cần được người dùng chuyển vào folder này để tìm bằng MCP. Duyệt/phát file
+theo path qua trang quản lý thẻ vẫn dùng được như trước.
 
-Callback WSS chỉ sao chép frame vào hàng đợi giới hạn hai frame (tối đa 12 KiB
-mỗi frame). Task `device_bridge` có stack 12 KiB xử lý JSON, lệnh SD và ACK;
-không quét thư mục/đọc ID3 trên stack 4 KiB của `ssl_receive`. Hàng đợi riêng
-cho từng kết nối, tự giải phóng khi reconnect; nếu đầy hoặc thiếu bộ nhớ thì
-đóng/kết nối lại thay vì chạy lệnh ngay trong callback nhận mạng. Tìm nhạc
-duyệt bằng vòng lặp với trạng thái trên heap, tối đa tám cấp thư mục dưới gốc,
-không tăng stack theo độ sâu thư mục. Đây là bản sửa lỗi tràn stack khi gọi
-`sd_search`; cần thử lại lệnh tìm/phát liên tiếp trên thẻ thật sau khi flash.
-Build ESP-IDF 6.1 và kiểm tra định dạng của bản sửa đạt. Host suite đầy đủ chưa
-đạt do khóa thư mục tạm/encoding Windows, thiếu compiler host và token trong
-môi trường test; kiểm tra riêng pipeline variant robot với token giả chỉ dùng
-trong test đã đạt. Chưa coi kết quả build là xác nhận hết reboot trên thẻ thật.
+Luồng upload: chọn một hoặc nhiều file trên `/storage` → MP3/Ogg/Opus tự tải vào
+`/robot/music` → ghi đủ file tạm, sync và rename → đánh dấu index cần cập nhật →
+worker `robot_sd` đọc metadata và công bố catalog trong PSRAM. Ảnh và file khác
+vẫn tải vào thư mục đang mở. Webserver không giải mã nhạc hoặc đọc ID3 trong lúc
+nhận từng chunk HTTP. Chỉ file hoàn chỉnh mới được index; tên trùng vẫn bị từ chối.
 
-Luồng thao tác: chatbox gọi `sd_search` với tên bài/ca sĩ/thể loại, chọn kết quả
-phù hợp rồi gọi `sd_play` với `path` chính xác. Firmware kiểm tra path, tạo local
-audio input từ SD và đưa vào `Application::RequestLocalMedia`, dùng chung player
-MP3/Ogg Opus và TFT Audio Visualizer; dừng bằng `sd_stop`. Nếu kết quả báo
-`truncated=true`, hãy thu hẹp theo bài/thư mục hoặc artist/genre cụ thể. Quét có
-giới hạn để tránh giữ WSS quá lâu; file sau ngưỡng quét không có trong lần tìm đó.
+Metadata MP3 ưu tiên ID3v2.3/2.4 (`TIT2`, `TPE1`, `TALB`, `TCON`), có đọc
+UTF-8/Latin-1/UTF-16. Mỗi trường thiếu dùng tên file theo thứ tự:
+`Ca sĩ - Tên bài - Album - Thể loại.mp3`. Album/thể loại có thể bỏ trống; tên file
+chỉ có tên bài vẫn hợp lệ. Ví dụ `Lệ Quyên - Duyên phận -  - Trữ tình.mp3` cho
+phép tìm `artist=le quyen`, `genre=tru tinh` dù không có ID3. Thông tin không có
+trong tag hoặc tên file sẽ để trống; robot không tự đoán ca sĩ, album, thể loại.
+Tránh dùng dấu phân cách ` - ` bên trong từng trường. Ogg/Opus hiện dùng tên file,
+chưa đọc Vorbis comments; chưa đọc ID3v1/v2.2.
 
-Các MCP tool SD đi qua device-bridge WSS đã xác thực, không dùng HTTP LAN hay
-provider nhạc bên ngoài. Thẻ phải mounted; `sd_stop` cũng xóa yêu cầu phát đang
-chờ nếu có.
+Parser bỏ qua frame ảnh bìa bằng seek để đọc được text nằm sau ảnh; giới hạn
+tag 4 MiB, 256 frame và 1 KiB mỗi frame text. Tag có unsynchronisation/extended
+header, frame nén/mã hóa hoặc text vượt giới hạn sẽ dùng fallback tương ứng.
+Không đọc/cache ảnh bìa. Một số mã genre ID3 dạng số (0–79, ví dụ `(17)` là Rock)
+được chuẩn hóa khi tìm; giá trị gốc vẫn được trả trong metadata.
+
+Catalog chứa tối đa **512 bài**, cấp phát khoảng **360 KiB PSRAM**; lúc thay
+snapshot có thể cần khoảng gấp đôi. Worker quét tối đa 4096 entry trong folder
+phẳng sau mount và sau upload/xóa nhạc. Không ghi catalog xuống thẻ. Mất nguồn
+sẽ dựng lại sau mount. Nếu thiếu PSRAM hoặc lỗi đọc, trạng thái index là `error`
+và có thông báo; có thể yêu cầu cập nhật lại. Khi có file SD đang mở để phát
+hoặc upload chưa xong, việc cập nhật được hoãn; đóng file/hủy upload sẽ đánh thức
+worker. Khi idle, worker ngủ chờ notification, không quét thẻ định kỳ.
+
+Metadata sửa tay được lưu riêng trong sidecar `/robot/music/.metadata.json`, mỗi mục
+gắn với đường dẫn file và chỉ chứa override ca sĩ/album/thể loại. File này được
+hiển thị trong danh sách của trình quản lý thẻ nhớ. Khi mount hoặc
+cập nhật thư viện, worker đọc sidecar một lần rồi ghép theo thứ tự **override →
+ID3 → tên file** vào catalog RAM; các lần tìm kiếm/phát album/phát ca sĩ vẫn chỉ
+tra RAM. Lưu từ web cập nhật catalog hiện tại ngay và ghi sidecar qua file tạm,
+đồng bộ rồi đổi tên có backup. Nút **Khôi phục** xóa override của bài và dựng lại
+metadata từ ID3/tên file. Xóa một bài khỏi thư viện cũng xóa override tương ứng.
+
+
+`sd_search(query?, artist?, album?, genre?, limit=5)` tìm hoàn toàn trên snapshot
+RAM, không lấy mutex SD và không đọc metadata lại. Tìm không phân biệt hoa/thường,
+có dấu/không dấu tiếng Việt (kể cả dạng combining), chuẩn hóa dấu câu/khoảng trắng.
+Bộ lọc ca sĩ/album/thể loại kết hợp bằng AND. Genre có thể chứa nhiều giá trị,
+ví dụ `Pop; Rock`; tìm `rock` vẫn khớp. `nhạc trữ tình` khớp `Trữ tình`.
+Ưu tiên title trùng chính xác → bắt đầu bằng query → chứa query → artist →
+album/genre → tên file. Đồng điểm sắp theo path để kết quả ổn định. Query rỗng
+liệt kê tối đa 10 bài theo path; không tự phát ngẫu nhiên. Mỗi bộ lọc tối đa 96
+byte UTF-8. `truncated=true` nghĩa là còn kết quả hoặc catalog đã chạm giới hạn;
+thu hẹp bộ lọc không khôi phục bài chưa được index.
+
+Web có nhóm **Thư viện nhạc**: trạng thái/số bài, nút mở folder nhạc, bộ lọc
+theo tên/từ khóa, ca sĩ, album, thể loại và metadata đang thiếu; nút Phát theo
+kết quả và nút **Cập nhật thư viện**. Kết quả có thể phân trang 25 hoặc 50 bài.
+Bấm tiêu đề cột tên bài, ca sĩ, album, thể loại hoặc thời lượng để sắp xếp tăng/
+giảm dần; đồng điểm vẫn theo path để kết quả ổn định. Mặc định tìm kiếm xếp theo
+độ phù hợp. API tương ứng:
+
+Tra cứu album trên thẻ dùng `sd_search(query="", album="tên album")`; yêu cầu nghe
+cả album dùng MCP `sd_album_play(album="tên album")`; nghe toàn bộ nhạc của ca sĩ
+dùng `sd_artist_play(artist="tên ca sĩ")`. Robot phát danh sách khớp metadata theo
+thứ tự đường dẫn rồi tự chuyển bài sau khi track kết thúc. Album lấy từ
+ID3 `TALB` hoặc phần album trong quy ước tên file. Nếu thiếu metadata, robot không
+thể nhận diện album. `sd_play` vẫn phát một track; `sd_stop` dừng cả chuỗi album.
+Nếu catalog bị giới hạn 512 bài, phát album bị từ chối để tránh bỏ sót bài.
+
+- `GET /api/storage?op=music_player`: trả bài SD đang phát, vị trí `position_ms`
+  theo tiến độ audio ra loa và `duration_ms` lấy từ ID3 `TLEN` hoặc tính từ
+  frame MP3 nếu file không có `TLEN`.
+- Kết quả `music_search` và MCP `sd_search` cũng có `duration_ms`; chỉ bằng `0`
+  khi tag và thông tin frame/bitrate MP3 đều không đọc được.
+- `POST /api/storage?op=music_next`: chuyển theo path kế tiếp trong catalog; hết
+  danh sách thì quay về bài đầu. Chỉ nhận khi đang phát nhạc SD.
+- `GET /api/storage?op=music_search&query=...&artist=...&album=...&genre=...&offset=0&limit=25&sort=relevance&direction=asc&missing=...`:
+  hỗ trợ offset, limit 1-50, `sort=relevance|title|artist|album|genre|duration`,
+  `direction=asc|desc`, và `missing=any|artist|album|genre` (bỏ trống để lấy mọi
+  bài). Trả `results`, `offset`, `limit`, `total` trong các bài đã index,
+  `has_more` và `catalog_truncated`; MCP `sd_search` vẫn giữ giới hạn riêng.
+- `POST /api/storage?op=music_reindex`: yêu cầu dựng lại bất đồng bộ; nếu đang
+  phát SD thì chờ đến khi dừng. Dùng sau khi chép/chỉnh file trực tiếp trên thẻ
+  (mount lại cũng dựng index).
+- `POST /api/storage?op=music_metadata&path=...&artist=...&album=...&genre=...`:
+  lưu ba trường sửa tay, cho phép để trống từng trường; catalog RAM cập nhật ngay.
+- `POST /api/storage?op=music_metadata_reset&path=...`: bỏ override của bài và
+  dựng lại index từ ID3/tên file. Bảng thư viện có nút **Lưu metadata** và
+  **Khôi phục** cho từng bài.
+
+
+
+- HTTP status và MCP `sd_status` có thêm `music_root`, `music_index_state`
+  (`unavailable/dirty/indexing/ready/error`), `music_index_message`, `music_tracks`,
+  `music_truncated`, `music_generation`. Generation tăng sau mỗi lần index thành
+  công. Khi chưa `ready`, search báo bận thay vì trả catalog cũ.
+- Browser chỉ poll có giới hạn sau yêu cầu cập nhật/upload; không poll liên tục
+  khi idle. Bấm Làm mới để kiểm tra lại khi cần.
+
+Chatbox dùng MCP `sd_search` → `sd_play` cho một track, `sd_album_play` cho cả album,
+hoặc `sd_artist_play` cho toàn bộ nhạc theo ca sĩ; `sd_stop` dừng chuỗi phát. Lệnh
+`sd.album.play`/`sd.artist.play` chạy qua device-bridge WSS
+đã xác thực; audio vẫn đọc trực tiếp từ thẻ nhớ;
+backend chỉ chuyển lệnh và metadata, không nhận byte audio. `sd_play` và nút Phát
+web lấy title/artist/album từ catalog để hiển thị TFT; metadata title/artist do
+MCP cung cấp sẽ ghi đè nếu khác rỗng. `queued` chỉ xác nhận xếp lệnh. Player chung
+`SdAudioInput → NotifyPlayer → AudioStreamDecoder → AudioService` đọc trực tiếp
+MP3/Ogg Opus, giữ visualizer và cơ chế dừng/hủy hiện có. Web player hiển thị
+thời gian hiện tại/thời lượng và thanh tiến trình. Index ưu tiên ID3 `TLEN`, sau
+đó dùng số frame Xing/Info, bitrate CBR hoặc mẫu bitrate rải trên file VBR để
+tính thời lượng mà không giải mã toàn bộ audio. Nút **Bài tiếp theo** chọn path kế tiếp theo thứ tự từ điển,
+quay về bài đầu sau bài cuối; không tự phát bài kế tiếp khi track kết thúc.
+
+Callback WSS chỉ sao chép frame vào queue có giới hạn; tìm catalog chạy trên task
+`device_bridge`, còn đọc metadata chạy ở worker SD. Việc index không chạy khi
+SD đang phát, tránh giữ mutex I/O làm đói reader âm thanh. Cần kiểm tra trên robot:
+mount/thẻ rỗng, upload nhiều bài, tag/filename fallback, tìm theo từng bộ lọc
+có dấu/không dấu, tìm khi đang phát, reindex rồi dừng, xóa và mount lại, thẻ vượt
+512 bài, báo lỗi PSRAM/SD. Build thành công không xác nhận âm thanh thực tế.
+
+Kiểm tra ngày 25/10/2026: variant `mrkenddo-robot`, ESP-IDF 6.1, vi-VN,
+wake-word `wn9_hilili_tts` build thành công; binary `0x2f4dd0` byte, OTA slot
+còn `0xfb230` byte (25%). Kiểm tra JavaScript bằng DOM/fetch giả lập đạt cho
+bốn bộ lọc, render metadata dạng text, phát đúng path, upload `.MP3` vào folder
+cố định và chờ generation mới khi reindex. Kiểm tra discovery/call MCP phía
+service đạt (1 test); clang-format và diff whitespace đạt. Chưa flash robot,
+chưa kiểm tra parser với bộ file SD thực tế hoặc đo thời gian tìm/hụt tiếng.
 
 Luồng đổi chế độ OLED từ web và từ giọng nói đều là
 `HTTP/MCP → RobotController → RobotSettings → Application::Schedule → SecondaryDisplay`.

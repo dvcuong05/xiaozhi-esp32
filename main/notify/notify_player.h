@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio_service.h"
+#include "media/media_metadata.h"
 
 struct NotifySubtitle {
     uint32_t start_ms = 0;
@@ -43,18 +44,25 @@ public:
     using SubtitleCallback = std::function<void(uint32_t playback_id, const std::string& text)>;
     using FinishedCallback = std::function<void(uint32_t playback_id, bool success)>;
     using InputFactory = std::function<std::unique_ptr<NotifyAudioInput>()>;
+    struct PlaybackStatus {
+        bool active = false;
+        MediaPlaybackMetadata metadata;
+        uint32_t position_ms = 0;
+    };
 
     explicit NotifyPlayer(AudioService& audio_service);
     ~NotifyPlayer();
 
     bool Start(std::string audio_url, std::vector<NotifySubtitle> subtitles, uint32_t playback_id,
                SubtitleCallback subtitle_callback, FinishedCallback finished_callback,
-               StreamPlaybackOptions options = {}, InputFactory input_factory = {});
+               StreamPlaybackOptions options = {}, InputFactory input_factory = {},
+               MediaPlaybackMetadata metadata = {});
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
     bool IsActive(uint32_t playback_id = 0) const;
     bool IsBusy() const;
+    PlaybackStatus GetPlaybackStatus() const;
 
 private:
     AudioService& audio_service_;
@@ -66,6 +74,7 @@ private:
     FinishedCallback finished_callback_;
     StreamPlaybackOptions options_;
     InputFactory input_factory_;
+    MediaPlaybackMetadata metadata_;
     TaskHandle_t task_handle_ = nullptr;
     uint32_t playback_id_ = 0;
     uint32_t last_playback_position_ms_ = 0;

@@ -19,6 +19,8 @@ public:
     SdStorage::Result ShowPhoto(const std::string& path, uint32_t duration_ms = 30000);
     SdStorage::Result StartRandomSlideshow(const std::string& album, uint32_t interval_ms,
                                            size_t max_photos);
+    SdStorage::Result StartAlbumSlideshow(const std::string& album, uint32_t interval_ms,
+                                          bool random_order, size_t& photo_count, bool& truncated);
     void StopSlideshow();
 
 private:
@@ -34,6 +36,9 @@ private:
     std::string slideshow_album_;
     uint32_t slideshow_interval_ms_ = 15000;
     size_t slideshow_max_photos_ = 10;
+    bool slideshow_all_photos_ = false;
+    bool slideshow_random_order_ = true;
+    SdStorage::AlbumPhotoSequence slideshow_sequence_;
     struct Job {
         SdWebServer* owner;
         httpd_req_t* request;

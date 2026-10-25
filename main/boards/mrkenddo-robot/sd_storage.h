@@ -5,6 +5,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -13,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "media/media_metadata.h"
 #include "notify/notify_player.h"
 
 namespace mrkenddo {
@@ -35,6 +37,11 @@ public:
         bool space_valid = false;
         std::string upload_path;
         uint64_t uploaded_bytes = 0;
+        std::string music_index_state = "unavailable";
+        std::string music_index_message;
+        size_t music_tracks = 0;
+        bool music_truncated = false;
+        uint32_t music_generation = 0;
     };
     struct Entry {
         std::string name;
@@ -53,6 +60,7 @@ public:
         std::string album;
         std::string genre;
         uint64_t size = 0;
+        uint32_t duration_ms = 0;
     };
     struct Photo {
         std::string path;
@@ -60,11 +68,19 @@ public:
         std::string album;
         uint64_t size = 0;
     };
+    static constexpr size_t kMaxPhotoIndexEntries = 256;
+    struct AlbumPhotoSequence {
+        std::array<uint16_t, kMaxPhotoIndexEntries> indexes{};
+        size_t count = 0;
+        bool truncated = false;
+    };
     static constexpr size_t kChunkBytes = 4096;
     // Larger HTTP chunks reduce request and worker-task overhead on the LAN.
     static constexpr size_t kUploadChunkBytes = 1024 * 1024;
     static constexpr uint64_t kMaxFileBytes = 1024ULL * 1024 * 1024;
     static constexpr size_t kPageSize = 24;
+    static constexpr char kMusicRoot[] = "/robot/music";
+    static constexpr size_t kMaxMusicTracks = 512;
 
     ~SdStorage();
     void Start();
@@ -73,10 +89,19 @@ public:
     Result List(const std::string& path, size_t offset, Listing& listing);
     Result SearchMusic(const std::string& query, const std::string& artist,
                        const std::string& album, const std::string& genre, size_t limit,
-                       std::vector<MusicTrack>& tracks, bool& truncated);
+                       std::vector<MusicTrack>& tracks, bool& truncated, size_t offset = 0,
+                       const std::string& sort = "relevance", bool descending = false,
+                       const std::string& missing = "", size_t* total_matches = nullptr);
+    Result GetAlbumMusicTracks(const std::string& album, std::vector<MusicTrack>& tracks);
+    Result GetArtistMusicTracks(const std::string& artist, std::vector<MusicTrack>& tracks);
+    Result NextMusicTrack(const std::string& current_path, MusicTrack& track) const;
+    Result SetMusicMetadata(const std::string& path, const std::string& artist,
+                            const std::string& album, const std::string& genre, bool reset);
     Result SearchPhotos(const std::string& query, const std::string& album, size_t limit,
                         std::vector<Photo>& photos, bool& truncated);
     Result RandomPhoto(const std::string& album, Photo& photo);
+    Result GetAlbumPhotoSequence(const std::string& album, AlbumPhotoSequence& sequence);
+    Result GetPhotoByIndex(uint16_t index, Photo& photo);
     Result ReadPhotoJpeg(const std::string& path, uint8_t*& data, size_t& size, size_t& width,
                          size_t& height);
     Result MakeDirectory(const std::string& path);
@@ -88,6 +113,7 @@ public:
     Result ReadJpeg(const std::string& path, uint8_t*& data, size_t& size, size_t& width,
                     size_t& height);
     Result CreateAudioInput(const std::string& path, NotifyPlayer::InputFactory& factory);
+    void GetMusicMetadata(const std::string& path, MediaPlaybackMetadata& metadata) const;
     Result OpenAudioFile(const std::string& path, FILE*& file);
     bool ReadAudioFile(FILE* file, char* buffer, size_t capacity, size_t& bytes_read);
     void CloseAudioFile(FILE* file);
@@ -112,6 +138,26 @@ private:
     size_t photo_count_ = 0;
     bool photo_index_valid_ = false;
     bool photo_index_truncated_ = false;
+    struct MusicIndexEntry {
+        char path[193];
+        char title[129];
+        char artist[129];
+        char album[129];
+        char genre[129];
+        uint64_t size;
+        uint32_t duration_ms;
+    };
+    mutable std::mutex music_mutex_;
+    MusicIndexEntry* music_index_ = nullptr;
+    size_t music_count_ = 0;
+    bool music_dirty_ = true;  // Protected by io_mutex_.
+
+    void BuildMusicIndex();       // Worker only, io_mutex_ held, no active SD reader.
+    void InvalidateMusicIndex();  // io_mutex_ held.
+    void ApplyMusicMetadataOverrides(MusicIndexEntry* entries, size_t count, bool& warning);
+    Result WriteMusicMetadataOverrides(const std::string& path, const std::string& artist,
+                                       const std::string& album, const std::string& genre,
+                                       bool reset);
 
     static void Worker(void* context);
     void Mount();

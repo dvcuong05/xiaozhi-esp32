@@ -10,6 +10,8 @@ struct MediaPlaybackMetadata {
     std::string artist;
     std::string album;
     std::string station;
+    // Set for local files so board UIs can identify and control SD playback.
+    std::string source_path;
     uint32_t duration_ms = 0;
 };
 

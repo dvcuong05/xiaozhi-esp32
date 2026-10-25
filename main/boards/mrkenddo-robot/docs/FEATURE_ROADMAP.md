@@ -13,13 +13,22 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
 
 ## Planned features
+
+- [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo path
+      vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
+      tìm kiếm và phát playlist vẫn tra catalog RAM, có thao tác khôi phục metadata.
+- [x] Player nhạc SD trên web: index thời lượng ID3 `TLEN` hoặc tính từ frame
+      MP3 khi thiếu tag, hiển thị bài
+      đang phát/vị trí thực tế/thời lượng/thanh tiến trình và chuyển bài kế tiếp;
+      catalog chỉ lặp về bài đầu sau bài cuối. Chưa xác nhận trên robot thật.
 - [x] Nâng cấu hình N16R8 lên flash 16 MiB: CSV riêng của board, NVS 64 KiB,
       hai OTA slot 3,9375 MiB và assets 8 MiB; hướng dẫn chuyển lần đầu qua
       USB/serial, backup flash và dọn phần mở rộng NVS. Cần xác nhận giữ cấu hình,
       boot/assets và OTA/rollback trên robot thật.
 - [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module đã nhận thẻ khi VCC được chuyển sang 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
 - [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
-- [x] MicroSD đợt 3: expose `sd_status`, `sd_search`, `sd_play`, `sd_stop` qua MCP service/device WSS; tìm MP3 theo ID3v2 title/artist/album/genre và fallback folder/file, phát bằng player local dùng chung. Quét/kết quả có giới hạn, không tạo catalog trên thẻ.
+- [x] MicroSD đợt 3: `sd_status`, `sd_search`, `sd_play`, `sd_album_play`, `sd_artist_play`, `sd_stop` qua MCP/device WSS; thư viện phẳng `/robot/music`, upload nhạc tự vào folder này, ID3v2.3/2.4 ưu tiên và fallback tên file `Ca sĩ - Tên bài - Album - Thể loại`. Catalog tối đa 512 bài trên PSRAM dựng sau mount/upload/xóa; hoãn index khi phát SD. Tìm tên bài/ca sĩ/album/thể loại có dấu hoặc không dấu, xếp hạng ổn định; web có bộ lọc, trạng thái index và nút cập nhật. Không ghi catalog lên thẻ. Cần kiểm tra trên robot thật.
+- [x] Duyệt thư viện nhạc lớn trên web: API tìm kiếm trả tổng số kết quả và phân trang offset/limit; giao diện chọn 25/50 bài mỗi trang, sắp xếp theo tên bài/ca sĩ/album/thể loại/thời lượng và lọc bài thiếu metadata. Chỉ đọc catalog RAM, không quét thẻ mỗi lần đổi trang.
 - [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
     spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
     không bật vì boot/beep/thông báo/TTS. Dừng media thì khôi phục mắt robot.
@@ -35,10 +44,11 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
 - [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
+- [x] Chạm đơn chuyển bài kế tiếp trong danh sách album/ca sĩ đang phát từ SD; chỉ chuyển trong đúng playlist. Cần kiểm tra thao tác trên robot thật.
 - [ ] Kết nối API và hiện camera giao thông HCM
 - [ ] Stream live television and support config from webserver
 - [ ] Feature ask chatbox to set and weak the alarm
-- [ ] Tạm hoãn theo yêu cầu: chuyển bài và pause bằng TTP223; dừng nhạc/radio bằng double-tap đã triển khai ở trên.
+- [ ] Tạm hoãn pause bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
@@ -107,7 +117,7 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       cung cấp cách xóa dữ liệu.
 - [x] **P2 - Xem ảnh từ microSD trên TFT:** `/robot/images/` làm root cố định,
       thư mục con là album. Index lazy trên PSRAM tối đa 256 ảnh, làm mới sau thay
-      đổi file/mount; MCP hỗ trợ tìm ảnh, hiện JPEG, trình chiếu ngẫu nhiên có
+      đổi file/mount; MCP hỗ trợ tìm ảnh, hiện JPEG, trình chiếu ngẫu nhiên có giới hạn và dừng; web /storage cho album chọn tuần tự hoặc ngẫu nhiên không lặp, thời gian mỗi ảnh 5–60 giây, tự kết thúc và có nút dừng. Uploader web tối ưu ảnh ngay trên trình duyệt;
       giới hạn và dừng. Uploader web tối ưu ảnh ngay trên trình duyệt (đầu vào tối
       đa 5 MiB, cạnh dài 480 px, JPEG đầu ra tối đa 512 KiB); firmware vẫn giữ
       giới hạn giải mã 512 KiB/512 × 512 và giải mã ngoài task giao diện. Cần xác

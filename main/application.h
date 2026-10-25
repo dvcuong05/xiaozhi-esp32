@@ -123,7 +123,9 @@ public:
     void RequestNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void RequestMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                       std::vector<NotifySubtitle> subtitles);
-    void RequestLocalMedia(MediaPlaybackMetadata metadata, NotifyPlayer::InputFactory input);
+    void RequestLocalMedia(MediaPlaybackMetadata metadata, NotifyPlayer::InputFactory input,
+                           NotifyPlayer::FinishedCallback finished_callback = {});
+    NotifyPlayer::PlaybackStatus GetLocalMediaPlaybackStatus() const;
     void RequestStopNotification();
     void RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata = {});
     void RequestStopMedia();
@@ -183,6 +185,7 @@ private:
     MediaPlaybackMetadata pending_media_metadata_;
     std::vector<NotifySubtitle> pending_media_subtitles_;
     NotifyPlayer::InputFactory pending_media_input_;
+    NotifyPlayer::FinishedCallback pending_media_finished_callback_;
     bool pending_media_local_ = false;
     AudioPlaybackSource finite_audio_source_ = AudioPlaybackSource::Notification;
     std::unique_ptr<Ota> ota_;
@@ -241,13 +244,16 @@ private:
     void StartNotification(std::string audio_url, std::vector<NotifySubtitle> subtitles);
     void StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                     std::vector<NotifySubtitle> subtitles,
-                    NotifyPlayer::InputFactory input_factory = {});
+                    NotifyPlayer::InputFactory input_factory = {},
+                    NotifyPlayer::FinishedCallback finished_callback = {});
     void StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                           AudioPlaybackSource source, MediaPlaybackMetadata metadata,
-                          NotifyPlayer::InputFactory input_factory = {});
+                          NotifyPlayer::InputFactory input_factory = {},
+                          NotifyPlayer::FinishedCallback finished_callback = {});
     void QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                     std::vector<NotifySubtitle> subtitles,
-                    NotifyPlayer::InputFactory input_factory = {});
+                    NotifyPlayer::InputFactory input_factory = {},
+                    NotifyPlayer::FinishedCallback finished_callback = {});
     bool HandleStreamPlaybackCommand(const cJSON* root, std::string* error);
     void TryStartPendingMedia();
     void StopNotification();

@@ -25,9 +25,128 @@
 
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #define TAG "MRKENDDO_ROBOT"
+
+namespace {
+using SdMusicTrack = mrkenddo::SdStorage::MusicTrack;
+
+class SdMusicPlaylistSession : public std::enable_shared_from_this<SdMusicPlaylistSession> {
+public:
+    SdMusicPlaylistSession(mrkenddo::SdStorage& storage, Application& application,
+                           std::vector<SdMusicTrack> tracks)
+        : storage_(storage), application_(application), tracks_(std::move(tracks)) {}
+
+    mrkenddo::SdStorage::Result Start() {
+        uint32_t generation;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (tracks_.empty())
+                return {mrkenddo::SdStorage::Code::NotFound, "Danh sách phát đang trống."};
+            active_ = true;
+            current_index_ = 0;
+            generation = ++generation_;
+        }
+        return QueueTrack(generation, 0);
+    }
+
+    size_t TrackCount() const { return tracks_.size(); }
+
+    void Cancel() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_ = false;
+        ++generation_;
+    }
+
+    bool SkipNext(const std::string& current_path) {
+        size_t next_index;
+        uint32_t generation;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!active_ || current_index_ + 1 >= tracks_.size() ||
+                tracks_[current_index_].path != current_path) {
+                return false;
+            }
+            next_index = ++current_index_;
+            generation = ++generation_;
+        }
+
+        if (auto result = QueueTrack(generation, next_index); !result) {
+            ESP_LOGE(TAG, "Could not skip to SD track: %s", result.message.c_str());
+            return false;
+        }
+        return true;
+    }
+
+private:
+    mrkenddo::SdStorage& storage_;
+    Application& application_;
+    std::vector<SdMusicTrack> tracks_;
+    std::mutex mutex_;
+    size_t current_index_ = 0;
+    uint32_t generation_ = 0;
+    bool active_ = false;
+
+    mrkenddo::SdStorage::Result QueueTrack(uint32_t generation, size_t index) {
+        SdMusicTrack track;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!active_ || generation_ != generation || current_index_ != index ||
+                index >= tracks_.size()) {
+                return {mrkenddo::SdStorage::Code::Busy, "Danh sách phát đã thay đổi."};
+            }
+            track = tracks_[index];
+        }
+
+        NotifyPlayer::InputFactory input;
+        if (auto result = storage_.CreateAudioInput(track.path, input); !result) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (generation_ == generation)
+                active_ = false;
+            ESP_LOGE(TAG, "SD sequence stopped at %s: %s", track.path.c_str(),
+                     result.message.c_str());
+            return result;
+        }
+
+        MediaPlaybackMetadata metadata;
+        storage_.GetMusicMetadata(track.path, metadata);
+        auto self = shared_from_this();
+        auto finished = [self, generation, index](uint32_t, bool success) {
+            self->OnTrackFinished(generation, index, success);
+        };
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!active_ || generation_ != generation || current_index_ != index)
+                return {mrkenddo::SdStorage::Code::Busy, "Danh sách phát đã bị thay thế."};
+            application_.RequestLocalMedia(std::move(metadata), std::move(input),
+                                           std::move(finished));
+        }
+        return {};
+    }
+
+    void OnTrackFinished(uint32_t generation, size_t index, bool success) {
+        size_t next_index;
+        uint32_t next_generation;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!active_ || generation_ != generation || current_index_ != index)
+                return;
+            if (!success || index + 1 >= tracks_.size()) {
+                active_ = false;
+                return;
+            }
+            next_index = ++current_index_;
+            next_generation = ++generation_;
+        }
+
+        if (auto result = QueueTrack(next_generation, next_index); !result)
+            ESP_LOGE(TAG, "SD playlist ended: %s", result.message.c_str());
+    }
+};
+}  // namespace
 
 class MrkenDDoRobot : public WifiBoard {
 private:
@@ -40,6 +159,8 @@ private:
     mrkenddo::RobotSettings settings_;
     mrkenddo::SecondaryDisplay secondary_display_{settings_};
     mrkenddo::SdStorage sd_storage_;
+    std::mutex sd_playlist_mutex_;
+    std::weak_ptr<SdMusicPlaylistSession> sd_playlist_;
     std::unique_ptr<mrkenddo::RobotController> controller_;
     WebServer* web_server_ = nullptr;
     bool web_server_started_ = false;
@@ -133,12 +254,24 @@ private:
             GetDisplay()->ShowNotification(Lang::Strings::MUTED);
         });
 
-        // The button component handles debounce and waits for the double-click
-        // window before emitting a single click. Its callbacks run off the main
-        // application task, so UI and conversation actions are scheduled there.
+        // The button component waits for the double-click window before emitting
+        // a single click. Keep playlist/player changes on the application task.
         touch_button_.OnClick([this]() {
             Application::GetInstance().Schedule([this]() {
                 auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateNotifying) {
+                    const auto playback = app.GetLocalMediaPlaybackStatus();
+                    if (!playback.active)
+                        return;
+                    std::shared_ptr<SdMusicPlaylistSession> playlist;
+                    {
+                        std::lock_guard<std::mutex> lock(sd_playlist_mutex_);
+                        playlist = sd_playlist_.lock();
+                    }
+                    if (playlist && playlist->SkipNext(playback.metadata.source_path))
+                        ESP_LOGI(TAG, "Touch skipped to the next SD playlist track");
+                    return;
+                }
                 if (app.GetDeviceState() != kDeviceStateIdle || controller_ == nullptr) {
                     return;
                 }
@@ -161,16 +294,18 @@ private:
             });
         });
 
-        touch_button_.OnDoubleClick([]() {
+        touch_button_.OnDoubleClick([this]() {
             auto& app = Application::GetInstance();
             const auto state = app.GetDeviceState();
             if (state == kDeviceStateRadio) {
+                ClearSdPlaylist();
                 app.RequestStopRadio();
                 return;
             }
             if (state == kDeviceStateNotifying) {
                 // Stops online or local media only; RequestStopMedia leaves
                 // unrelated notification sounds alone.
+                ClearSdPlaylist();
                 app.RequestStopMedia();
                 return;
             }
@@ -194,6 +329,23 @@ private:
                 drive_->Stop();
             }
         });
+    }
+
+    void SetSdPlaylist(const std::shared_ptr<SdMusicPlaylistSession>& playlist) {
+        std::lock_guard<std::mutex> lock(sd_playlist_mutex_);
+        if (auto previous = sd_playlist_.lock(); previous && previous != playlist)
+            previous->Cancel();
+        sd_playlist_ = playlist;
+    }
+
+    void ClearSdPlaylist(const std::shared_ptr<SdMusicPlaylistSession>& expected = nullptr) {
+        std::lock_guard<std::mutex> lock(sd_playlist_mutex_);
+        auto current = sd_playlist_.lock();
+        if (!expected || current == expected) {
+            if (current)
+                current->Cancel();
+            sd_playlist_.reset();
+        }
     }
 
     void ShowIpAddress() {
@@ -301,6 +453,14 @@ public:
             cJSON_AddStringToObject(response, "message", status.message.c_str());
             cJSON_AddNumberToObject(response, "free_bytes", static_cast<double>(status.free_bytes));
             cJSON_AddBoolToObject(response, "space_valid", status.space_valid);
+            cJSON_AddStringToObject(response, "music_root", mrkenddo::SdStorage::kMusicRoot);
+            cJSON_AddStringToObject(response, "music_index_state",
+                                    status.music_index_state.c_str());
+            cJSON_AddStringToObject(response, "music_index_message",
+                                    status.music_index_message.c_str());
+            cJSON_AddNumberToObject(response, "music_tracks", status.music_tracks);
+            cJSON_AddBoolToObject(response, "music_truncated", status.music_truncated);
+            cJSON_AddNumberToObject(response, "music_generation", status.music_generation);
             accepted = true;
         } else if (command == "sd.search") {
             auto get_text = [&](const char* key, size_t max, std::string& value) {
@@ -348,6 +508,7 @@ public:
                 cJSON_AddStringToObject(item, "artist", track.artist.c_str());
                 cJSON_AddStringToObject(item, "album", track.album.c_str());
                 cJSON_AddStringToObject(item, "genre", track.genre.c_str());
+                cJSON_AddNumberToObject(item, "duration_ms", track.duration_ms);
                 cJSON_AddNumberToObject(item, "size", static_cast<double>(track.size));
                 cJSON_AddItemToArray(results, item);
             }
@@ -461,6 +622,66 @@ public:
             web_server_->StopSdSlideshow();
             cJSON_AddStringToObject(response, "status", "stopped");
             accepted = true;
+        } else if (command == "sd.album.play") {
+            const cJSON* album_json = cJSON_GetObjectItemCaseSensitive(root, "album");
+            if (!cJSON_IsString(album_json) || !album_json->valuestring ||
+                std::strlen(album_json->valuestring) == 0 ||
+                std::strlen(album_json->valuestring) > 96) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("sd.album.play requires an album name");
+            }
+            std::vector<mrkenddo::SdStorage::MusicTrack> album_tracks;
+            auto search = sd_storage_.GetAlbumMusicTracks(album_json->valuestring, album_tracks);
+            if (!search) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(search.message.c_str());
+            }
+            auto playlist = std::make_shared<SdMusicPlaylistSession>(
+                sd_storage_, Application::GetInstance(), std::move(album_tracks));
+            SetSdPlaylist(playlist);
+            auto play = playlist->Start();
+            if (!play) {
+                ClearSdPlaylist(playlist);
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(play.message.c_str());
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddStringToObject(response, "album", album_json->valuestring);
+            cJSON_AddNumberToObject(response, "tracks", playlist->TrackCount());
+            accepted = true;
+        } else if (command == "sd.artist.play") {
+            const cJSON* artist_json = cJSON_GetObjectItemCaseSensitive(root, "artist");
+            if (!cJSON_IsString(artist_json) || !artist_json->valuestring ||
+                std::strlen(artist_json->valuestring) == 0 ||
+                std::strlen(artist_json->valuestring) > 96) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("sd.artist.play requires an artist name");
+            }
+            std::vector<mrkenddo::SdStorage::MusicTrack> artist_tracks;
+            auto search = sd_storage_.GetArtistMusicTracks(artist_json->valuestring, artist_tracks);
+            if (!search) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(search.message.c_str());
+            }
+            auto playlist = std::make_shared<SdMusicPlaylistSession>(
+                sd_storage_, Application::GetInstance(), std::move(artist_tracks));
+            SetSdPlaylist(playlist);
+            auto play = playlist->Start();
+            if (!play) {
+                ClearSdPlaylist(playlist);
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject(play.message.c_str());
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddStringToObject(response, "artist", artist_json->valuestring);
+            cJSON_AddNumberToObject(response, "tracks", playlist->TrackCount());
+            accepted = true;
         } else if (command == "sd.play") {
             const cJSON* path_json = cJSON_GetObjectItemCaseSensitive(root, "path");
             if (!cJSON_IsString(path_json) || !path_json->valuestring ||
@@ -488,16 +709,18 @@ public:
                 cJSON_Delete(root);
                 return reject("sd.play metadata is invalid or too long");
             }
-            metadata.title = cJSON_IsString(title) && title->valuestring
-                                 ? title->valuestring
-                                 : path.substr(path.find_last_of('/') + 1);
-            if (cJSON_IsString(artist) && artist->valuestring)
+            sd_storage_.GetMusicMetadata(path, metadata);
+            ClearSdPlaylist();
+            if (cJSON_IsString(title) && title->valuestring && title->valuestring[0])
+                metadata.title = title->valuestring;
+            if (cJSON_IsString(artist) && artist->valuestring && artist->valuestring[0])
                 metadata.artist = artist->valuestring;
             Application::GetInstance().RequestLocalMedia(std::move(metadata), std::move(input));
             cJSON_AddStringToObject(response, "status", "queued");
             cJSON_AddStringToObject(response, "path", path.c_str());
             accepted = true;
         } else if (command == "sd.stop") {
+            ClearSdPlaylist();
             Application::GetInstance().RequestStopMedia();
             cJSON_AddStringToObject(response, "status", "queued");
             accepted = true;

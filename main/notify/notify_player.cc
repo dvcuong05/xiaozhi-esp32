@@ -34,7 +34,7 @@ NotifyPlayer::~NotifyPlayer() { Stop(); }
 bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                          uint32_t playback_id, SubtitleCallback subtitle_callback,
                          FinishedCallback finished_callback, StreamPlaybackOptions options,
-                         InputFactory input_factory) {
+                         InputFactory input_factory, MediaPlaybackMetadata metadata) {
     if (playback_id == 0 || (!input_factory && !IsSupportedUrl(audio_url))) {
         return false;
     }
@@ -56,6 +56,7 @@ bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subt
         finished_callback_ = std::move(finished_callback);
         options_ = options;
         input_factory_ = std::move(input_factory);
+        metadata_ = std::move(metadata);
         playback_id_ = playback_id;
         last_playback_position_ms_ = 0;
         underrun_count_ = 0;
@@ -100,6 +101,11 @@ bool NotifyPlayer::IsActive(uint32_t playback_id) const {
 bool NotifyPlayer::IsBusy() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return active_ || worker_running_;
+}
+
+NotifyPlayer::PlaybackStatus NotifyPlayer::GetPlaybackStatus() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {active_, metadata_, last_playback_position_ms_};
 }
 
 bool NotifyPlayer::IsCancelled(uint32_t playback_id) const {

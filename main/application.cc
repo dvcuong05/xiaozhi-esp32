@@ -1578,16 +1578,18 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
 
 void Application::StartMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                              std::vector<NotifySubtitle> subtitles,
-                             NotifyPlayer::InputFactory input_factory) {
+                             NotifyPlayer::InputFactory input_factory,
+                             NotifyPlayer::FinishedCallback finished_callback) {
     ESP_LOGI(TAG, "Media start title=%s artist=%s lyrics=%u", metadata.title.c_str(),
              metadata.artist.c_str(), static_cast<unsigned>(subtitles.size()));
     StartFiniteAudio(std::move(audio_url), std::move(subtitles), AudioPlaybackSource::Media,
-                     std::move(metadata), std::move(input_factory));
+                     std::move(metadata), std::move(input_factory), std::move(finished_callback));
 }
 
 void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubtitle> subtitles,
                                    AudioPlaybackSource source, MediaPlaybackMetadata metadata,
-                                   NotifyPlayer::InputFactory input_factory) {
+                                   NotifyPlayer::InputFactory input_factory,
+                                   NotifyPlayer::FinishedCallback finished_callback) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
         continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Ignoring notify message while device is busy");
@@ -1638,10 +1640,15 @@ void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubt
                 }
             });
         },
-        [this](uint32_t id, bool success) {
-            Schedule([this, id, success]() { HandleNotificationFinished(id, success); });
+        [this, finished_callback = std::move(finished_callback)](uint32_t id, bool success) {
+            Schedule([this, id, success, finished_callback]() {
+                HandleNotificationFinished(id, success);
+                if (finished_callback)
+                    finished_callback(id, success);
+            });
         },
-        options, std::move(input_factory));
+        options, std::move(input_factory),
+        source == AudioPlaybackSource::Media ? metadata : MediaPlaybackMetadata{});
 
     if (!started) {
         ESP_LOGE(TAG, "Failed to start notification playback");
@@ -1665,13 +1672,22 @@ void Application::RequestMedia(std::string audio_url, MediaPlaybackMetadata meta
 }
 
 void Application::RequestLocalMedia(MediaPlaybackMetadata metadata,
-                                    NotifyPlayer::InputFactory input_factory) {
+                                    NotifyPlayer::InputFactory input_factory,
+                                    NotifyPlayer::FinishedCallback finished_callback) {
     if (!input_factory)
         return;
-    Schedule(
-        [this, metadata = std::move(metadata), input_factory = std::move(input_factory)]() mutable {
-            QueueMedia({}, std::move(metadata), {}, std::move(input_factory));
-        });
+    Schedule([this, metadata = std::move(metadata), input_factory = std::move(input_factory),
+              finished_callback = std::move(finished_callback)]() mutable {
+        QueueMedia({}, std::move(metadata), {}, std::move(input_factory),
+                   std::move(finished_callback));
+    });
+}
+
+NotifyPlayer::PlaybackStatus Application::GetLocalMediaPlaybackStatus() const {
+    auto status = notify_player_.GetPlaybackStatus();
+    if (status.metadata.source_path.empty())
+        status.active = false;
+    return status;
 }
 
 bool Application::HandleStreamPlaybackCommand(const cJSON* root, std::string* error) {
@@ -1823,7 +1839,8 @@ bool Application::HandleDeviceBridgeCommand(const std::string& payload_json,
 
 void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metadata,
                              std::vector<NotifySubtitle> subtitles,
-                             NotifyPlayer::InputFactory input_factory) {
+                             NotifyPlayer::InputFactory input_factory,
+                             NotifyPlayer::FinishedCallback finished_callback) {
     pending_radio_url_.clear();
     pending_radio_metadata_ = {};
     pending_media_url_ = std::move(audio_url);
@@ -1831,6 +1848,7 @@ void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metada
     pending_media_subtitles_ = std::move(subtitles);
     pending_media_local_ = static_cast<bool>(input_factory);
     pending_media_input_ = std::move(input_factory);
+    pending_media_finished_callback_ = std::move(finished_callback);
 
     if (GetDeviceState() == kDeviceStateRadio) {
         ESP_LOGI(TAG, "Replacing radio playback with requested media");
@@ -1853,6 +1871,7 @@ void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata meta
         pending_media_metadata_ = {};
         pending_media_subtitles_.clear();
         pending_media_input_ = {};
+        pending_media_finished_callback_ = {};
         pending_media_local_ = false;
         if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
             ESP_LOGI(TAG, "Ignoring duplicate radio start; radio is already active");
@@ -1874,6 +1893,7 @@ void Application::RequestStopMedia() {
         pending_media_subtitles_.clear();
         pending_media_input_ = {};
         pending_media_local_ = false;
+        pending_media_finished_callback_ = {};
         if (GetDeviceState() == kDeviceStateNotifying &&
             finite_audio_source_ == AudioPlaybackSource::Media) {
             StopNotification();
@@ -2005,9 +2025,11 @@ void Application::TryStartPendingMedia() {
     pending_media_subtitles_.clear();
     auto input_factory = std::move(pending_media_input_);
     pending_media_input_ = {};
+    auto finished_callback = std::move(pending_media_finished_callback_);
+    pending_media_finished_callback_ = {};
     pending_media_local_ = false;
     StartMedia(std::move(audio_url), std::move(metadata), std::move(subtitles),
-               std::move(input_factory));
+               std::move(input_factory), std::move(finished_callback));
 }
 
 void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metadata) {

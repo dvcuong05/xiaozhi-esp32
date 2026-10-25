@@ -1456,6 +1456,9 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateRadio:
             display->SetStatus("Radio");
+            // Entering the state can clear the previous display session. Publish
+            // radio metadata after that cleanup, not before this deferred event.
+            display->SetMediaMetadata(GetActiveRadioMetadata());
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             break;
@@ -1714,8 +1717,23 @@ bool Application::HandleStreamPlaybackCommand(const cJSON* root, std::string* er
             (!cJSON_IsObject(metadata_json) ||
              !GetOptionalJsonString(metadata_json, "title", 192, &metadata.title) ||
              !GetOptionalJsonString(metadata_json, "artist", 128, &metadata.artist) ||
-             !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station))) {
+             !GetOptionalJsonString(metadata_json, "station", 128, &metadata.station) ||
+             !GetOptionalJsonString(metadata_json, "genre", 96, &metadata.genre) ||
+             !GetOptionalJsonString(metadata_json, "country", 64, &metadata.country) ||
+             !GetOptionalJsonString(metadata_json, "codec", 32, &metadata.codec) ||
+             !GetOptionalJsonString(metadata_json, "frequency", 64, &metadata.frequency))) {
             return reject("radio metadata is invalid or too long");
+        }
+        if (metadata_json != nullptr) {
+            const cJSON* bitrate = cJSON_GetObjectItemCaseSensitive(metadata_json, "bitrate_kbps");
+            if (bitrate != nullptr) {
+                if (!cJSON_IsNumber(bitrate) || !std::isfinite(bitrate->valuedouble) ||
+                    std::floor(bitrate->valuedouble) != bitrate->valuedouble ||
+                    bitrate->valuedouble < 0 || bitrate->valuedouble > 10000) {
+                    return reject("radio bitrate is invalid");
+                }
+                metadata.bitrate_kbps = static_cast<uint32_t>(bitrate->valuedouble);
+            }
         }
         RequestRadio(std::string(audio_url->valuestring), std::move(metadata));
         return true;
@@ -1804,9 +1822,18 @@ bool Application::HandleDeviceBridgeCommand(const std::string& payload_json,
     const cJSON* type = cJSON_GetObjectItemCaseSensitive(root, "type");
     if (cJSON_IsString(type) && type->valuestring != nullptr &&
         strcmp(type->valuestring, "radio.status") == 0) {
-        cJSON_AddBoolToObject(result, "active", IsRadioActive());
+        const bool active = IsRadioActive();
+        const auto metadata = active ? GetActiveRadioMetadata() : MediaPlaybackMetadata{};
+        cJSON_AddBoolToObject(result, "active", active);
         cJSON_AddStringToObject(result, "state",
                                 DeviceStateMachine::GetStateName(GetDeviceState()));
+        cJSON_AddStringToObject(result, "title", metadata.title.c_str());
+        cJSON_AddStringToObject(result, "station", metadata.station.c_str());
+        cJSON_AddStringToObject(result, "genre", metadata.genre.c_str());
+        cJSON_AddStringToObject(result, "country", metadata.country.c_str());
+        cJSON_AddStringToObject(result, "codec", metadata.codec.c_str());
+        cJSON_AddStringToObject(result, "frequency", metadata.frequency.c_str());
+        cJSON_AddNumberToObject(result, "bitrate_kbps", metadata.bitrate_kbps);
         accepted = true;
     } else {
         accepted = HandleStreamPlaybackCommand(root, error);
@@ -1919,6 +1946,11 @@ void Application::RequestStopRadio() {
 
 bool Application::IsRadioActive() const {
     return GetDeviceState() == kDeviceStateRadio && continuous_stream_player_.IsBusy();
+}
+
+MediaPlaybackMetadata Application::GetActiveRadioMetadata() const {
+    std::lock_guard<std::mutex> lock(radio_metadata_mutex_);
+    return active_radio_metadata_;
 }
 
 void Application::StopNotification() {
@@ -2062,8 +2094,10 @@ void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metada
     }
 
     ESP_LOGI(TAG, "Radio start station=%s", metadata.station.c_str());
-    board.GetDisplay()->SetMediaMetadata(metadata);
-
+    {
+        std::lock_guard<std::mutex> lock(radio_metadata_mutex_);
+        active_radio_metadata_ = metadata;
+    }
     audio_service_.ResetDecoder();
     uint32_t playback_id = ++radio_playback_id_;
     if (playback_id == 0) {
@@ -2083,6 +2117,10 @@ void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metada
 void Application::StopRadio() {
     pending_radio_url_.clear();
     pending_radio_metadata_ = {};
+    {
+        std::lock_guard<std::mutex> lock(radio_metadata_mutex_);
+        active_radio_metadata_ = {};
+    }
     if (GetDeviceState() != kDeviceStateRadio && !continuous_stream_player_.IsBusy()) {
         return;
     }

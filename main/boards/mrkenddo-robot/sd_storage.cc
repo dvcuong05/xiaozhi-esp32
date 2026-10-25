@@ -282,6 +282,15 @@ bool ValidMusicMetadataValue(const std::string& value) {
                        [](unsigned char c) { return c >= 0x20 && c != 0x7f; });
 }
 
+bool ValidMusicMetadataName(const std::string& name) {
+    if (name.empty() || name == "." || name == ".." ||
+        name.size() + sizeof(SdStorage::kMusicRoot) > 192 || name.find('/') != std::string::npos ||
+        name.find('\\') != std::string::npos || !HasAudioExtension(name) || !ValidUtf8(name))
+        return false;
+    return std::all_of(name.begin(), name.end(),
+                       [](unsigned char c) { return c >= 0x20 && c != 0x7f; });
+}
+
 char* TrimMusicMetadataLine(char* line) {
     while (*line && std::isspace(static_cast<unsigned char>(*line)))
         ++line;
@@ -319,12 +328,37 @@ bool ParseMusicMetadataLine(char* line, std::string& path, std::string& artist, 
     const auto* version_item = cJSON_GetObjectItemCaseSensitive(root, "version");
     has_version = version_item != nullptr;
     const auto* path_item = cJSON_GetObjectItemCaseSensitive(root, "path");
-    if (path_item) {
-        if (!cJSON_IsString(path_item) || path_item->valuestring == nullptr) {
+    const auto* name_item = cJSON_GetObjectItemCaseSensitive(root, "name");
+    if (path_item && name_item) {
+        cJSON_Delete(root);
+        return false;
+    }
+    if (path_item || name_item) {
+        const auto* identity_item = name_item ? name_item : path_item;
+        if (!cJSON_IsString(identity_item) || identity_item->valuestring == nullptr) {
             cJSON_Delete(root);
             return false;
         }
-        path = path_item->valuestring;
+        const std::string stored_identity = identity_item->valuestring;
+        std::string name;
+        if (name_item) {
+            name = stored_identity;
+        } else if (stored_identity.compare(0, sizeof(SdStorage::kMusicRoot) - 1,
+                                           SdStorage::kMusicRoot) == 0) {
+            if (stored_identity.size() <= sizeof(SdStorage::kMusicRoot) ||
+                stored_identity[sizeof(SdStorage::kMusicRoot) - 1] != '/') {
+                cJSON_Delete(root);
+                return false;
+            }
+            name = stored_identity.substr(sizeof(SdStorage::kMusicRoot));
+        } else {
+            name = stored_identity;
+        }
+        if (!ValidMusicMetadataName(name)) {
+            cJSON_Delete(root);
+            return false;
+        }
+        path = std::string(SdStorage::kMusicRoot) + "/" + name;
         has_path = true;
     }
 
@@ -344,15 +378,6 @@ bool ParseMusicMetadataLine(char* line, std::string& path, std::string& artist, 
     cJSON_Delete(root);
     if (!valid)
         return false;
-    if (has_path && (path.size() > 192 || !ValidUtf8(path) ||
-                     !std::all_of(path.begin(), path.end(),
-                                  [](unsigned char c) { return c >= 0x20 && c != 0x7f; })))
-        return false;
-    if (has_path &&
-        (path.compare(0, sizeof(SdStorage::kMusicRoot) - 1, SdStorage::kMusicRoot) != 0 ||
-         path.size() <= sizeof(SdStorage::kMusicRoot) ||
-         path[sizeof(SdStorage::kMusicRoot) - 1] != '/' || !HasAudioExtension(path)))
-        return false;
     return true;
 }
 
@@ -370,7 +395,8 @@ bool WriteMusicMetadataRecord(FILE* file, const std::string& path, const std::st
     cJSON* record = cJSON_CreateObject();
     if (!record)
         return false;
-    const bool added = cJSON_AddStringToObject(record, "path", path.c_str()) &&
+    const auto name = path.substr(path.find_last_of('/') + 1);
+    const bool added = cJSON_AddStringToObject(record, "name", name.c_str()) &&
                        cJSON_AddStringToObject(record, "artist", artist.c_str()) &&
                        cJSON_AddStringToObject(record, "album", album.c_str()) &&
                        cJSON_AddStringToObject(record, "genre", genre.c_str());
@@ -381,6 +407,31 @@ bool WriteMusicMetadataRecord(FILE* file, const std::string& path, const std::st
     const bool written = WriteMusicMetadataObject(file, json, first);
     cJSON_free(json);
     return written;
+}
+
+bool CompactMusicMetadataRecord(const char* source, std::string& compact) {
+    cJSON* record = cJSON_Parse(source);
+    if (!record || !cJSON_IsObject(record)) {
+        cJSON_Delete(record);
+        return false;
+    }
+    const auto* path_item = cJSON_GetObjectItemCaseSensitive(record, "path");
+    if (path_item) {
+        const std::string path = path_item->valuestring;
+        const auto name = path.substr(path.find_last_of('/') + 1);
+        cJSON_DeleteItemFromObjectCaseSensitive(record, "path");
+        if (!cJSON_AddStringToObject(record, "name", name.c_str())) {
+            cJSON_Delete(record);
+            return false;
+        }
+    }
+    char* json = cJSON_PrintUnformatted(record);
+    cJSON_Delete(record);
+    if (!json)
+        return false;
+    compact = json;
+    cJSON_free(json);
+    return true;
 }
 
 std::string GenreKey(const std::string& text) {
@@ -1322,7 +1373,7 @@ SdStorage::Result SdStorage::WriteMusicMetadataOverrides(const std::string& path
 
     bool first = true;
     bool write_ok = fputs("[\n", target.get()) >= 0 &&
-                    WriteMusicMetadataObject(target.get(), "{\"version\":1}", first);
+                    WriteMusicMetadataObject(target.get(), "{\"version\":2}", first);
     std::array<char, kMusicMetadataLineBytes> line = {};
     while (write_ok && source && fgets(line.data(), line.size(), source.get())) {
         const size_t length = std::strlen(line.data());
@@ -1347,8 +1398,15 @@ SdStorage::Result SdStorage::WriteMusicMetadataOverrides(const std::string& path
         if (!is_object || has_version || (has_path && record_path == path))
             continue;
         char* raw_json = TrimMusicMetadataLine(line.data());
-        if (*raw_json && !WriteMusicMetadataObject(target.get(), raw_json, first))
-            write_ok = false;
+        if (*raw_json) {
+            std::string compact_json;
+            if (!CompactMusicMetadataRecord(raw_json, compact_json)) {
+                write_ok = false;
+                errno = ENOMEM;
+            } else if (!WriteMusicMetadataObject(target.get(), compact_json.c_str(), first)) {
+                write_ok = false;
+            }
+        }
     }
     if (source && ferror(source.get()))
         write_ok = false;

@@ -4,6 +4,7 @@
 #include "lvgl_theme.h"
 #include "payment_qr_bitmap.h"
 
+#include <esp_log.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -184,7 +185,8 @@ MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
         return UiMode::BootConsole;
     }
     // Keep boot console/IP presentation uninterrupted by startup audio.
-    if (boot_state_ == BootState::Finished && audio_playback_active_) {
+    if (boot_state_ == BootState::Finished &&
+        (audio_playback_active_ || !music_session_.Station().empty())) {
         return UiMode::AudioVisualizer;
     }
     if (sd_image_active_) {
@@ -643,6 +645,37 @@ void MrkenDDoRobotDisplay::OnAudioPlaybackStopped() {
 }
 
 void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadata) {
+    std::string artist_line = metadata.artist;
+    if (!metadata.station.empty()) {
+        auto append_detail = [&artist_line](const std::string& value) {
+            if (value.empty()) {
+                return;
+            }
+            if (!artist_line.empty()) {
+                artist_line += " | ";
+            }
+            artist_line += value;
+        };
+        append_detail(metadata.frequency);
+        append_detail(metadata.genre);
+        append_detail(metadata.country);
+        if (metadata.bitrate_kbps > 0 || !metadata.codec.empty()) {
+            std::string stream_quality;
+            if (metadata.bitrate_kbps > 0) {
+                stream_quality = std::to_string(metadata.bitrate_kbps) + " kbps";
+            }
+            if (!metadata.codec.empty()) {
+                if (!stream_quality.empty()) {
+                    stream_quality += " ";
+                }
+                stream_quality += metadata.codec;
+            }
+            append_detail(stream_quality);
+        }
+        if (artist_line.empty()) {
+            artist_line = "LIVE RADIO";
+        }
+    }
     {
         DisplayLockGuard lock(this);
         if (!lock) {
@@ -650,7 +683,7 @@ void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadat
         }
         if (speaking_callback_)
             speaking_callback_(false);
-        music_session_.SetMediaMetadata(metadata.title, metadata.artist, metadata.station,
+        music_session_.SetMediaMetadata(metadata.title, artist_line, metadata.station,
                                         metadata.duration_ms);
         audio_playback_active_ = false;
         if (spectrum_ != nullptr) {
@@ -658,6 +691,12 @@ void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadat
         }
         RenderMusicInfo();
         ApplyUiMode();
+        if (!metadata.station.empty()) {
+            ESP_LOGI("RobotDisplay", "Radio TFT: station=%s details=%s visible=%d",
+                     music_session_.Title().c_str(), music_session_.Artist().c_str(),
+                     audio_visualizer_ != nullptr &&
+                         !lv_obj_has_flag(audio_visualizer_, LV_OBJ_FLAG_HIDDEN));
+        }
     }
     if (!metadata.title.empty() || !metadata.station.empty()) {
         SpiLcdDisplay::SetStatus(metadata.station.empty() ? "Music" : "Radio");

@@ -325,9 +325,12 @@ hoặc upload chưa xong, việc cập nhật được hoãn; đóng file/hủy 
 worker. Khi idle, worker ngủ chờ notification, không quét thẻ định kỳ.
 
 Metadata sửa tay được lưu riêng trong sidecar `/robot/music/.metadata.json`, mỗi mục
-gắn với đường dẫn file và chỉ chứa override ca sĩ/album/thể loại. File này được
-hiển thị trong danh sách của trình quản lý thẻ nhớ. Khi mount hoặc
-cập nhật thư viện, worker đọc sidecar một lần rồi ghép theo thứ tự **override →
+gắn bằng tên file trong folder cố định `/robot/music` và chỉ chứa override
+ca sĩ/album/thể loại, ví dụ `{"name":"Bai-hat.mp3","artist":"Ca sĩ"}`;
+không lặp lại prefix `/robot/music/` trong từng record. File này được hiển thị
+trong danh sách của trình quản lý thẻ nhớ. Sidecar cũ dùng khóa `path` với full
+path vẫn được đọc; lần lưu metadata kế tiếp sẽ chuyển các record cũ sang `name`.
+Khi mount hoặc cập nhật thư viện, worker đọc sidecar một lần rồi ghép theo thứ tự **override →
 ID3 → tên file** vào catalog RAM; các lần tìm kiếm/phát album/phát ca sĩ vẫn chỉ
 tra RAM. Lưu từ web cập nhật catalog hiện tại ngay và ghi sidecar qua file tạm,
 đồng bộ rồi đổi tên có backup. Nút **Khôi phục** xóa override của bài và dựng lại
@@ -347,7 +350,8 @@ thu hẹp bộ lọc không khôi phục bài chưa được index.
 
 Web có nhóm **Thư viện nhạc**: trạng thái/số bài, nút mở folder nhạc, bộ lọc
 theo tên/từ khóa, ca sĩ, album, thể loại và metadata đang thiếu; nút Phát theo
-kết quả và nút **Cập nhật thư viện**. Kết quả có thể phân trang 25 hoặc 50 bài.
+kết quả và nút **Cập nhật thư viện**. Kết quả có thể phân trang 25 hoặc 50 bài;
+các thao tác từng dòng dùng icon có tooltip/nhãn trợ năng để bảng gọn hơn.
 Bấm tiêu đề cột tên bài, ca sĩ, album, thể loại hoặc thời lượng để sắp xếp tăng/
 giảm dần; đồng điểm vẫn theo path để kết quả ổn định. Mặc định tìm kiếm xếp theo
 độ phù hợp. API tương ứng:
@@ -538,6 +542,17 @@ hay logic Zing; player chung nhan URL da duoc resolve qua `media.play` hoac `rad
 Track co metadata va timed subtitles, co the stop bang `media.stop`; radio co API
 `/api/radio/start|stop|status` va reconnect stream. Yeu cau media den luc robot ban
 duoc giu mot slot toi khi conversation ve `idle`; lenh moi nhat thay the lenh dang cho.
+
+Khi nhận `radio.start`, firmware đọc metadata tên đài, tần số (nếu nguồn có),
+thể loại, quốc gia, codec và bitrate từ lệnh device bridge. TFT hiện giao diện
+Music khi xử lý chuyển sang trạng thái `radio`, không cần chờ frame âm thanh
+đầu tiên. Metadata được áp dụng sau bước cập nhật status để callback đổi trạng
+thái không xóa thông tin kênh vừa nhận; thông tin được giữ đến khi radio dừng.
+Log `RobotDisplay: Radio TFT: station=... details=... visible=1` xác nhận metadata
+đã được áp dụng và giao diện player đã được bật trong LVGL. Lệnh `radio.status`
+qua device bridge trả metadata
+đang phát. Radio Browser cung cấp metadata Internet Radio, không có tần số
+FM/AM; bitrate và codec là thông số luồng mạng.
 
 ![Sơ đồ đăng ký MCP và luồng music/radio từ service đến firmware](docs/features/music-radio-mcp-flow.svg)
 

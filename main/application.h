@@ -131,6 +131,7 @@ public:
     void RequestStopMedia();
     void RequestStopRadio();
     bool IsRadioActive() const;
+    MediaPlaybackMetadata GetActiveRadioMetadata() const;
     bool HandleDeviceBridgeCommand(const std::string& payload_json, std::string* result_json,
                                    std::string* error);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
@@ -158,6 +159,7 @@ private:
     ~Application();
 
     std::mutex mutex_;
+    mutable std::mutex radio_metadata_mutex_;
     std::deque<std::function<void()>> main_tasks_;
     std::unique_ptr<Protocol> protocol_;
     std::unique_ptr<DeviceBridgeClient> device_bridge_client_;
@@ -177,6 +179,7 @@ private:
     ContinuousStreamPlayer continuous_stream_player_;
     uint32_t notification_playback_id_ = 0;
     uint32_t radio_playback_id_ = 0;
+    MediaPlaybackMetadata active_radio_metadata_;
     // A radio request can arrive while the assistant is still speaking. Keep
     // it until the conversation channel has returned the device to idle.
     std::string pending_radio_url_;

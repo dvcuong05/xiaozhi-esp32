@@ -14,8 +14,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 
 ## Planned features
 
-- [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo path
-      vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
+- [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo tên
+      file trong `/robot/music` vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
       tìm kiếm và phát playlist vẫn tra catalog RAM, có thao tác khôi phục metadata.
 - [x] Player nhạc SD trên web: index thời lượng ID3 `TLEN` hoặc tính từ frame
       MP3 khi thiếu tag, hiển thị bài
@@ -43,6 +43,10 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     đã chuẩn hóa; deployment không cần repo hay service API Zing chạy riêng.
     Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
     track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
+- [x] Radio player hiển thị tên đài và metadata stream (tần số nếu nguồn có,
+    thể loại, quốc gia, codec, bitrate) trên TFT ngay khi nhận lệnh phát;
+    `/api/radio/status` và `radio.status` trả thông tin kênh đang phát. Radio
+    Browser không có tần số FM/AM.
 - [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
 - [x] Chạm đơn chuyển bài kế tiếp trong danh sách album/ca sĩ đang phát từ SD; chỉ chuyển trong đúng playlist. Cần kiểm tra thao tác trên robot thật.
 - [ ] Kết nối API và hiện camera giao thông HCM

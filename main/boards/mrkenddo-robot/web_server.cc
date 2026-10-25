@@ -373,16 +373,37 @@ bool ParseMediaMetadata(const cJSON* root, MediaPlaybackMetadata* metadata) {
     char artist[129] = {};
     char album[129] = {};
     char station[129] = {};
+    char genre[97] = {};
+    char country[65] = {};
+    char codec[33] = {};
+    char frequency[65] = {};
     if (!GetString(item, "title", title, sizeof(title), false) ||
         !GetString(item, "artist", artist, sizeof(artist), false) ||
         !GetString(item, "album", album, sizeof(album), false) ||
-        !GetString(item, "station", station, sizeof(station), false)) {
+        !GetString(item, "station", station, sizeof(station), false) ||
+        !GetString(item, "genre", genre, sizeof(genre), false) ||
+        !GetString(item, "country", country, sizeof(country), false) ||
+        !GetString(item, "codec", codec, sizeof(codec), false) ||
+        !GetString(item, "frequency", frequency, sizeof(frequency), false)) {
         return false;
     }
     metadata->title = title;
     metadata->artist = artist;
     metadata->album = album;
     metadata->station = station;
+    metadata->genre = genre;
+    metadata->country = country;
+    metadata->codec = codec;
+    metadata->frequency = frequency;
+    const cJSON* bitrate = cJSON_GetObjectItemCaseSensitive(item, "bitrate_kbps");
+    if (bitrate != nullptr) {
+        if (!cJSON_IsNumber(bitrate) || !std::isfinite(bitrate->valuedouble) ||
+            std::floor(bitrate->valuedouble) != bitrate->valuedouble ||
+            bitrate->valuedouble < 0 || bitrate->valuedouble > 10000) {
+            return false;
+        }
+        metadata->bitrate_kbps = static_cast<uint32_t>(bitrate->valuedouble);
+    }
     const cJSON* duration = cJSON_GetObjectItemCaseSensitive(item, "duration_ms");
     if (duration != nullptr) {
         if (!cJSON_IsNumber(duration) || !std::isfinite(duration->valuedouble) ||

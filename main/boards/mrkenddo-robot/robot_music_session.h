@@ -22,6 +22,8 @@ public:
     const std::string& Artist() const { return artist_; }
     const std::string& Station() const { return station_; }
     uint32_t DurationMs() const { return duration_ms_; }
+    uint32_t PositionMs() const { return position_ms_; }
+    void SetPlaybackProgress(uint32_t position_ms, uint32_t duration_ms);
     const std::string& CurrentLine() const { return current_; }
     const std::string& PreviousLine() const { return previous_; }
 
@@ -31,6 +33,7 @@ private:
     std::string artist_;
     std::string station_;
     uint32_t duration_ms_ = 0;
+    uint32_t position_ms_ = 0;
     std::string current_;
     std::string previous_;
     static std::string ClipUtf8(std::string_view text, size_t limit);

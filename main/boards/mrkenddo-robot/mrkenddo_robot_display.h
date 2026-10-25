@@ -44,6 +44,7 @@ public:
     void OnAudioPlaybackFrame(const AudioPlaybackFrame& frame) override;
     void OnAudioPlaybackStopped() override;
     void SetMediaMetadata(const MediaPlaybackMetadata& metadata) override;
+    void SetMediaPlaybackProgress(uint32_t position_ms, uint32_t duration_ms) override;
     void SetMediaSubtitle(const char* text) override;
     void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
     void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) override;
@@ -80,6 +81,8 @@ private:
     bool sd_image_active_ = false;
     lv_obj_t* music_title_ = nullptr;
     lv_obj_t* music_artist_ = nullptr;
+    lv_obj_t* music_progress_bar_ = nullptr;
+    lv_obj_t* music_progress_time_ = nullptr;
     lv_obj_t* music_lyric_ = nullptr;
     lv_obj_t* music_previous_lyric_ = nullptr;
     std::array<lv_obj_t*, 12> audio_visualizer_bars_ = {};

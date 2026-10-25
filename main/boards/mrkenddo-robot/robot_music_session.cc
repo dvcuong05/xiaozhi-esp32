@@ -47,6 +47,7 @@ void RobotMusicSession::Reset() {
     artist_.clear();
     station_.clear();
     duration_ms_ = 0;
+    position_ms_ = 0;
     current_.clear();
     previous_.clear();
 }
@@ -62,6 +63,13 @@ void RobotMusicSession::SetMediaMetadata(std::string_view title, std::string_vie
     artist_ = ClipUtf8(artist, 128);
     station_ = ClipUtf8(station, 128);
     duration_ms_ = duration_ms;
+}
+
+void RobotMusicSession::SetPlaybackProgress(uint32_t position_ms, uint32_t duration_ms) {
+    if (duration_ms > 0) {
+        duration_ms_ = duration_ms;
+    }
+    position_ms_ = duration_ms_ > 0 ? std::min(position_ms, duration_ms_) : position_ms;
 }
 
 void RobotMusicSession::SetSubtitle(std::string_view text) {

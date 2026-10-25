@@ -426,6 +426,7 @@ Nếu catalog bị giới hạn 512 bài, phát album bị từ chối để tr�
 - `GET /api/storage?op=music_player`: trả bài SD đang phát, vị trí `position_ms`
   theo tiến độ audio ra loa và `duration_ms` lấy từ ID3 `TLEN` hoặc tính từ
   frame MP3 nếu file không có `TLEN`.
+- TFT music player: khi phát bài có duration, hiển thị thanh tiến trình và thời gian hiện tại/tổng; vị trí lấy từ audio thực tế ra loa và cập nhật tối đa mỗi giây. Radio trực tiếp hoặc bài không có duration sẽ ẩn thanh; player không hỗ trợ tua.
 - Kết quả `music_search` và MCP `sd_search` cũng có `duration_ms`; chỉ bằng `0`
   khi tag và thông tin frame/bitrate MP3 đều không đọc được.
 - `POST /api/storage?op=music_next`: chuyển theo path kế tiếp trong catalog; hết

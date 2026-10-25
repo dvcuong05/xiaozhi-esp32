@@ -133,12 +133,24 @@ void MrkenDDoRobotDisplay::SetupUI() {
 
     music_title_ = lv_label_create(audio_visualizer_);
     music_artist_ = lv_label_create(audio_visualizer_);
+    music_progress_bar_ = lv_bar_create(audio_visualizer_);
+    music_progress_time_ = lv_label_create(audio_visualizer_);
     music_previous_lyric_ = lv_label_create(audio_visualizer_);
     music_lyric_ = lv_label_create(audio_visualizer_);
+    lv_obj_set_size(music_progress_bar_, std::max(1, width_ - 48), 6);
+    lv_obj_set_pos(music_progress_bar_, 24, 60);
+    lv_bar_set_range(music_progress_bar_, 0, 1000);
+    lv_obj_set_style_bg_color(music_progress_bar_, lv_color_hex(0x243247), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(music_progress_bar_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(music_progress_bar_, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(music_progress_bar_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(music_progress_bar_, lv_color_hex(0x34D399), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(music_progress_bar_, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(music_progress_bar_, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
     auto* theme = static_cast<LvglTheme*>(current_theme_);
     const auto* text_font = theme->text_font()->font();
-    for (auto* label :
-         {music_title_, music_artist_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
+    for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,
+                        music_lyric_, payment_qr_caption_}) {
         lv_obj_set_width(label, width_ - 20);
         lv_obj_set_style_text_font(label, text_font, 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
@@ -152,6 +164,9 @@ void MrkenDDoRobotDisplay::SetupUI() {
     lv_obj_set_height(music_artist_, 20);
     lv_label_set_long_mode(music_artist_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(music_artist_, lv_color_hex(0x94A3B8), 0);
+    lv_obj_set_pos(music_progress_time_, 10, 70);
+    lv_obj_set_height(music_progress_time_, 20);
+    lv_obj_set_style_text_color(music_progress_time_, lv_color_hex(0x94A3B8), 0);
     lv_obj_set_pos(music_previous_lyric_, 10, height_ / 2 + 14);
     lv_obj_set_height(music_previous_lyric_, 32);
     lv_label_set_long_mode(music_previous_lyric_, LV_LABEL_LONG_DOT);
@@ -427,18 +442,31 @@ void MrkenDDoRobotDisplay::RenderMusicInfo() {
     if (!music_session_.Station().empty() && artist_line.empty()) {
         artist_line = "LIVE RADIO";
     }
-    const uint32_t duration_seconds = music_session_.DurationMs() / 1000;
-    if (duration_seconds > 0) {
-        char duration[16] = {};
-        std::snprintf(duration, sizeof(duration), "%lu:%02lu",
+    lv_label_set_text(music_artist_, artist_line.c_str());
+    const uint32_t duration_ms = music_session_.DurationMs();
+    const bool show_progress =
+        music_session_.IsActive() && music_session_.Station().empty() && duration_ms > 0;
+    if (show_progress) {
+        const uint32_t duration_seconds = duration_ms / 1000;
+        const uint32_t position_seconds = music_session_.PositionMs() / 1000;
+        char time_text[32] = {};
+        std::snprintf(time_text, sizeof(time_text), "%lu:%02lu / %lu:%02lu",
+                      static_cast<unsigned long>(position_seconds / 60),
+                      static_cast<unsigned long>(position_seconds % 60),
                       static_cast<unsigned long>(duration_seconds / 60),
                       static_cast<unsigned long>(duration_seconds % 60));
-        if (!artist_line.empty()) {
-            artist_line += " | ";
-        }
-        artist_line += duration;
+        lv_label_set_text(music_progress_time_, time_text);
+        lv_obj_remove_flag(music_progress_bar_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(music_progress_time_, LV_OBJ_FLAG_HIDDEN);
+        const auto progress = static_cast<int>(
+            std::min<uint64_t>(1000ULL * music_session_.PositionMs() / duration_ms, 1000));
+        lv_bar_set_value(music_progress_bar_, progress, LV_ANIM_OFF);
+    } else {
+        lv_obj_add_flag(music_progress_bar_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(music_progress_time_, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_value(music_progress_bar_, 0, LV_ANIM_OFF);
+        lv_label_set_text(music_progress_time_, "");
     }
-    lv_label_set_text(music_artist_, artist_line.c_str());
     lv_label_set_text(music_previous_lyric_, music_session_.PreviousLine().c_str());
     lv_label_set_text(music_lyric_,
                       music_session_.CurrentLine().empty()
@@ -730,6 +758,15 @@ void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadat
     }
 }
 
+void MrkenDDoRobotDisplay::SetMediaPlaybackProgress(uint32_t position_ms, uint32_t duration_ms) {
+    DisplayLockGuard lock(this);
+    if (!lock || !music_session_.IsActive() || !music_session_.Station().empty()) {
+        return;
+    }
+    music_session_.SetPlaybackProgress(position_ms, duration_ms);
+    RenderMusicInfo();
+}
+
 void MrkenDDoRobotDisplay::SetMediaSubtitle(const char* text) {
     if (text == nullptr) {
         return;
@@ -755,8 +792,8 @@ void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     if (boot_console_label_ != nullptr) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
     }
-    for (auto* label :
-         {music_title_, music_artist_, music_previous_lyric_, music_lyric_, payment_qr_caption_}) {
+    for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,
+                        music_lyric_, payment_qr_caption_}) {
         if (label != nullptr) {
             lv_obj_set_style_text_font(label, text_font, 0);
         }

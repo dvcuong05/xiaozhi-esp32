@@ -2,12 +2,13 @@
 #define _APPLICATION_H_
 
 #include <esp_timer.h>
+#include <cJSON.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
-#include <cJSON.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -227,6 +228,8 @@ private:
     bool audio_visualizer_frame_pending_ = false;
     bool audio_visualizer_stop_pending_ = false;
     int64_t audio_visualizer_last_frame_us_ = -40000;
+    std::atomic<int32_t> last_media_progress_second_{-1};
+    std::atomic_bool media_progress_update_queued_{false};
     int64_t text_bridge_started_us_ = 0;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;

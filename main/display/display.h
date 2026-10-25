@@ -50,6 +50,10 @@ public:
     virtual void OnAudioPlaybackFrame(const AudioPlaybackFrame& frame) { (void)frame; }
     virtual void OnAudioPlaybackStopped() {}
     virtual void SetMediaMetadata(const MediaPlaybackMetadata& metadata) { (void)metadata; }
+    virtual void SetMediaPlaybackProgress(uint32_t position_ms, uint32_t duration_ms) {
+        (void)position_ms;
+        (void)duration_ms;
+    }
     virtual void SetMediaSubtitle(const char* text) { (void)text; }
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string& notification, int duration_ms = 3000);

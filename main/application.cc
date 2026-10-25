@@ -370,6 +370,29 @@ void Application::Initialize() {
             continuous_stream_player_.OnPlaybackProgress(playback_id, media_position_ms);
         } else {
             notify_player_.OnPlaybackProgress(playback_id, media_position_ms);
+            const auto second = static_cast<int32_t>(media_position_ms / 1000);
+            if (last_media_progress_second_.exchange(second, std::memory_order_relaxed) != second) {
+                const auto playback = notify_player_.GetPlaybackStatus();
+                if (!playback.active || playback.metadata.duration_ms == 0) {
+                    return;
+                }
+
+                bool expected = false;
+                if (media_progress_update_queued_.compare_exchange_strong(
+                        expected, true, std::memory_order_acq_rel)) {
+                    Schedule([this]() {
+                        const auto current = notify_player_.GetPlaybackStatus();
+                        if (current.active && current.metadata.duration_ms > 0) {
+                            auto* display = Board::GetInstance().GetDisplay();
+                            if (display != nullptr) {
+                                display->SetMediaPlaybackProgress(current.position_ms,
+                                                                  current.metadata.duration_ms);
+                            }
+                        }
+                        media_progress_update_queued_.store(false, std::memory_order_release);
+                    });
+                }
+            }
         }
     };
     audio_service_.SetCallbacks(callbacks);

@@ -17,6 +17,7 @@ MrkenDDoRobotDisplay::MrkenDDoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                     swap_xy) {}
 
 MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
+    time_view_.reset();
     if (face_preview_timer_ != nullptr)
         lv_timer_delete(face_preview_timer_);
     if (payment_qr_timer_ != nullptr) {
@@ -178,15 +179,20 @@ void MrkenDDoRobotDisplay::SetupUI() {
 }
 
 MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
+    if (boot_state_ == BootState::Finished && time_alert_)
+        return UiMode::Time;
     if (payment_qr_active_) {
         return UiMode::PaymentQr;
     }
     if (boot_state_ == BootState::Active) {
         return UiMode::BootConsole;
     }
-    // Keep boot console/IP presentation uninterrupted by startup audio.
+    if (boot_state_ == BootState::Finished && time_visible_)
+        return UiMode::Time;
+    // Keep the player visible for the whole media session. Audio output can
+    // briefly drain between stream frames; that is not the end of playback.
     if (boot_state_ == BootState::Finished &&
-        (audio_playback_active_ || !music_session_.Station().empty())) {
+        (audio_playback_active_ || music_session_.IsActive())) {
         return UiMode::AudioVisualizer;
     }
     if (sd_image_active_) {
@@ -216,11 +222,32 @@ void MrkenDDoRobotDisplay::ApplyUiMode() {
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
     set_visible(payment_qr_overlay_, mode == UiMode::PaymentQr);
+    if (time_view_)
+        time_view_->SetVisible(mode == UiMode::Time);
     HideLegacyEmoji();
 }
 
 void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     SetPreviewImage(std::move(image), 30000);
+}
+
+void MrkenDDoRobotDisplay::SetTimeView(const mrkenddo::TimeView& view) {
+    DisplayLockGuard lock(this);
+    if (!lock || !setup_ui_called_)
+        return;
+    if (!view.visible && !time_visible_)
+        return;
+    if (view.visible && !time_view_) {
+        time_view_ = std::make_unique<mrkenddo::RobotTimeView>(
+            width_, height_, static_cast<LvglTheme*>(current_theme_)->text_font()->font());
+    }
+    if (time_view_ && view.visible) {
+        time_view_->SetFont(static_cast<LvglTheme*>(current_theme_)->text_font()->font());
+        time_view_->Update(view);
+    }
+    time_visible_ = view.visible;
+    time_alert_ = view.alert;
+    ApplyUiMode();
 }
 
 void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) {
@@ -716,6 +743,9 @@ void MrkenDDoRobotDisplay::SetMediaSubtitle(const char* text) {
 }
 
 void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
+    if (time_view_ != nullptr) {
+        time_view_->SetFont(text_font);
+    }
     if (screen_layout_ != nullptr) {
         screen_layout_->SetFont(text_font);
         if (robot_eyes_ != nullptr) {

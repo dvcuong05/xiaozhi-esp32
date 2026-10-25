@@ -9,6 +9,7 @@
 #include "robot_screen_layout.h"
 #include "robot_settings.h"
 #include "robot_spectrum.h"
+#include "robot_time_view.h"
 
 #include <array>
 #include <memory>
@@ -22,6 +23,7 @@ public:
     ~MrkenDDoRobotDisplay() override;
 
     void SetupUI() override;
+    void SetTimeView(const mrkenddo::TimeView& view);
     void SetStatus(const char* status) override;
     void SetChatMessage(const char* role, const char* content) override;
     void RemoveChatMessage(const char* role, const char* content) override;
@@ -54,7 +56,10 @@ protected:
 
 private:
     enum class BootState { Pending, Active, Finished };
-    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer, SdImage };
+    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer, SdImage, Time };
+    std::unique_ptr<mrkenddo::RobotTimeView> time_view_;
+    bool time_visible_ = false;
+    bool time_alert_ = false;
 
     std::unique_ptr<mrkenddo::RobotScreenLayout> screen_layout_;
     std::unique_ptr<RobotEyesView> robot_eyes_;

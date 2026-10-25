@@ -3,6 +3,7 @@
 
 #include "robot_drive.h"
 #include "robot_settings.h"
+#include "robot_time_service.h"
 #include "web_chat_bridge.h"
 
 #include <functional>
@@ -23,6 +24,7 @@ public:
                     MrkenDDoRobotDisplay& display, std::function<void(int)> apply_tft_rotation,
                     SdStorage& storage);
     ~RobotController();
+    RobotTimeService& TimeService() { return *time_service_; }
     FaceConfig GetFaceConfig() const;
     bool ConfigureFace(const FaceConfig& config);
     bool PreviewEmotion(int preset);
@@ -71,6 +73,7 @@ private:
     SdStorage& storage_;
     std::function<void(int)> apply_tft_rotation_;
     WebChatBridge web_chat_;
+    std::shared_ptr<RobotTimeService> time_service_;
     std::mutex config_mutex_;
 };
 

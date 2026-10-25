@@ -1,8 +1,10 @@
 #include "robot_controller.h"
 
 #include "application.h"
+#include "assets/lang_config.h"
 #include "board.h"
 #include "mrkenddo_robot_display.h"
+#include "sd_storage.h"
 #include "secondary_display.h"
 
 #include <utility>
@@ -20,6 +22,38 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
       display_(display),
       storage_(storage),
       apply_tft_rotation_(std::move(apply_tft_rotation)) {
+    time_service_ = std::make_shared<RobotTimeService>([this](const TimeView& view,
+                                                              TimeRingtone ringtone) {
+        display_.SetTimeView(view);
+        if (ringtone == TimeRingtone::None)
+            return;
+
+        static constexpr const char* kPaths[] = {
+            nullptr,
+            "/robot/ringtones/alarm.mp3",
+            "/robot/ringtones/reminder.mp3",
+            "/robot/ringtones/countdown.mp3",
+            "/robot/ringtones/pomodoro_focus.mp3",
+            "/robot/ringtones/pomodoro_break.mp3",
+            "/robot/ringtones/pomodoro_complete.mp3",
+        };
+        const auto index = static_cast<size_t>(ringtone);
+        if (index >= sizeof(kPaths) / sizeof(kPaths[0]) || kPaths[index] == nullptr)
+            return;
+
+        NotifyPlayer::InputFactory input;
+        if (auto result = storage_.CreateAudioInput(kPaths[index], input); !result) {
+            // The SD card is optional. Keep clock alerts audible with the
+            // built-in sound when a custom ringtone cannot be opened.
+            Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
+            return;
+        }
+        MediaPlaybackMetadata metadata;
+        metadata.title = kPaths[index] + std::string("/robot/ringtones/").size();
+        metadata.source_path = kPaths[index];
+        Application::GetInstance().RequestLocalMedia(std::move(metadata), std::move(input));
+    });
+    time_service_->Start();
     const auto config = settings_.LoadMotor();
     drive_.SetInversion(config.left_inverted, config.right_inverted);
     drive_.SetSpeed(config.delay_ms);
@@ -51,6 +85,7 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
 }
 
 RobotController::~RobotController() {
+    time_service_->Stop();
     display_.SetBehaviorCallbacks({}, {});
     drive_.ConfigureEmotionMotion(false, 60);
 }

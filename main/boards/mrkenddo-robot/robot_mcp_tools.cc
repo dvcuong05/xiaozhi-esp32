@@ -191,6 +191,71 @@ static ToolResult StopListening(const PropertyList&) {
 
 void RegisterRobotMcpTools(mrkenddo::RobotController& controller) {
     auto& mcp = McpServer::GetInstance();
+    mcp.AddTool(
+        "self.time.schedule",
+        "Quản lý báo thức và nhắc việc theo giờ Việt Nam UTC+7. Khi người dùng hỏi lịch, gọi "
+        "op=status/list để lấy toàn bộ lịch, op=today để lấy lịch đến hạn hôm nay, op=next để lấy "
+        "lịch kế tiếp; kết quả sắp theo giờ và due_local là giờ Việt Nam. Chỉ dùng lịch "
+        "enabled=true. "
+        "id dùng cho thao tác tiếp theo. Với tên lịch trùng/không rõ, hỏi lại thay vì đoán id. "
+        "Chỉ báo thành công khi tool trả ok=true. op=add kind=alarm dùng hour/minute; days=0 một "
+        "lần, 127 mỗi ngày, 62 thứ hai-thứ sáu (bit0 Chủ nhật..bit6 thứ bảy). kind=reminder dùng "
+        "at=YYYY-MM-DDTHH:MM; days=0 một lần, khác 0 lặp theo các ngày đã chọn, bắt đầu vào lần "
+        "được chọn đầu tiên từ ngày/giờ at trở đi; ví dụ thứ 2/4/6 là days=42. op=rename dùng "
+        "id/title. op=reschedule dùng id "
+        "và hour/minute cho báo thức hoặc at cho nhắc việc; giữ nguyên lịch lặp. op=repeat dùng "
+        "id/repeat_days (0 là một lần). op=skip bỏ qua lần tới của lịch lặp, không tắt các lần "
+        "sau. "
+        "op=delete/enable/disable "
+        "dùng id; dismiss xác nhận thông báo; snooze nhắc lại sau 5 phút. Khi đổi/xóa/bỏ qua, "
+        "trước "
+        "tiên gọi status, chọn đúng lịch rồi mới gọi thao tác.",
+        PropertyList({Property("op", kPropertyTypeString),
+                      Property("kind", kPropertyTypeString, std::string("alarm")),
+                      Property("title", kPropertyTypeString, std::string{}),
+                      Property("at", kPropertyTypeString, std::string{}),
+                      Property("hour", kPropertyTypeInteger, 7, 0, 23),
+                      Property("minute", kPropertyTypeInteger, 0, 0, 59),
+                      Property("days", kPropertyTypeInteger, 0, 0, 127),
+                      Property("repeat_days", kPropertyTypeInteger, -1, -1, 127),
+                      Property("id", kPropertyTypeInteger, 1, 1, 8)}),
+        [&controller](const PropertyList& p) -> ToolResult {
+            auto* j = cJSON_CreateObject();
+            for (const char* key : {"op", "kind", "title", "at"})
+                cJSON_AddStringToObject(j, key, p[key].value<std::string>().c_str());
+            for (const char* key : {"hour", "minute", "id"})
+                cJSON_AddNumberToObject(j, key, p[key].value<int>());
+            const auto op = p["op"].value<std::string>();
+            cJSON_AddNumberToObject(
+                j, "days", op == "repeat" ? p["repeat_days"].value<int>() : p["days"].value<int>());
+            auto result = controller.TimeService().Command(j);
+            cJSON_Delete(j);
+            return result;
+        });
+    mcp.AddTool(
+        "self.time.timer",
+        "Đếm ngược/Pomodoro trên TFT. op=countdown dùng seconds 1-86400; op=pomodoro mặc định "
+        "25 phút tập trung/5 phút nghỉ, nghỉ cuối 15 phút, 4 vòng. title là tên việc. "
+        "op=pause/resume/stop/status; hide/show ẩn/hiện TFT nhưng vẫn đếm; dismiss tắt thông báo. "
+        "Một phiên tại một thời điểm, phiên không tiếp tục sau mất nguồn.",
+        PropertyList({Property("op", kPropertyTypeString),
+                      Property("title", kPropertyTypeString, std::string{}),
+                      Property("seconds", kPropertyTypeInteger, 300, 1, 86400),
+                      Property("focus_minutes", kPropertyTypeInteger, 25, 1, 180),
+                      Property("break_minutes", kPropertyTypeInteger, 5, 1, 60),
+                      Property("long_break_minutes", kPropertyTypeInteger, 15, 1, 120),
+                      Property("rounds", kPropertyTypeInteger, 4, 1, 12)}),
+        [&controller](const PropertyList& p) -> ToolResult {
+            auto* j = cJSON_CreateObject();
+            for (const char* key : {"op", "title"})
+                cJSON_AddStringToObject(j, key, p[key].value<std::string>().c_str());
+            for (const char* key :
+                 {"seconds", "focus_minutes", "break_minutes", "long_break_minutes", "rounds"})
+                cJSON_AddNumberToObject(j, key, p[key].value<int>());
+            auto result = controller.TimeService().Command(j);
+            cJSON_Delete(j);
+            return result;
+        });
 
     // Preserve existing MCP tool names and signed-unit API for callers.
     mcp.AddUserOnlyTool(

@@ -258,6 +258,8 @@ private:
         // a single click. Keep playlist/player changes on the application task.
         touch_button_.OnClick([this]() {
             Application::GetInstance().Schedule([this]() {
+                if (controller_ && controller_->TimeService().DismissAlert())
+                    return;
                 auto& app = Application::GetInstance();
                 if (app.GetDeviceState() == kDeviceStateNotifying) {
                     const auto playback = app.GetLocalMediaPlaybackStatus();
@@ -295,6 +297,8 @@ private:
         });
 
         touch_button_.OnDoubleClick([this]() {
+            if (controller_ && controller_->TimeService().DismissAlert())
+                return;
             auto& app = Application::GetInstance();
             const auto state = app.GetDeviceState();
             if (state == kDeviceStateRadio) {

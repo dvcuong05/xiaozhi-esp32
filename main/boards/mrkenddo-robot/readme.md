@@ -57,6 +57,65 @@ OLED dùng renderer bitmap cục bộ với các mode `clock`, chữ chạy, `st
 
 HTTP chưa có TLS/xác thực. Chỉ dùng trong mạng tin cậy, không forward cổng 80 ra Internet. Body JSON tối đa 8192 byte; riêng media giới hạn 48 dòng lyric, mỗi dòng tối đa 96 byte UTF-8. Cấu hình NVS vẫn được kiểm tra trước khi ghi.
 
+Trang **Nhịp sống** tại `/time` (liên kết từ dashboard) quản lý báo thức, nhắc
+việc, countdown và Pomodoro. `GET /api/time` trả giờ hiện tại, lịch, phiên đếm
+và trạng thái NVS; `POST /api/time` nhận các lệnh sau, trả `ok/error` để xác nhận:
+
+- `add`, `kind=alarm`: `hour`, `minute`, `title`, `days` là bitmask Chủ nhật
+  bit 0 đến thứ bảy bit 6; 0 báo một lần kế tiếp, 127 mỗi ngày, 62 ngày làm việc.
+- `add`, `kind=reminder`: `at=YYYY-MM-DDTHH:MM`, `title`; dùng giờ Việt Nam
+  UTC+7, không phụ thuộc múi giờ máy mở trình duyệt. `days` mặc định 0 để nhắc
+  một lần; chọn bit ngày để lặp hàng tuần. `at` là mốc bắt đầu, lịch chạy vào
+  ngày được chọn đầu tiên từ mốc đó trở đi. Ngày sai/đã qua bị từ chối.
+- `status`/`list` trả toàn bộ lịch, `today` lọc lịch bật đến hạn trong ngày,
+  `next` trả lịch bật kế tiếp. Kết quả được sắp theo giờ và có `due_local` theo
+  giờ Việt Nam để MCP trả lời trực tiếp.
+- `rename` đổi tên; `reschedule` đổi giờ báo thức hoặc thời điểm nhắc việc và
+  giữ nguyên quy tắc lặp; `repeat` đổi ngày lặp (`days` trong HTTP, `repeat_days`
+  trong MCP); `skip` bỏ lần tới của lịch lặp
+  nhưng giữ các lần sau. Các thao tác sửa/xóa/bỏ qua dùng `id` lấy từ danh sách.
+  `enable`/`disable` bật/tắt, `delete` xóa; `dismiss` xác nhận thông báo,
+  `snooze` tạo nhắc lại sau 5 phút nếu còn chỗ trong 8 lịch. Lịch đã hoàn tất
+  vẫn được giữ để xem/xóa. Trang `/time` cũng cho chọn ngày lặp khi tạo nhắc
+  việc và có nút bỏ lần tới cho lịch lặp đang bật.
+- `countdown`: `seconds` 1–86400 và `title`. `pomodoro`: `focus_minutes` 1–180,
+  `break_minutes` 1–60, `long_break_minutes` 1–120, `rounds` 1–12. Mặc định
+  25/5/15 phút, 4 vòng; nghỉ dài ở vòng cuối rồi kết thúc. Một phiên tại một thời điểm.
+- `pause`, `resume`, `stop` điều khiển phiên; `hide`/`show` ẩn/hiện TFT nhưng
+  không dừng đồng hồ. Thông báo đến hạn vẫn hiện kể cả khi đã ẩn phiên.
+
+Luồng xử lý: HTTP hoặc MCP `self.time.schedule` / `self.time.timer` gọi chung
+`RobotController::TimeService()`. `RobotTimeService` có worker ưu tiên thấp,
+kiểm tra mỗi giây, lưu tối đa 8 lịch trong namespace NVS `robot_time`, khóa
+`entries_v1`. Worker chỉ gửi tối đa một cập nhật UI đang chờ qua
+`Application::Schedule()`; `RobotTimeView` vẽ bằng LVGL dưới display lock.
+Không cần SD hay service MCP mới để chạy lịch đã lưu. Ví dụ nói: “Báo thức
+7 giờ mỗi ngày”, “Nhắc tôi uống thuốc lúc 8 giờ thứ hai, tư, sáu”, “Hôm nay có
+lịch gì?”, “Lịch nào sắp tới?”, “Đổi báo thức đi làm thành 7 giờ 15”, “Bỏ qua
+lần báo thức tới”, “Đếm ngược 5 phút”, “Bắt đầu Pomodoro 25 phút”. Khi sửa hoặc
+xóa, MCP phải đọc danh sách trước, xác định đúng lịch theo tên; nếu tên trùng
+thì hỏi lại. AI cần gọi tool và đọc `ok=true`; lời chatbot riêng lẻ không xác
+nhận thao tác đã hoàn thành.
+
+TFT dùng chữ số lớn vẽ bằng hình học, vòng tiến độ và nền gradient; tập trung
+màu tím, nghỉ xanh lá, countdown xanh, báo thức cam, nhắc việc xanh dương.
+Các nhãn dùng Noto Sans 14 px, bitmap 1-bit riêng trong board với đủ chữ Việt
+hoa/thường và dấu; font theme làm fallback cho ngôn ngữ khác. Không cần tải
+glyph từ server để hiện tiêu đề hoặc nội dung tiếng Việt. Có thể tái tạo font
+bằng `scripts/generate_time_font.py`; giấy phép nằm tại `docs/fonts/NotoSans-OFL.txt`.
+Thông báo đến hạn ưu tiên trên QR/media/ảnh sau boot; xác nhận hoặc hết 120
+giây sẽ trả về nội dung đang hoạt động. Chuyển pha Pomodoro hiện thông báo
+6 giây. Chạm đơn hoặc đôi khi có thông báo sẽ xác nhận trước các thao tác touch
+thường. Chuông đọc từ microSD trong `/robot/ringtones`, lặp mỗi 10 giây khi robot idle và dùng âm lượng loa hiện tại (âm lượng 0 sẽ im lặng). Đặt các file MP3:
+`alarm.mp3` cho báo thức, `reminder.mp3` cho nhắc việc, `countdown.mp3` khi đếm ngược kết thúc, `pomodoro_focus.mp3` khi bắt đầu phiên tập trung, `pomodoro_break.mp3` khi chuyển sang giờ nghỉ, và `pomodoro_complete.mp3` khi hoàn tất Pomodoro. Nên giữ các đoạn ngắn khoảng 1-4 giây, không có lời nói và có âm sắc riêng dễ nhận biết: chuông báo thức rõ nhưng không giật mình, nhắc việc nhẹ, countdown một tiếng điểm, focus có nhịp mở đầu, break dịu và complete có cadence kết thúc. Nếu file thiếu hoặc SD chưa sẵn sàng, firmware tự dùng popup.ogg tích hợp; SD không phải điều kiện để chạy báo thức và nhắc việc. Khi đến hạn, nhạc/radio được yêu cầu dừng một lần; không tự phát tiếp. Trong lúc đang nghe/nói, thông báo vẫn hiện và chuông chờ idle để tránh chồng âm hội thoại.
+
+Báo thức/nhắc việc cần đồng bộ giờ mạng trước khi tạo hoặc kích hoạt; sau mất
+nguồn phải đồng bộ lại. Lịch trễ tối đa 10 phút sẽ báo bù, trễ hơn thì bỏ lần
+đó và chuyển sang lần lặp kế tiếp (hoặc đánh dấu đã hoàn tất). Countdown và
+Pomodoro dùng thời gian đơn điệu, không bị NTP chỉnh giờ nhưng không khôi phục
+sau reboot. RAM và hàng đợi có giới hạn; không ghi NVS mỗi giây. Cần xác nhận
+thực tế TFT, âm thanh, touch, reboot/NTP và chuyển pha trên robot.
+
 ## Cảm xúc, đôi mắt và chuyển động khi nói
 
 Dashboard có thẻ **Cảm xúc & màn hình đôi mắt**: bật/tắt đôi mắt, hoạt ảnh

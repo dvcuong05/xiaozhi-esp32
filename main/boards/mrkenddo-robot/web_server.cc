@@ -2,6 +2,7 @@
 #include "robot_controller.h"
 #include "robot_drive.h"
 #include "robot_settings.h"
+#include "robot_time_web_ui.h"
 #include "sd_web_server.h"
 #include "web_ui.h"
 
@@ -398,8 +399,8 @@ bool ParseMediaMetadata(const cJSON* root, MediaPlaybackMetadata* metadata) {
     const cJSON* bitrate = cJSON_GetObjectItemCaseSensitive(item, "bitrate_kbps");
     if (bitrate != nullptr) {
         if (!cJSON_IsNumber(bitrate) || !std::isfinite(bitrate->valuedouble) ||
-            std::floor(bitrate->valuedouble) != bitrate->valuedouble ||
-            bitrate->valuedouble < 0 || bitrate->valuedouble > 10000) {
+            std::floor(bitrate->valuedouble) != bitrate->valuedouble || bitrate->valuedouble < 0 ||
+            bitrate->valuedouble > 10000) {
             return false;
         }
         metadata->bitrate_kbps = static_cast<uint32_t>(bitrate->valuedouble);
@@ -483,6 +484,24 @@ bool WebServer::StartSdSlideshow(const std::string& album, uint32_t interval_ms,
 
 void WebServer::StopSdSlideshow() { sd_web_->StopSlideshow(); }
 
+esp_err_t WebServer::TimePageHandler(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_send(req, kRobotTimePage, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::TimeApiHandler(httpd_req_t* req) {
+    cJSON* command = req->method == HTTP_GET ? cJSON_CreateObject() : ParseBody(req);
+    if (!command)
+        return ESP_FAIL;
+    if (req->method == HTTP_GET)
+        cJSON_AddStringToObject(command, "op", "status");
+    auto result = GetServer(req)->controller_.TimeService().Command(command);
+    cJSON_Delete(command);
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, result.c_str(), result.size());
+}
+
 bool WebServer::Start(int port) {
     if (port < 1 || port > 65535 || server_ != nullptr) {
         ESP_LOGE(TAG, "Cong HTTP khong hop le hoac server da chay: %d", port);
@@ -490,6 +509,9 @@ bool WebServer::Start(int port) {
     }
 
     httpd_uri_t uris[] = {
+        {"/time", HTTP_GET, TimePageHandler, this},
+        {"/api/time", HTTP_GET, TimeApiHandler, this},
+        {"/api/time", HTTP_POST, TimeApiHandler, this},
         {"/", HTTP_GET, RootHandler, this},
         {"/api/logs", HTTP_GET, LogWebSocketHandler, this, true, true},
         {"/api/notify", HTTP_POST, ApiNotifyHandler, this},

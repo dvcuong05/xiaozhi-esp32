@@ -2177,7 +2177,10 @@ SdStorage::Result SdStorage::Upload(const std::string& path, uint64_t offset, ui
             return IoError("commit upload");
         InvalidatePhotoIndex();
         ClearUpload();
-        if (path.compare(0, sizeof(kMusicRoot) - 1, kMusicRoot) == 0)
+        const size_t music_root_length = sizeof(kMusicRoot) - 1;
+        if (path.compare(0, music_root_length, kMusicRoot) == 0 &&
+            path.size() > music_root_length + 1 && path[music_root_length] == '/' &&
+            path.find('/', music_root_length + 1) == std::string::npos && HasAudioExtension(path))
             InvalidateMusicIndex();
     }
     return {};

@@ -27,7 +27,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       boot/assets và OTA/rollback trên robot thật.
 - [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module đã nhận thẻ khi VCC được chuyển sang 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
 - [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
-- [x] MicroSD đợt 3: `sd_status`, `sd_search`, `sd_play`, `sd_album_play`, `sd_artist_play`, `sd_stop` qua MCP/device WSS; thư viện phẳng `/robot/music`, upload nhạc tự vào folder này, ID3v2.3/2.4 ưu tiên và fallback tên file `Ca sĩ - Tên bài - Album - Thể loại`. Catalog tối đa 512 bài trên PSRAM dựng sau mount/upload/xóa; hoãn index khi phát SD. Tìm tên bài/ca sĩ/album/thể loại có dấu hoặc không dấu, xếp hạng ổn định; web có bộ lọc, trạng thái index và nút cập nhật. Không ghi catalog lên thẻ. Cần kiểm tra trên robot thật.
+- [x] MicroSD đợt 3: `sd_status`, `sd_search`, `sd_play`, `sd_album_play`, `sd_artist_play`, `sd_stop` qua MCP/device WSS; thư viện phẳng `/robot/music`, upload file luôn vào thư mục đang mở; nhạc phải tải trực tiếp vào folder này mới lập chỉ mục, ID3v2.3/2.4 ưu tiên và fallback tên file `Ca sĩ - Tên bài - Album - Thể loại`. Catalog tối đa 512 bài trên PSRAM dựng sau mount/upload/xóa; hoãn index khi phát SD. Tìm tên bài/ca sĩ/album/thể loại có dấu hoặc không dấu, xếp hạng ổn định; web có bộ lọc, trạng thái index và nút cập nhật. Không ghi catalog lên thẻ. Cần kiểm tra trên robot thật.
 - [x] Duyệt thư viện nhạc lớn trên web: API tìm kiếm trả tổng số kết quả và phân trang offset/limit; giao diện chọn 25/50 bài mỗi trang, sắp xếp theo tên bài/ca sĩ/album/thể loại/thời lượng và lọc bài thiếu metadata. Chỉ đọc catalog RAM, không quét thẻ mỗi lần đổi trang.
 - [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
     spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
@@ -51,7 +51,14 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [x] Chạm đơn chuyển bài kế tiếp trong danh sách album/ca sĩ đang phát từ SD; chỉ chuyển trong đúng playlist. Cần kiểm tra thao tác trên robot thật.
 - [ ] Kết nối API và hiện camera giao thông HCM
 - [ ] Stream live television and support config from webserver
-- [ ] Feature ask chatbox to set and weak the alarm
+- [x] Báo thức, nhắc việc, countdown và Pomodoro: module riêng của board,
+      lịch NVS tối đa 8 mục, giờ Việt Nam UTC+7, lịch lặp theo ngày; phiên đếm
+      đơn điệu có pause/resume/stop và ẩn/hiện. Trang `/time`, API `/api/time`,
+      MCP `self.time.schedule` / `self.time.timer`; truy vấn lịch hôm nay/lịch
+      kế tiếp, đổi tên/giờ/ngày lặp, bỏ một lần lặp và nhắc việc lặp theo thứ.
+      TFT gradient theo mode, chữ số lớn, vòng tiến độ, thông báo đến hạn và
+      chạm xác nhận. Chuông tái sử dụng popup; snooze 5 phút. Source đã triển
+      khai; xác nhận phần cứng còn mở, countdown/Pomodoro không tiếp tục sau reboot.
 - [ ] Tạm hoãn pause bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 
@@ -205,6 +212,13 @@ Không còn mục implementation nào đang chờ trong kế hoạch đã chốt
       URL proxy thuộc MCP server, không firmware.
 
 ## Hardware validation backlog
+- [ ] Báo thức/nhắc việc: tạo, liệt kê hôm nay/kế tiếp, đổi tên/giờ/ngày lặp,
+      bỏ một lần, bật/tắt/xóa bằng giọng nói và web; đúng UTC+7, lưu reboot,
+      chờ NTP, báo bù trong 10 phút; xác nhận/snooze, đủ 8 lịch và lỗi NVS.
+      Kiểm tra nhắc việc lặp qua nhiều ngày và chuông khi media đang phát/lúc nghe nói.
+- [ ] Countdown/Pomodoro: pause/resume, từng pha tập trung/nghỉ/nghỉ dài,
+      đổi giờ NTP không đổi đếm, ẩn/hiện, hết phiên về mặt robot; TFT không
+      cắt chữ Việt, ưu tiên QR/album/boot và touch khi thông báo đang hiện.
 - [ ] MicroSD: xác nhận qua nhiều lần reboot với nguồn module 5 V, đọc log `RobotSD`, kiểm tra thiếu thẻ/lỗi mount vẫn có Wi-Fi/web/audio, mount lại và tháo an toàn. Sơ đồ PNG/SVG sẽ do chủ robot cập nhật.
 - [ ] Upload/download file có tên tiếng Việt, so SHA-256 trước/sau, file rỗng và nhiều khối; từ chối trùng tên, sai offset, vượt giới hạn và traversal. Thử ngắt upload, đầy thẻ, tháo thẻ lúc I/O; xác nhận web Stop và hội thoại vẫn phản hồi khi truyền file.
 

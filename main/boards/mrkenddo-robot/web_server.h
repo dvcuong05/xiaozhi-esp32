@@ -11,13 +11,15 @@
 namespace mrkenddo {
 class RobotController;
 class SdWebServer;
+class TvWebServer;
+class RobotTvController;
 }  // namespace mrkenddo
 
 class WebServerLogStream;
 
 class WebServer {
 public:
-    explicit WebServer(mrkenddo::RobotController& controller);
+    WebServer(mrkenddo::RobotController& controller, mrkenddo::RobotTvController& tv);
     ~WebServer();
 
     bool Start(int port = 80);
@@ -64,6 +66,7 @@ private:
     mrkenddo::RobotController& controller_;
     std::unique_ptr<WebServerLogStream> log_stream_;
     std::unique_ptr<mrkenddo::SdWebServer> sd_web_;
+    std::unique_ptr<mrkenddo::TvWebServer> tv_web_;
 };
 
 #endif  // WEB_SERVER_H

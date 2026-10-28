@@ -1893,6 +1893,7 @@ void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metada
                              NotifyPlayer::FinishedCallback finished_callback) {
     pending_radio_url_.clear();
     pending_radio_metadata_ = {};
+    pending_radio_options_ = {};
     pending_media_url_ = std::move(audio_url);
     pending_media_metadata_ = std::move(metadata);
     pending_media_subtitles_ = std::move(subtitles);
@@ -1915,8 +1916,10 @@ void Application::RequestStopNotification() {
     Schedule([this]() { StopNotification(); });
 }
 
-void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata) {
-    Schedule([this, audio_url = std::move(audio_url), metadata = std::move(metadata)]() mutable {
+void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata,
+                               StreamPlaybackOptions options) {
+    Schedule([this, audio_url = std::move(audio_url), metadata = std::move(metadata),
+              options]() mutable {
         pending_media_url_.clear();
         pending_media_metadata_ = {};
         pending_media_subtitles_.clear();
@@ -1930,6 +1933,7 @@ void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata meta
 
         pending_radio_url_ = std::move(audio_url);
         pending_radio_metadata_ = std::move(metadata);
+        pending_radio_options_ = options;
         ESP_LOGI(TAG, "Radio start queued while device is in %s",
                  DeviceStateMachine::GetStateName(GetDeviceState()));
         TryStartPendingRadio();
@@ -1959,6 +1963,7 @@ void Application::RequestStopRadio() {
         // assistant conversation to finish.
         pending_radio_url_.clear();
         pending_radio_metadata_ = {};
+        pending_radio_options_ = {};
         if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
             StopRadio();
         } else {
@@ -2043,7 +2048,9 @@ void Application::TryStartPendingRadio() {
     pending_radio_url_.clear();
     auto metadata = std::move(pending_radio_metadata_);
     pending_radio_metadata_ = {};
-    StartRadio(std::move(audio_url), std::move(metadata));
+    auto options = pending_radio_options_;
+    pending_radio_options_ = {};
+    StartRadio(std::move(audio_url), std::move(metadata), options);
 }
 
 void Application::TryStartPendingMedia() {
@@ -2087,13 +2094,15 @@ void Application::TryStartPendingMedia() {
                std::move(input_factory), std::move(finished_callback));
 }
 
-void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metadata) {
+void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metadata,
+                             StreamPlaybackOptions options) {
     if (GetDeviceState() != kDeviceStateIdle || notify_player_.IsBusy() ||
         continuous_stream_player_.IsBusy()) {
         ESP_LOGW(TAG, "Delaying radio start while device is busy (%s)",
                  DeviceStateMachine::GetStateName(GetDeviceState()));
         pending_radio_url_ = std::move(audio_url);
         pending_radio_metadata_ = std::move(metadata);
+        pending_radio_options_ = options;
         return;
     }
 
@@ -2128,9 +2137,11 @@ void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metada
     }
 
     bool started = continuous_stream_player_.Start(
-        std::move(audio_url), playback_id, [this](uint32_t id, bool success) {
+        std::move(audio_url), playback_id,
+        [this](uint32_t id, bool success) {
             Schedule([this, id, success]() { HandleRadioFinished(id, success); });
-        });
+        },
+        options);
     if (!started) {
         ESP_LOGE(TAG, "Failed to start radio playback");
         StopRadio();
@@ -2140,6 +2151,7 @@ void Application::StartRadio(std::string audio_url, MediaPlaybackMetadata metada
 void Application::StopRadio() {
     pending_radio_url_.clear();
     pending_radio_metadata_ = {};
+    pending_radio_options_ = {};
     {
         std::lock_guard<std::mutex> lock(radio_metadata_mutex_);
         active_radio_metadata_ = {};

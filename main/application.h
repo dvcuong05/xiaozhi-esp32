@@ -29,21 +29,21 @@
 #include "stream/continuous_stream_player.h"
 
 // Main event bits
-#define MAIN_EVENT_SCHEDULE             (1 << 0)
-#define MAIN_EVENT_SEND_AUDIO           (1 << 1)
-#define MAIN_EVENT_WAKE_WORD_DETECTED   (1 << 2)
-#define MAIN_EVENT_VAD_CHANGE           (1 << 3)
-#define MAIN_EVENT_ERROR                (1 << 4)
-#define MAIN_EVENT_ACTIVATION_DONE      (1 << 5)
-#define MAIN_EVENT_CLOCK_TICK           (1 << 6)
-#define MAIN_EVENT_NETWORK_CONNECTED    (1 << 7)
+#define MAIN_EVENT_SCHEDULE (1 << 0)
+#define MAIN_EVENT_SEND_AUDIO (1 << 1)
+#define MAIN_EVENT_WAKE_WORD_DETECTED (1 << 2)
+#define MAIN_EVENT_VAD_CHANGE (1 << 3)
+#define MAIN_EVENT_ERROR (1 << 4)
+#define MAIN_EVENT_ACTIVATION_DONE (1 << 5)
+#define MAIN_EVENT_CLOCK_TICK (1 << 6)
+#define MAIN_EVENT_NETWORK_CONNECTED (1 << 7)
 #define MAIN_EVENT_NETWORK_DISCONNECTED (1 << 8)
-#define MAIN_EVENT_TOGGLE_CHAT          (1 << 9)
-#define MAIN_EVENT_START_LISTENING      (1 << 10)
-#define MAIN_EVENT_STOP_LISTENING       (1 << 11)
-#define MAIN_EVENT_STATE_CHANGED        (1 << 12)
-#define MAIN_EVENT_PLAYBACK_DRAINED     (1 << 13)
-#define MAIN_EVENT_BOOT_EVENT           (1 << 14)
+#define MAIN_EVENT_TOGGLE_CHAT (1 << 9)
+#define MAIN_EVENT_START_LISTENING (1 << 10)
+#define MAIN_EVENT_STOP_LISTENING (1 << 11)
+#define MAIN_EVENT_STATE_CHANGED (1 << 12)
+#define MAIN_EVENT_PLAYBACK_DRAINED (1 << 13)
+#define MAIN_EVENT_BOOT_EVENT (1 << 14)
 #define MAIN_EVENT_STARTUP_HINT_TIMEOUT (1 << 15)
 #define MAIN_EVENT_AUDIO_VISUALIZER (1 << 16)
 
@@ -78,6 +78,17 @@ public:
     void Run();
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
+    bool RequestService(const std::string& payload, std::string* result, std::string* error) {
+        if (device_bridge_client_)
+            return device_bridge_client_->Request(payload, result, error);
+        if (error)
+            *error = "MCP server chưa được cấu hình.";
+        return false;
+    }
+    NotifyPlayer::PlaybackStatus GetStreamPlaybackStatus() const {
+        return GetDeviceState() == kDeviceStateRadio ? continuous_stream_player_.GetPlaybackStatus()
+                                                     : notify_player_.GetPlaybackStatus();
+    }
     bool IsDeviceBridgeConnected() const {
         return device_bridge_client_ != nullptr && device_bridge_client_->IsConnected();
     }
@@ -131,7 +142,8 @@ public:
                            NotifyPlayer::FinishedCallback finished_callback = {});
     NotifyPlayer::PlaybackStatus GetLocalMediaPlaybackStatus() const;
     void RequestStopNotification();
-    void RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata = {});
+    void RequestRadio(std::string audio_url, MediaPlaybackMetadata metadata = {},
+                      StreamPlaybackOptions options = {});
     void RequestStopMedia();
     void RequestStopRadio();
     bool IsRadioActive() const;
@@ -188,6 +200,7 @@ private:
     // it until the conversation channel has returned the device to idle.
     std::string pending_radio_url_;
     MediaPlaybackMetadata pending_radio_metadata_;
+    StreamPlaybackOptions pending_radio_options_;
     std::string pending_media_url_;
     MediaPlaybackMetadata pending_media_metadata_;
     std::vector<NotifySubtitle> pending_media_subtitles_;
@@ -267,7 +280,8 @@ private:
     void TryStartPendingMedia();
     void StopNotification();
     void HandleNotificationFinished(uint32_t playback_id, bool success);
-    void StartRadio(std::string audio_url, MediaPlaybackMetadata metadata);
+    void StartRadio(std::string audio_url, MediaPlaybackMetadata metadata,
+                    StreamPlaybackOptions options);
     void TryStartPendingRadio();
     void StopRadio();
     void HandleRadioFinished(uint32_t playback_id, bool success);

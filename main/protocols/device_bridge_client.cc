@@ -11,6 +11,7 @@
 #include <cJSON.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <web_socket.h>
 
@@ -94,6 +95,89 @@ std::string PrintJson(cJSON* value) {
 
 }  // namespace
 
+struct DeviceBridgeClient::RpcRequest {
+    std::string id, payload, result, error;
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    bool sent = false;
+    bool completed = false;
+    ~RpcRequest() {
+        if (done)
+            vSemaphoreDelete(done);
+    }
+};
+
+bool DeviceBridgeClient::Request(const std::string& payload, std::string* result,
+                                 std::string* error, uint32_t timeout_ms) {
+    auto reject = [error](const char* message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    if (!IsConnected())
+        return reject("MCP server chưa kết nối. Vui lòng thử lại sau.");
+    if (payload.empty() || payload.size() > 4096 || timeout_ms > 30000 || timeout_ms < 100)
+        return reject("Yêu cầu dịch vụ không hợp lệ.");
+    auto pending = std::make_shared<RpcRequest>();
+    if (!pending->done)
+        return reject("Không đủ bộ nhớ cho yêu cầu dịch vụ.");
+    {
+        std::lock_guard<std::mutex> lock(request_mutex_);
+        if (request_)
+            return reject("Đang xử lý một yêu cầu dịch vụ khác.");
+        if (!IsConnected())
+            return reject("MCP server vừa mất kết nối.");
+        pending->id = "device_" + std::to_string(++request_sequence_);
+        pending->payload = payload;
+        request_ = pending;
+        if (wake_queue_) {
+            BridgeFrame wake{nullptr, 0};
+            xQueueSend(static_cast<QueueHandle_t>(wake_queue_), &wake, 0);
+        }
+    }
+    const bool completed = xSemaphoreTake(pending->done, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    std::lock_guard<std::mutex> lock(request_mutex_);
+    if (request_ == pending)
+        request_.reset();
+    if (!completed)
+        return reject("MCP server trả lời quá lâu. Hãy tải lại trạng thái trước khi thử lại.");
+    if (!pending->error.empty()) {
+        if (error)
+            *error = pending->error;
+        return false;
+    }
+    if (result)
+        *result = pending->result;
+    return true;
+}
+
+void DeviceBridgeClient::FailRequest(const char* error) {
+    std::lock_guard<std::mutex> lock(request_mutex_);
+    if (request_ && !request_->completed) {
+        request_->completed = true;
+        request_->error = error;
+        xSemaphoreGive(request_->done);
+    }
+}
+
+void DeviceBridgeClient::SendRequest(void* context) {
+    std::shared_ptr<RpcRequest> pending;
+    {
+        std::lock_guard<std::mutex> lock(request_mutex_);
+        if (!request_ || request_->sent)
+            return;
+        pending = request_;
+        pending->sent = true;
+    }
+    cJSON* envelope = cJSON_CreateObject();
+    cJSON_AddStringToObject(envelope, "type", "request");
+    cJSON_AddStringToObject(envelope, "id", pending->id.c_str());
+    cJSON_AddItemToObject(envelope, "payload", cJSON_Parse(pending->payload.c_str()));
+    auto encoded = PrintJson(envelope);
+    cJSON_Delete(envelope);
+    if (!static_cast<WebSocket*>(context)->Send(encoded))
+        FailRequest("Không gửi được yêu cầu tới MCP server.");
+}
+
 DeviceBridgeClient::DeviceBridgeClient(CommandHandler command_handler)
     : command_handler_(std::move(command_handler)) {}
 
@@ -161,12 +245,17 @@ void DeviceBridgeClient::Run() {
         if (!connected) {
             ESP_LOGW(TAG, "WSS connect failed: %s", connected.error().ToString().c_str());
         } else {
-            connected_.store(socket->IsConnected() && !disconnected->load() &&
-                                 !inbox->failed.load(),
-                             std::memory_order_release);
+            connected_.store(
+                socket->IsConnected() && !disconnected->load() && !inbox->failed.load(),
+                std::memory_order_release);
             ESP_LOGI(TAG, "MCP WSS bridge connected");
+            {
+                std::lock_guard<std::mutex> lock(request_mutex_);
+                wake_queue_ = inbox->queue;
+            }
             TickType_t last_ping = xTaskGetTickCount();
             while (socket->IsConnected() && !disconnected->load() && !inbox->failed.load()) {
+                SendRequest(socket.get());
                 const TickType_t now = xTaskGetTickCount();
                 if (now - last_ping >= kPingInterval) {
                     socket->Ping();
@@ -179,7 +268,8 @@ void DeviceBridgeClient::Run() {
                 BridgeFrame frame;
                 if (xQueueReceive(inbox->queue, &frame, pdMS_TO_TICKS(1000)) == pdTRUE) {
                     std::unique_ptr<char[]> message(frame.data);
-                    if (socket->IsConnected() && !disconnected->load() && !inbox->failed.load()) {
+                    if (frame.length != 0 && socket->IsConnected() && !disconnected->load() &&
+                        !inbox->failed.load()) {
                         // JSON parsing, board I/O and ACKs run on this task's
                         // 12 KiB stack, never on the 4 KiB ssl_receive task.
                         HandleMessage(socket.get(), message.get(), frame.length, false);
@@ -189,6 +279,11 @@ void DeviceBridgeClient::Run() {
         }
 
         connected_.store(false, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(request_mutex_);
+            wake_queue_ = nullptr;
+        }
+        FailRequest("Mất kết nối MCP server trong lúc xử lý yêu cầu.");
         socket->Close();
         socket.reset();
         inbox.reset();
@@ -212,6 +307,25 @@ void DeviceBridgeClient::HandleMessage(void* socket_context, const char* data, s
     const cJSON* message_type = cJSON_GetObjectItemCaseSensitive(envelope, "type");
     const cJSON* request_id = cJSON_GetObjectItemCaseSensitive(envelope, "id");
     const cJSON* payload = cJSON_GetObjectItemCaseSensitive(envelope, "payload");
+    if (cJSON_IsString(message_type) && strcmp(message_type->valuestring, "response") == 0 &&
+        cJSON_IsString(request_id) && request_id->valuestring) {
+        std::lock_guard<std::mutex> lock(request_mutex_);
+        if (request_ && !request_->completed && request_->id == request_id->valuestring) {
+            request_->completed = true;
+            const auto* ok = cJSON_GetObjectItemCaseSensitive(envelope, "ok");
+            const auto* result = cJSON_GetObjectItemCaseSensitive(envelope, "result_json");
+            const auto* error = cJSON_GetObjectItemCaseSensitive(envelope, "error");
+            if (cJSON_IsTrue(ok) && cJSON_IsString(result) && result->valuestring &&
+                std::strlen(result->valuestring) <= 8192)
+                request_->result = result->valuestring;
+            else
+                request_->error =
+                    cJSON_IsString(error) ? error->valuestring : "Yêu cầu dịch vụ thất bại.";
+            xSemaphoreGive(request_->done);
+        }
+        cJSON_Delete(envelope);
+        return;
+    }
     if (!cJSON_IsString(message_type) || strcmp(message_type->valuestring, "command") != 0 ||
         !cJSON_IsString(request_id) || request_id->valuestring == nullptr ||
         strlen(request_id->valuestring) == 0 || strlen(request_id->valuestring) > 64 ||

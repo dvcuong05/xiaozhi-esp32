@@ -4,6 +4,19 @@ Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiể
 
 ## Phần cứng
 
+Phần mở rộng loa Bluetooth dùng ESP32-WROOM-32 D1 Mini được mô tả trong
+[`docs/bluetooth-speaker-wiring.md`](docs/bluetooth-speaker-wiring.md).
+Project firmware chính thức cho mạch D1 Mini nằm tại
+[`tools/esp32-d1-bluetooth`](../../../tools/esp32-d1-bluetooth/readme.md). Có thể
+cấp nguồn/nạp qua USB-C, mở trang local không cần mật khẩu, quét/chọn loa,
+chuyển loa đang kết nối và phát âm thử trước khi đấu I2S. D1 Mini vận hành
+Bluetooth Classic A2DP riêng; firmware robot ESP32-S3 tiếp tục đảm nhiệm các
+module hiện tại. Xem sơ đồ dây và các giới hạn tích hợp trong
+[`docs/bluetooth-speaker-wiring.md`](docs/bluetooth-speaker-wiring.md).
+Đích tích hợp tiếp theo là gom điều khiển về webserver/MCP của robot: S3 gửi lệnh
+UART nội bộ tới D1, còn audio đi riêng qua I2S. Hiện firmware vẫn dùng trang/AP
+của D1 để bring-up; giao diện chung, MCP Bluetooth và UART chưa được triển khai.
+
 | Chức năng | GPIO / cấu hình |
 | --- | --- |
 | Micro I2S WS/SCK/DIN | 4 / 5 / 6; INMP441 L/R nối GND, slot trái |
@@ -649,6 +662,27 @@ CA bundle, reconnect sau mất mạng và ACK `queued` khi cùng dispatcher medi
 đã phát thành công. Audio vẫn được tải riêng từ URL proxy do MCP gửi qua lệnh.
 HTTP `/api/media/*` và `/api/radio/*` tiếp tục hữu ích cho test local cùng LAN.
 Chi tiết cấu hình server và certificate nằm trong `xiaozhi-kenddo-services/docs/setup.md`.
+
+Live TV dùng catalog SQLite lưu trên MCP server; truy cập **`/tv`** để tìm,
+thêm/sửa/xóa kênh, kiểm tra URL HLS và phát/dừng trên robot. Trang giải trí dùng
+card kênh, trạng thái phát thật và hỗ trợ tiếng Việt. Catalog không lưu NVS;
+đổi container vẫn giữ danh sách qua Docker volume. Khi chat: `tv_search` tìm
+tên/bí danh → `tv_play(channel_id)` → WSS `tv.start` → `RobotTvController` →
+`RobotLiveTv`. `tv_status` đọc trạng thái thật, `tv_stop` hoặc **chạm đôi** dừng
+cả hình/tiếng. Nút Stop tại web hoạt động ngay cả khi VPS không kết nối.
+
+Server chuyển HLS thành MJPEG 240×240/12 fps và Opus; audio dùng player chung,
+không tạo pipeline riêng. Frame tối đa 128 KiB, một frame chờ mới nhất; worker
+video/HTTP dùng stack PSRAM. Board N16R8 giữ RX 6/24, BA 6, TCP window 17.280
+byte, 16 socket tổng và tối đa 4 kết nối web để dành chỗ cho WSS/audio/video.
+Tên kênh ở góc trên phải TFT dùng font Unicode của theme. Báo thức/QR giữ ưu
+tiên; ảnh hoặc nhạc/radio mới kết thúc quyền hiển thị TV tương ứng.
+
+Workflow kỹ thuật, đăng ký MCP, RPC hai chiều, API, vòng đời streaming và giới
+hạn nằm tại [Live TV](docs/features/live-tv/README.md). Kế hoạch đã chốt và bằng
+chứng triển khai nằm trong [PLAN.md](docs/features/live-tv/PLAN.md); đây là điểm
+tiếp tục công việc khi đổi phiên. Chỉ dùng nguồn không DRM. Hai track hiện chưa
+có PTS chung, do đó số fps không chứng minh độ đồng bộ môi chính xác.
 
 Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong task rieng, tu dong dung sau khi hoan thanh, bi huy boi Stop, hoac bi thay the boi lenh di chuyen thu cong. Hay nang robot khoi mat dat khi test.
 

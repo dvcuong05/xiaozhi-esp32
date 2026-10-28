@@ -7,8 +7,10 @@
 #include "mrkenddo_robot_display.h"
 #include "robot_controller.h"
 #include "robot_drive.h"
+#include "robot_live_tv.h"
 #include "robot_mcp_tools.h"
 #include "robot_settings.h"
+#include "robot_tv_controller.h"
 #include "sd_storage.h"
 #include "secondary_display.h"
 #include "web_server.h"
@@ -159,6 +161,8 @@ private:
     mrkenddo::RobotSettings settings_;
     mrkenddo::SecondaryDisplay secondary_display_{settings_};
     mrkenddo::SdStorage sd_storage_;
+    std::unique_ptr<mrkenddo::RobotLiveTv> live_tv_;
+    std::unique_ptr<mrkenddo::RobotTvController> tv_controller_;
     std::mutex sd_playlist_mutex_;
     std::weak_ptr<SdMusicPlaylistSession> sd_playlist_;
     std::unique_ptr<mrkenddo::RobotController> controller_;
@@ -301,6 +305,10 @@ private:
                 return;
             auto& app = Application::GetInstance();
             const auto state = app.GetDeviceState();
+            if (live_tv_ && live_tv_->IsActive()) {
+                live_tv_->Stop();
+                return;
+            }
             if (state == kDeviceStateRadio) {
                 ClearSdPlaylist();
                 app.RequestStopRadio();
@@ -443,8 +451,16 @@ public:
         };
         cJSON* root = cJSON_ParseWithLength(payload_json.data(), payload_json.size());
         const cJSON* type = cJSON_GetObjectItemCaseSensitive(root, "type");
-        if (!cJSON_IsObject(root) || !cJSON_IsString(type) || !type->valuestring ||
-            std::strncmp(type->valuestring, "sd.", 3) != 0) {
+        const bool sd_command = cJSON_IsString(type) && type->valuestring &&
+                                std::strncmp(type->valuestring, "sd.", 3) == 0;
+        const bool tv_command = cJSON_IsString(type) && type->valuestring &&
+                                std::strncmp(type->valuestring, "tv.", 3) == 0;
+        if (tv_command) {
+            cJSON_Delete(root);
+            return tv_controller_ &&
+                   tv_controller_->HandleCommand(payload_json, result_json, error);
+        }
+        if (!cJSON_IsObject(root) || (!sd_command && !tv_command)) {
             cJSON_Delete(root);
             return reject("unsupported board command");
         }
@@ -765,6 +781,15 @@ public:
         ESP_ERROR_CHECK(esp_timer_create(&ip_display_timer_args, &ip_display_timer_));
         InitializeSpi();
         InitializeSt7789Display();
+        live_tv_ = std::make_unique<mrkenddo::RobotLiveTv>(Application::GetInstance(), *display_);
+        display_->SetLiveTvInterruptedCallback([this](bool stop_audio) {
+            if (live_tv_) {
+                if (stop_audio)
+                    live_tv_->Stop();
+                else
+                    live_tv_->StopVideoOnly();
+            }
+        });
         // SpiLcdDisplay creates the LVGL display before Application::Initialize
         // creates any widgets. Apply the saved rotation at this point so the
         // first frame is rendered in one coordinate system; changing it after
@@ -775,6 +800,7 @@ public:
         ESP_LOGI(TAG, "Dang khoi tao hai dong co DC");
         drive_ = new RobotDrive(STEPPER_INT1_GPIO, STEPPER_INT2_GPIO, STEPPER_INT3_GPIO,
                                 STEPPER_INT4_GPIO);
+        tv_controller_ = std::make_unique<mrkenddo::RobotTvController>(*live_tv_);
         controller_ = std::make_unique<mrkenddo::RobotController>(
             settings_, *drive_, secondary_display_, *display_,
             [this](int rotation) { SetTftRotation(rotation); }, sd_storage_);
@@ -787,12 +813,16 @@ public:
 
         // Create web server (start it when WiFi connects)
         ESP_LOGI(TAG, "Dang tao web server");
-        web_server_ = new WebServer(*controller_);
+        web_server_ = new WebServer(*controller_, *tv_controller_);
+        tv_controller_->SetBeforePlay([this]() { web_server_->StopSdSlideshow(); });
 
         ESP_LOGI(TAG, "Ham tao MrkenDDoRobot hoan tat");
     }
 
     ~MrkenDDoRobot() override {
+        if (display_ != nullptr)
+            display_->SetLiveTvInterruptedCallback({});
+
         if (ip_display_timer_ != nullptr) {
             esp_timer_stop(ip_display_timer_);
             esp_timer_delete(ip_display_timer_);
@@ -801,6 +831,8 @@ public:
         // Adapters/controllers must release their references before hardware is destroyed.
         delete web_server_;
         web_server_ = nullptr;
+        tv_controller_.reset();
+        live_tv_.reset();
         controller_.reset();
         delete drive_;
         drive_ = nullptr;

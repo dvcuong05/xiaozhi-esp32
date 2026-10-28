@@ -4,6 +4,7 @@
 #include "robot_settings.h"
 #include "robot_time_web_ui.h"
 #include "sd_web_server.h"
+#include "tv_web_server.h"
 #include "web_ui.h"
 
 #include <algorithm>
@@ -460,11 +461,12 @@ WebServer* GetServer(httpd_req_t* req) { return static_cast<WebServer*>(req->use
 
 }  // namespace
 
-WebServer::WebServer(mrkenddo::RobotController& controller)
+WebServer::WebServer(mrkenddo::RobotController& controller, mrkenddo::RobotTvController& tv)
     : server_(nullptr),
       controller_(controller),
       log_stream_(std::make_unique<WebServerLogStream>()),
-      sd_web_(std::make_unique<mrkenddo::SdWebServer>(controller.Storage())) {}
+      sd_web_(std::make_unique<mrkenddo::SdWebServer>(controller.Storage())),
+      tv_web_(std::make_unique<mrkenddo::TvWebServer>(tv)) {}
 
 WebServer::~WebServer() { Stop(); }
 
@@ -553,7 +555,12 @@ bool WebServer::Start(int port) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = sizeof(uris) / sizeof(uris[0]) + mrkenddo::SdWebServer::kHandlerCount;
+    // Reserve descriptors for MQTT/UDP, WSS and the two TV tracks. A page
+    // refresh or a second controller must not exhaust the device socket pool.
+    config.max_open_sockets = 4;
+    config.max_uri_handlers = sizeof(uris) / sizeof(uris[0]) +
+                              mrkenddo::SdWebServer::kHandlerCount +
+                              mrkenddo::TvWebServer::kHandlerCount;
     config.max_uri_len = 1024;
 
     esp_err_t ret = httpd_start(&server_, &config);
@@ -572,7 +579,7 @@ bool WebServer::Start(int port) {
         }
     }
 
-    if (sd_web_->Register(server_) != ESP_OK) {
+    if (sd_web_->Register(server_) != ESP_OK || tv_web_->Register(server_) != ESP_OK) {
         ESP_LOGE(TAG, "Khong the dang ky web microSD");
         Stop();
         return false;
@@ -583,6 +590,8 @@ bool WebServer::Start(int port) {
 }
 
 void WebServer::Stop() {
+    if (tv_web_)
+        tv_web_->Stop();
     if (sd_web_)
         sd_web_->StopSlideshow();
     if (server_) {

@@ -12,7 +12,6 @@
 #include "stream_audio_decoder.h"
 
 namespace {
-constexpr int kHttpTimeoutMs = 5000;
 constexpr size_t kHttpReadBufferSize = 1024;
 #if CONFIG_ENABLE_MP3_PLAYBACK
 constexpr uint32_t kNotifyTaskStackSize = 8192;
@@ -198,12 +197,14 @@ void NotifyPlayer::WorkerTask() {
     bool success = false;
     bool continuous = false;
     uint32_t reconnect_delay_ms = 1000;
+    uint32_t http_timeout_ms = 5000;
     AudioPlaybackSource source = AudioPlaybackSource::Notification;
     const uint32_t generation = audio_service_.GetPlaybackGeneration();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         continuous = options_.continuous;
         reconnect_delay_ms = options_.reconnect_delay_ms;
+        http_timeout_ms = std::clamp(options_.http_timeout_ms, uint32_t{1000}, uint32_t{30000});
         source = options_.source;
     }
 
@@ -284,7 +285,7 @@ void NotifyPlayer::WorkerTask() {
         } else {
             auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
             if (http) {
-                http->SetTimeout(kHttpTimeoutMs);
+                http->SetTimeout(static_cast<int>(http_timeout_ms));
                 http->SetHeader("Accept", "audio/mpeg, audio/ogg, application/ogg");
                 http->SetHeader("Accept-Encoding", "identity");
                 auto opened = http->Open("GET", audio_url);

@@ -15,11 +15,15 @@ public:
 
     explicit ContinuousStreamPlayer(AudioService& audio_service);
 
-    bool Start(std::string audio_url, uint32_t playback_id, FinishedCallback finished_callback);
+    bool Start(std::string audio_url, uint32_t playback_id, FinishedCallback finished_callback,
+               StreamPlaybackOptions options = {});
     void Stop();
     void OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms);
     void OnPlaybackDrained();
     bool IsBusy() const;
+    NotifyPlayer::PlaybackStatus GetPlaybackStatus() const {
+        return stream_player_.GetPlaybackStatus();
+    }
 
 private:
     NotifyPlayer stream_player_;

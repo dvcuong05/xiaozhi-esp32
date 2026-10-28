@@ -6,8 +6,8 @@ ContinuousStreamPlayer::ContinuousStreamPlayer(AudioService& audio_service)
     : stream_player_(audio_service) {}
 
 bool ContinuousStreamPlayer::Start(std::string audio_url, uint32_t playback_id,
-                                   FinishedCallback finished_callback) {
-    StreamPlaybackOptions options;
+                                   FinishedCallback finished_callback,
+                                   StreamPlaybackOptions options) {
     options.continuous = true;
     options.source = AudioPlaybackSource::Media;
     return stream_player_.Start(std::move(audio_url), {}, playback_id, nullptr,
@@ -16,8 +16,7 @@ bool ContinuousStreamPlayer::Start(std::string audio_url, uint32_t playback_id,
 
 void ContinuousStreamPlayer::Stop() { stream_player_.Stop(); }
 
-void ContinuousStreamPlayer::OnPlaybackProgress(uint32_t playback_id,
-                                                uint32_t media_position_ms) {
+void ContinuousStreamPlayer::OnPlaybackProgress(uint32_t playback_id, uint32_t media_position_ms) {
     stream_player_.OnPlaybackProgress(playback_id, media_position_ms);
 }
 

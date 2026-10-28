@@ -12,6 +12,7 @@
 #include "robot_time_view.h"
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -48,6 +49,12 @@ public:
     void SetMediaSubtitle(const char* text) override;
     void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
     void SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) override;
+    void SetLiveTvActive(bool active, const std::string& title);
+    bool SetLiveTvFrame(std::unique_ptr<LvglImage> image);
+    uint32_t LiveTvRefreshCount() const { return live_tv_refresh_count_.load(); }
+    void SetLiveTvInterruptedCallback(std::function<void(bool)> callback);
+    bool CanStartLiveTv();
+    bool IsLiveTvVisible();
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const mrkenddo::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
@@ -57,7 +64,15 @@ protected:
 
 private:
     enum class BootState { Pending, Active, Finished };
-    enum class UiMode { NormalFace, BootConsole, PaymentQr, AudioVisualizer, SdImage, Time };
+    enum class UiMode {
+        NormalFace,
+        BootConsole,
+        PaymentQr,
+        AudioVisualizer,
+        SdImage,
+        LiveTv,
+        Time
+    };
     std::unique_ptr<mrkenddo::RobotTimeView> time_view_;
     bool time_visible_ = false;
     bool time_alert_ = false;
@@ -79,6 +94,18 @@ private:
     lv_timer_t* sd_image_timer_ = nullptr;
     std::unique_ptr<LvglImage> sd_image_;
     bool sd_image_active_ = false;
+    lv_obj_t* live_tv_overlay_ = nullptr;
+    lv_obj_t* live_tv_image_view_ = nullptr;
+    lv_obj_t* live_tv_title_ = nullptr;
+    std::unique_ptr<LvglImage> live_tv_frame_;
+    static void LiveTvRefreshReady(lv_event_t* event);
+    std::atomic<uint32_t> live_tv_refresh_count_{0};
+    uint32_t live_tv_frame_sequence_ = 0;
+    uint32_t live_tv_refreshed_sequence_ = 0;
+    bool live_tv_active_ = false;
+    std::string live_tv_title_text_;
+    std::function<void(bool)> live_tv_interrupted_callback_;
+    void InterruptLiveTv(bool stop_audio);
     lv_obj_t* music_title_ = nullptr;
     lv_obj_t* music_artist_ = nullptr;
     lv_obj_t* music_progress_bar_ = nullptr;

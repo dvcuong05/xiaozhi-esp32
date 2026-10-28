@@ -17,6 +17,8 @@ MrkenDDoRobotDisplay::MrkenDDoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                     swap_xy) {}
 
 MrkenDDoRobotDisplay::~MrkenDDoRobotDisplay() {
+    if (display_ != nullptr)
+        lv_display_remove_event_cb_with_user_data(display_, LiveTvRefreshReady, this);
     time_view_.reset();
     if (face_preview_timer_ != nullptr)
         lv_timer_delete(face_preview_timer_);
@@ -191,6 +193,31 @@ void MrkenDDoRobotDisplay::SetupUI() {
     sd_image_view_ = lv_image_create(sd_image_overlay_);
     lv_obj_center(sd_image_view_);
     lv_obj_add_flag(sd_image_overlay_, LV_OBJ_FLAG_HIDDEN);
+
+    live_tv_overlay_ = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(live_tv_overlay_, width_, height_);
+    lv_obj_center(live_tv_overlay_);
+    lv_obj_set_style_bg_color(live_tv_overlay_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(live_tv_overlay_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(live_tv_overlay_, 0, 0);
+    lv_obj_set_style_radius(live_tv_overlay_, 0, 0);
+    lv_obj_set_style_pad_all(live_tv_overlay_, 0, 0);
+    lv_obj_clear_flag(live_tv_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+    live_tv_image_view_ = lv_image_create(live_tv_overlay_);
+    lv_obj_center(live_tv_image_view_);
+    lv_display_add_event_cb(display_, LiveTvRefreshReady, LV_EVENT_REFR_READY, this);
+    live_tv_title_ = lv_label_create(live_tv_overlay_);
+    // lv_layer_top does not inherit the screen's Vietnamese-capable font.
+    lv_obj_set_style_text_font(live_tv_title_, text_font, 0);
+    lv_obj_set_width(live_tv_title_, width_ * 2 / 3);
+    lv_obj_align(live_tv_title_, LV_ALIGN_TOP_RIGHT, -6, 5);
+    lv_label_set_long_mode(live_tv_title_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(live_tv_title_, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_color(live_tv_title_, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(live_tv_title_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(live_tv_title_, LV_OPA_70, 0);
+    lv_obj_set_style_pad_hor(live_tv_title_, 4, 0);
+    lv_obj_add_flag(live_tv_overlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
@@ -202,6 +229,10 @@ MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const {
     if (boot_state_ == BootState::Active) {
         return UiMode::BootConsole;
     }
+    if (boot_state_ == BootState::Finished && time_visible_ && time_alert_)
+        return UiMode::Time;
+    if (live_tv_active_)
+        return UiMode::LiveTv;
     if (boot_state_ == BootState::Finished && time_visible_)
         return UiMode::Time;
     // Keep the player visible for the whole media session. Audio output can
@@ -236,10 +267,86 @@ void MrkenDDoRobotDisplay::ApplyUiMode() {
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
+    set_visible(live_tv_overlay_, mode == UiMode::LiveTv);
     set_visible(payment_qr_overlay_, mode == UiMode::PaymentQr);
     if (time_view_)
         time_view_->SetVisible(mode == UiMode::Time);
     HideLegacyEmoji();
+}
+
+void MrkenDDoRobotDisplay::SetLiveTvActive(bool active, const std::string& title) {
+    DisplayLockGuard lock(this);
+    if (!lock || live_tv_overlay_ == nullptr || live_tv_image_view_ == nullptr)
+        return;
+    live_tv_active_ = active;
+    if (active) {
+        live_tv_refresh_count_.store(0);
+        live_tv_frame_sequence_ = 0;
+        live_tv_refreshed_sequence_ = 0;
+        live_tv_title_text_ = title;
+        lv_label_set_text(live_tv_title_, title.c_str());
+    } else {
+        live_tv_title_text_.clear();
+        lv_image_set_src(live_tv_image_view_, nullptr);
+        live_tv_frame_.reset();
+        lv_label_set_text(live_tv_title_, "");
+    }
+    ApplyUiMode();
+}
+
+void MrkenDDoRobotDisplay::SetLiveTvInterruptedCallback(std::function<void(bool)> callback) {
+    DisplayLockGuard lock(this);
+    if (lock)
+        live_tv_interrupted_callback_ = std::move(callback);
+}
+
+bool MrkenDDoRobotDisplay::CanStartLiveTv() {
+    DisplayLockGuard lock(this);
+    return lock && live_tv_overlay_ && boot_state_ == BootState::Finished && !time_alert_;
+}
+
+bool MrkenDDoRobotDisplay::IsLiveTvVisible() {
+    DisplayLockGuard lock(this);
+    return lock && GetUiMode() == UiMode::LiveTv;
+}
+
+void MrkenDDoRobotDisplay::InterruptLiveTv(bool stop_audio) {
+    if (!live_tv_active_)
+        return;
+    live_tv_active_ = false;
+    live_tv_title_text_.clear();
+    lv_image_set_src(live_tv_image_view_, nullptr);
+    live_tv_frame_.reset();
+    if (live_tv_interrupted_callback_)
+        live_tv_interrupted_callback_(stop_audio);
+}
+
+void MrkenDDoRobotDisplay::LiveTvRefreshReady(lv_event_t* event) {
+    auto* self = static_cast<MrkenDDoRobotDisplay*>(lv_event_get_user_data(event));
+    if (self->live_tv_active_ && self->GetUiMode() == UiMode::LiveTv &&
+        self->live_tv_frame_sequence_ != self->live_tv_refreshed_sequence_) {
+        self->live_tv_refreshed_sequence_ = self->live_tv_frame_sequence_;
+        self->live_tv_refresh_count_.fetch_add(1);
+    }
+}
+
+bool MrkenDDoRobotDisplay::SetLiveTvFrame(std::unique_ptr<LvglImage> image) {
+    DisplayLockGuard lock(this);
+    if (!lock || !live_tv_active_ || live_tv_image_view_ == nullptr || !image)
+        return false;
+    const auto* descriptor = image->image_dsc();
+    if (descriptor == nullptr || descriptor->header.w == 0 || descriptor->header.h == 0)
+        return false;
+
+    auto previous = std::move(live_tv_frame_);
+    live_tv_frame_ = std::move(image);
+    lv_image_set_src(live_tv_image_view_, live_tv_frame_->image_dsc());
+    const auto scale_x = static_cast<uint32_t>(256 * width_ / descriptor->header.w);
+    const auto scale_y = static_cast<uint32_t>(256 * height_ / descriptor->header.h);
+    lv_image_set_scale(live_tv_image_view_, std::min(scale_x, scale_y));
+    ++live_tv_frame_sequence_;
+    lv_obj_invalidate(live_tv_image_view_);
+    return true;
 }
 
 void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
@@ -289,6 +396,7 @@ void MrkenDDoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uin
         sd_image_timer_ = nullptr;
     }
     sd_image_ = std::move(image);
+    InterruptLiveTv(true);
     lv_image_set_src(sd_image_view_, descriptor);
     const auto scale_x = static_cast<uint32_t>(256 * width_ / descriptor->header.w);
     const auto scale_y = static_cast<uint32_t>(256 * height_ / descriptor->header.h);
@@ -736,6 +844,12 @@ void MrkenDDoRobotDisplay::SetMediaMetadata(const MediaPlaybackMetadata& metadat
         if (!lock) {
             return;
         }
+        if (live_tv_active_ && (!metadata.title.empty() || !metadata.station.empty()) &&
+            (metadata.station != live_tv_title_text_ || metadata.title != live_tv_title_text_)) {
+            // A normal radio/music command took over the shared audio player.
+            // The new audio owner must keep playing when TV video ends.
+            InterruptLiveTv(false);
+        }
         if (speaking_callback_)
             speaking_callback_(false);
         music_session_.SetMediaMetadata(metadata.title, artist_line, metadata.station,
@@ -793,7 +907,7 @@ void MrkenDDoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
     }
     for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,
-                        music_lyric_, payment_qr_caption_}) {
+                        music_lyric_, payment_qr_caption_, live_tv_title_}) {
         if (label != nullptr) {
             lv_obj_set_style_text_font(label, text_font, 0);
         }

@@ -25,6 +25,7 @@ struct NotifySubtitle {
 struct StreamPlaybackOptions {
     bool continuous = false;
     uint32_t reconnect_delay_ms = 1000;
+    uint32_t http_timeout_ms = 5000;
     AudioPlaybackSource source = AudioPlaybackSource::Notification;
 };
 

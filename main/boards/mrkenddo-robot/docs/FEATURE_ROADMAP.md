@@ -49,16 +49,26 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
     Browser không có tần số FM/AM.
 - [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
 - [x] Chạm đơn chuyển bài kế tiếp trong danh sách album/ca sĩ đang phát từ SD; chỉ chuyển trong đúng playlist. Cần kiểm tra thao tác trên robot thật.
-- [ ] Kết nối API và hiện camera giao thông HCM
-- [ ] Stream live television and support config from webserver
 - [x] Báo thức, nhắc việc, countdown và Pomodoro: module riêng của board,
-      lịch NVS tối đa 8 mục, giờ Việt Nam UTC+7, lịch lặp theo ngày; phiên đếm
-      đơn điệu có pause/resume/stop và ẩn/hiện. Trang `/time`, API `/api/time`,
-      MCP `self.time.schedule` / `self.time.timer`; truy vấn lịch hôm nay/lịch
-      kế tiếp, đổi tên/giờ/ngày lặp, bỏ một lần lặp và nhắc việc lặp theo thứ.
-      TFT gradient theo mode, chữ số lớn, vòng tiến độ, thông báo đến hạn và
-      chạm xác nhận. Chuông tái sử dụng popup; snooze 5 phút. Source đã triển
-      khai; xác nhận phần cứng còn mở, countdown/Pomodoro không tiếp tục sau reboot.
+    lịch NVS tối đa 8 mục, giờ Việt Nam UTC+7, lịch lặp theo ngày; phiên đếm
+    đơn điệu có pause/resume/stop và ẩn/hiện. Trang `/time`, API `/api/time`,
+    MCP `self.time.schedule` / `self.time.timer`; truy vấn lịch hôm nay/lịch
+    kế tiếp, đổi tên/giờ/ngày lặp, bỏ một lần lặp và nhắc việc lặp theo thứ.
+    TFT gradient theo mode, chữ số lớn, vòng tiến độ, thông báo đến hạn và
+    chạm xác nhận. Chuông tái sử dụng popup; snooze 5 phút. Source đã triển
+    khai; xác nhận phần cứng còn mở, countdown/Pomodoro không tiếp tục sau reboot.
+- [ ] Kết nối API và hiện camera giao thông HCM
+- [ ] Tính năng smarthome: điều khiển các thiết bị qua API,..
+- [ ] Tính năng stream IP camera của gia đình (cần plan mua thiết bị phù hợp có public api tích hợp,vv)
+- [x] Live TV: catalog SQLite tại MCP server, `/tv` quản lý/tìm/phát/dừng kênh;
+      MCP `tv_search/play/stop/status`, RPC hai chiều trên WSS hiện có.
+      MJPEG 240×240/12 fps + Opus dùng audio player chung; một phiên TV,
+      frame PSRAM hữu hạn, retry/lease/FFmpeg cleanup, tên kênh góc phải TFT
+      hỗ trợ tiếng Việt. Chạm đôi/nút Stop dừng hình/tiếng. Đã thay tên/tool/
+      route thử nghiệm bằng module chính thức, nạp firmware và deploy VPS.
+      [Workflow](features/live-tv/README.md) và [kế hoạch/kết quả kiểm chứng](features/live-tv/PLAN.md).
+      Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
+      có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
 - [ ] Tạm hoãn pause bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
 - [ ] Linh hoạt hơn việc flash firmware với XIAOZHI_MCP_DEVICE_WSS_TOKEN, có thể nhận từ webserver robot đc không? hoặc qua tool nạp firmware dyanmic chẳng hạn
 

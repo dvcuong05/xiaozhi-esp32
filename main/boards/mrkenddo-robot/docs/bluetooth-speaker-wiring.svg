@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1320" viewBox="0 0 1800 1320"><rect width="1800" height="1320" fill="#f4f7fb"/>
+<text x="45" y="67" font-family="Arial,sans-serif" font-size="42" font-weight="700" fill="#172b45">MrKenDDo Robot → loa Bluetooth</text>
+<text x="45" y="107" font-family="Arial,sans-serif" font-size="24" font-weight="400" fill="#172b45">Sơ đồ đấu nối đề xuất • ESP32-S3 N16R8 + ESP32-WROOM-32 D1 Mini • 26/10/2026</text>
+<text x="45" y="143" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#52637a">Theo config.h hiện tại; bổ sung microSD/TTP223 so với ảnh mạch cũ. Chưa nạp firmware hoặc thử phát Bluetooth.</text>
+<rect x="45" y="190" width="410" height="125" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="230" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">INMP441 • micro hiện tại</text>
+<text x="63" y="266" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">WS → S3 GPIO4; SCK → GPIO5</text>
+<text x="63" y="297" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">SD → GPIO6; L/R → GND</text>
+<rect x="45" y="335" width="410" height="145" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="375" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">TFT ST7789 • hiện tại</text>
+<text x="63" y="411" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">SCLK 17; MOSI 18; CS 46</text>
+<text x="63" y="442" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">DC 3; RST 8; BL 9</text>
+<text x="63" y="473" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Các số là GPIO của ESP32-S3.</text>
+<rect x="45" y="500" width="410" height="115" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="540" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">OLED SSD1306 • hiện tại</text>
+<text x="63" y="576" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">SDA → S3 GPIO2</text>
+<text x="63" y="607" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">SCL → S3 GPIO1</text>
+<rect x="45" y="635" width="410" height="115" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="675" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">microSD • hiện tại</text>
+<text x="63" y="711" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">CS 42; SCK 41; MOSI 40; MISO 39</text>
+<text x="63" y="742" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">VCC theo module đã dùng của robot</text>
+<rect x="45" y="770" width="410" height="115" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="810" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">TTP223 / nút / LED</text>
+<text x="63" y="846" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Touch 20; nút tăng âm lượng 38</text>
+<text x="63" y="877" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">BOOT 0; LED tích hợp 48</text>
+<rect x="45" y="905" width="410" height="135" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="945" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">L298N → hai motor DC</text>
+<text x="63" y="981" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">IN1/2/3/4 → S3 GPIO11/12/13/14</text>
+<text x="63" y="1012" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Giữ nhánh nguồn motor hiện có.</text>
+<text x="63" y="1043" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Không lấy nguồn D1 Mini từ motor.</text>
+<rect x="535" y="190" width="325" height="850" rx="14" fill="#e6f1ff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="553" y="230" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">ESP32-S3 N16R8</text>
+<text x="553" y="266" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Robot chính • I2S MASTER TX</text>
+<polyline points="455,250 535,250" fill="none" stroke="#63758b" stroke-width="4"/>
+<polyline points="455,400 535,400" fill="none" stroke="#63758b" stroke-width="4"/>
+<polyline points="455,555 535,555" fill="none" stroke="#63758b" stroke-width="4"/>
+<polyline points="455,690 535,690" fill="none" stroke="#63758b" stroke-width="4"/>
+<polyline points="455,825 535,825" fill="none" stroke="#63758b" stroke-width="4"/>
+<polyline points="455,970 535,970" fill="none" stroke="#63758b" stroke-width="4"/>
+<text x="555" y="294" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#172b45">GPIO15 • BCLK</text>
+<polyline points="860,300 1210,300" fill="none" stroke="#af44cb" stroke-width="4"/>
+<circle cx="860" cy="300" r="6" fill="#af44cb"/>
+<text x="555" y="364" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#172b45">GPIO16 • LRCK / WS</text>
+<polyline points="860,370 1210,370" fill="none" stroke="#b48106" stroke-width="4"/>
+<circle cx="860" cy="370" r="6" fill="#b48106"/>
+<text x="555" y="434" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#172b45">GPIO7 • DOUT</text>
+<polyline points="860,440 1210,440" fill="none" stroke="#159b63" stroke-width="4"/>
+<circle cx="860" cy="440" r="6" fill="#159b63"/>
+<text x="555" y="504" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#172b45">GND</text>
+<polyline points="860,510 1210,510" fill="none" stroke="#27364b" stroke-width="4"/>
+<circle cx="860" cy="510" r="6" fill="#27364b"/>
+<text x="557" y="635" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">24 kHz • mono</text>
+<text x="557" y="671" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">I2S Philips, slot 32-bit</text>
+<text x="557" y="716" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Không cần MCLK.</text>
+<text x="557" y="764" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#172b45">Giữ nguyên GPIO</text>
+<text x="557" y="797" font-family="Arial,sans-serif" font-size="22" font-weight="400" fill="#172b45">của các module cũ.</text>
+<text x="557" y="876" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#b04b15">Logic 3,3 V</text>
+<text x="557" y="914" font-family="Arial,sans-serif" font-size="22" font-weight="400" fill="#172b45">Không đưa 5 V</text>
+<text x="557" y="947" font-family="Arial,sans-serif" font-size="22" font-weight="400" fill="#172b45">vào chân tín hiệu.</text>
+<rect x="1210" y="190" width="545" height="365" rx="14" fill="#e5f7f0" stroke="#b6c5d6" stroke-width="2"/>
+<text x="1228" y="230" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">ESP32-WROOM-32 D1 Mini</text>
+<text x="1228" y="266" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">MỚI • I2S SLAVE RX → A2DP SOURCE</text>
+<text x="1230" y="296" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#af44cb">IO26 / GPIO26 ← BCLK</text>
+<text x="1230" y="366" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#b48106">IO25 / GPIO25 ← WS</text>
+<text x="1230" y="436" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#159b63">IO22 / GPIO22 ← DATA IN</text>
+<text x="1230" y="506" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#27364b">GND ← GND robot</text>
+<text x="935" y="237" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#172b45">Nhánh song song</text>
+<text x="935" y="268" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">3 dây I2S + GND</text>
+<rect x="960" y="610" width="370" height="170" rx="14" fill="#ffffff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="978" y="650" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">MAX98357A → loa robot</text>
+<text x="978" y="686" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">BCLK ← GPIO15 (giữ nguyên)</text>
+<text x="978" y="717" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">LRC ← GPIO16 (giữ nguyên)</text>
+<text x="978" y="748" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">DIN ← GPIO7 (giữ nguyên)</text>
+<polyline points="985,300 985,580 990,580 990,610" fill="none" stroke="#af44cb" stroke-width="3"/>
+<circle cx="985" cy="300" r="6" fill="#af44cb"/>
+<polyline points="1025,370 1025,580 1030,580 1030,610" fill="none" stroke="#b48106" stroke-width="3"/>
+<circle cx="1025" cy="370" r="6" fill="#b48106"/>
+<polyline points="1065,440 1065,580 1070,580 1070,610" fill="none" stroke="#159b63" stroke-width="3"/>
+<circle cx="1065" cy="440" r="6" fill="#159b63"/>
+<rect x="1380" y="610" width="375" height="170" rx="14" fill="#e5f7f0" stroke="#b6c5d6" stroke-width="2"/>
+<text x="1398" y="650" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">LOA BLUETOOTH</text>
+<text x="1398" y="686" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">A2DP Sink • ghép đôi với D1</text>
+<text x="1398" y="717" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Kết nối không dây, không nối</text>
+<text x="1398" y="748" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">dây vào cọc loa của robot.</text>
+<polyline points="1580,555 1580,610" fill="none" stroke="#008e86" stroke-width="6"/>
+<rect x="960" y="815" width="795" height="225" rx="14" fill="#fff3e4" stroke="#b6c5d6" stroke-width="2"/>
+<text x="978" y="855" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">Nguồn D1 Mini • đã đo VCC = 5 V qua USB-C</text>
+<text x="978" y="891" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Hiện dùng: 5 V ổn áp → USB-C; GND chung với robot.</text>
+<text x="978" y="922" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">VCC làm đầu vào: cần xác nhận nối vào bộ ổn áp 3,3 V.</text>
+<text x="978" y="953" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Sau xác nhận: 5 V robot → VCC D1; GND robot → GND D1.</text>
+<text x="978" y="984" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Dùng VCC thì tháo USB-C; nạp USB thì ngắt dây 5 V robot.</text>
+<text x="978" y="1015" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Không nối 3V3 hai board; không cấp pin thẳng vào USB/3V3.</text>
+<rect x="45" y="1080" width="1710" height="195" rx="14" fill="#fff" stroke="#b6c5d6" stroke-width="2"/>
+<text x="63" y="1120" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#172b45">Điều kiện để sơ đồ này phát được âm thanh</text>
+<text x="63" y="1156" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">D1 cần firmware nhận I2S → đổi PCM32 sang PCM16 → resample 24 kHz sang 44,1/48 kHz → SBC/A2DP Source.</text>
+<text x="63" y="1187" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Đây là nhánh sao chép âm thanh: nhạc, TTS và âm báo đều đi tới D1. Chỉ phát nhạc cần thêm điều khiển firmware.</text>
+<text x="63" y="1218" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">MAX98357A vẫn phát song song và có thể lệch tiếng do độ trễ Bluetooth; tắt riêng amp nếu chỉ muốn nghe loa Bluetooth.</text>
+<text x="63" y="1249" font-family="Arial,sans-serif" font-size="21" font-weight="400" fill="#172b45">Đấu theo nhãn IO26 / IO25 / IO22 / GND trên mặt sau board, không suy vị trí từ mặt trước. Dây I2S ngắn, GND đi kèm.</text>
+</svg>

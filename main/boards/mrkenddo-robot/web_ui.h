@@ -1,9 +1,12 @@
 #ifndef MRKENDDO_ROBOT_WEB_UI_H_
 #define MRKENDDO_ROBOT_WEB_UI_H_
 
+#include "web_navigation.h"
+
 namespace mrkenddo::web_ui {
 
-static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
+static constexpr char kIndexHtml[] =
+    R"WEBUI(<!doctype html>
 <html lang="vi">
 <head>
     <meta charset="utf-8">
@@ -25,25 +28,40 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
         details.advanced{margin-top:13px;border:1px solid var(--line);border-radius:12px;background:#091626}details.advanced summary{padding:11px 13px;color:#aebed4;font-size:12px;font-weight:700;cursor:pointer}details.advanced[open] summary{border-bottom:1px solid var(--line)}details.advanced .advanced-body{padding:13px}
         .group-grid .statusline{min-height:18px}.group-grid .row+.row{margin-top:10px}.control-label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}.display-modes{margin:10px 0}.display-help{border-left:2px solid var(--accent2);padding-left:10px;color:var(--muted);font-size:11px;line-height:1.55}.safe-stop{background:#6b283c;border:1px solid #aa4059}
         @media(max-width:800px){.group-grid>.card,.group-grid>.card.third{grid-column:span 12}.feature-group{margin-top:8px}.group-head h2{font-size:18px}}
-        @media(max-width:520px){.group-head{align-items:flex-start;flex-direction:column;gap:8px}.section-nav{overflow-x:auto;flex-wrap:nowrap;padding-bottom:5px}.section-nav a{white-space:nowrap}.group-grid{gap:10px}.stats{grid-template-columns:1fr}.card{padding:15px}.motor button{height:49px}}</style>
+        @media(max-width:520px){.group-head{align-items:flex-start;flex-direction:column;gap:8px}.section-nav{overflow-x:auto;flex-wrap:nowrap;padding-bottom:5px}.section-nav a{white-space:nowrap}.group-grid{gap:10px}.stats{grid-template-columns:1fr}.card{padding:15px}.motor button{height:49px}}
+        .system-strip{grid-column:span 12;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:#0d1a2b99}
+        .system-strip>.tag{display:flex;align-items:center;gap:7px;flex:none}.system-strip .stats{flex:1;grid-template-columns:repeat(3,minmax(115px,1fr));gap:7px;max-width:660px}.system-strip .stat{padding:6px 9px;border-radius:9px}.system-strip .stat span{font-size:9px}.system-strip .stat b{font-size:13px}
+        .routine-control{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}.routine-label{display:block;margin-bottom:7px;color:var(--muted);font-size:10px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.routine-control .row{gap:7px}.routine-control button{padding:8px 10px;font-size:11px}.routine-control .statusline{margin:6px 0 0}
+        @media(max-width:620px){.system-strip{align-items:stretch;flex-direction:column}.system-strip .stats{width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}.system-strip .stat{padding:6px}.system-strip .stat b{font-size:12px}}
+)WEBUI" ROBOT_WEB_NAV_STYLE
+    R"WEBUI(</style>
 </head>
 <body>
 <main class="shell">
-    <header class="top">
-        <div class="brand"><div class="logo">MK</div><div><div class="eyebrow">MrKenDDo · XiaoZhi</div><div class="title">Robot Control Center</div><div class="subtitle">Điều khiển chuyển động, hội thoại và hai màn hình</div></div></div>
-        <div class="connection"><span id="dot" class="dot"></span><b id="connection">Đang kiểm tra...</b><br><small id="ip">IP: -</small></div>
-    </header>
+    )WEBUI" ROBOT_WEB_NAV(
+        ROBOT_WEB_NAV_CURRENT, "", "", "", "Điều khiển robot", "dashboard",
+        "<div class=\"robot-nav-status\"><span id=\"dot\" class=\"dot\"></span><span "
+        "id=\"connection\">Đang kiểm tra…</span></div>")
+        R"WEBUI(
 
     <section class="grid">
-        <article class="card wide"><div class="card-head"><div><h2>Tình trạng hệ thống</h2><p>Thông tin kết nối và tài nguyên được cập nhật trực tiếp từ robot.</p></div><span class="tag">TRỰC TIẾP</span></div><div class="stats"><div class="stat"><span>Kết nối</span><b id="state">—</b></div><div class="stat"><span>Địa chỉ IP</span><b id="ipStat">—</b></div><div class="stat"><span>Bộ nhớ còn trống</span><b id="heap">—</b></div></div></article>
-        <nav class="section-nav" aria-label="Nhóm chức năng"><a href="#movement">Chuyển động</a><a href="#expressions">Biểu cảm</a><a href="#display">Màn hình</a><a href="#sound">Âm thanh</a><a href="#utilities">Tiện ích</a><a href="#diagnostics">Chẩn đoán</a></nav>
+        <aside class="system-strip" aria-label="Tình trạng hệ thống">
+            <span class="tag"><span class="dot ok"></span> TRỰC TIẾP</span>
+            <div class="stats">
+                <div class="stat"><span>Kết nối</span><b id="state">—</b></div>
+                <div class="stat"><span>Địa chỉ IP</span><b id="ipStat">—</b></div>
+                <div class="stat"><span>Bộ nhớ còn trống</span><b id="heap">—</b></div>
+            </div>
+        </aside>
+        <nav class="section-nav" aria-label="Nhóm chức năng"><a href="#movement">Chuyển động</a><a href="#expressions">Biểu cảm</a><a href="#display">Màn hình</a><a href="#sound">Âm thanh</a><a href="#conversation">Hội thoại</a><a href="#diagnostics">Chẩn đoán</a></nav>
 
         <section class="feature-group" id="movement">
             <div class="group-head"><div><span class="group-kicker">01 · Robot</span><h2>Chuyển động</h2><p>Điều khiển hướng, chỉnh bước motor và chạy routine.</p></div><span class="group-count">Điều khiển · Cấu hình · Routine</span></div>
             <div class="group-grid">
-                <article class="card"><div class="card-head"><div><h2>Điều khiển hướng</h2><p>Nhấn một hướng để di chuyển; nút đỏ dừng robot.</p></div><span class="tag">MOTOR</span></div><div class="motor"><span class="empty"></span><button aria-label="Tiến" onclick="move('forward')">↑</button><span class="empty"></span><button aria-label="Rẽ trái" onclick="move('left')">←</button><button class="stop" aria-label="Dừng" onclick="stopRobot()">■</button><button aria-label="Rẽ phải" onclick="move('right')">→</button><span class="empty"></span><button aria-label="Lùi" onclick="move('backward')">↓</button><span class="empty"></span></div><div id="moveStatus" class="statusline">Sẵn sàng.</div></article>
+                <article class="card"><div class="card-head"><div><h2>Điều khiển hướng</h2><p>Nhấn một hướng để di chuyển; nút đỏ dừng robot.</p></div><span class="tag">MOTOR</span></div><div class="motor"><span class="empty"></span><button aria-label="Tiến" onclick="move('forward')">↑</button><span class="empty"></span><button aria-label="Rẽ trái" onclick="move('left')">←</button><button class="stop" aria-label="Dừng" onclick="stopRobot()">■</button><button aria-label="Rẽ phải" onclick="move('right')">→</button><span class="empty"></span><button aria-label="Lùi" onclick="move('backward')">↓</button><span class="empty"></span></div><div id="moveStatus" class="statusline">Sẵn sàng.</div>
+<div class="routine-control"><span class="routine-label">Hành vi nhanh</span><div class="row"><button class="primary" onclick="runRoutine('lively')">Hiếu động</button><button class="primary" onclick="runRoutine('dance')">Dancing</button><button class="danger" onclick="stopRobot()">Dừng</button></div><div id="routineStatus" class="statusline">Sẵn sàng.</div></div></article>
                 <article class="card"><div class="card-head"><div><h2>Cấu hình motor</h2><p>Điều chỉnh thời lượng chạy và chiều quay theo cách lắp.</p></div><span class="tag">THIẾT LẬP</span></div><div class="row"><div class="field"><label for="steps">Độ dài lệnh · đơn vị</label><input id="steps" type="number" min="1" max="30000" value="512"></div><div class="field"><label for="delay">Thời gian mỗi đơn vị · ms</label><input id="delay" type="number" min="1" max="100" value="1"></div></div><p id="motionLimitNote" class="mini-note">Thời lượng ước tính = độ dài lệnh × thời gian mỗi đơn vị. Giới hạn an toàn: 10 giây.</p><div class="divider"></div><div class="row"><label class="check"><input id="left_inv" type="checkbox"> Đảo chiều motor trái</label><label class="check"><input id="right_inv" type="checkbox" checked> Đảo chiều motor phải</label></div><button class="primary" onclick="saveMotor()" style="margin-top:14px">Lưu cấu hình motor</button><div id="motorStatus" class="statusline"></div></article>
-                <article class="card wide"><div class="card-head"><div><h2>Routine chuyển động</h2><p>Chạy hành vi định sẵn. Robot hiếu động tiếp tục chạy cho đến khi bạn nhấn dừng.</p></div><span class="tag">HÀNH VI</span></div><div class="row"><button class="primary" onclick="runRoutine('lively')">Hiếu động</button><button class="primary" onclick="runRoutine('dance')">Dancing</button><button class="danger" onclick="stopRobot()">Dừng routine</button></div><div id="routineStatus" class="statusline">Sẵn sàng.</div></article>
+
             </div>
         </section>
 
@@ -81,13 +99,9 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
             </div>
         </section>
 
-        <section class="feature-group" id="utilities">
-            <div class="group-head"><div><span class="group-kicker">05 · Tiện ích</span><h2>Thẻ nhớ & hội thoại</h2><p>Mở nhanh công cụ lưu trữ và gửi prompt qua MCP.</p></div><span class="group-count">Offline · MCP</span></div>
+        <section class="feature-group" id="conversation">
             <div class="group-grid">
-                <article class="card"><div class="card-head"><div><h2>Quản lý microSD</h2><p>File, album ảnh và thư viện nhạc offline.</p></div><span class="tag">STORAGE</span></div><a class="quick-link" href="/storage"><span>Mở trình quản lý thẻ nhớ</span><span aria-hidden="true">→</span></a></article>
-                <article class="card"><div class="card-head"><div><h2>Lịch & bộ hẹn giờ</h2><p>Báo thức, nhắc việc, countdown và Pomodoro.</p></div><span class="tag">NHỊP SỐNG</span></div><a class="quick-link" href="/time"><span>Mở trang lịch cá nhân</span><span aria-hidden="true">→</span></a></article>
-                <article class="card"><div class="card-head"><div><h2>Live TV</h2><p>Thư viện kênh, truyền hình trực tiếp trên TFT và loa robot.</p></div><span class="tag">ENTERTAINMENT</span></div><a class="quick-link" href="/tv"><span>Khám phá kênh truyền hình</span><span aria-hidden="true">→</span></a></article>
-                <article class="card wide"><div class="card-head"><div><h2>Gửi lệnh văn bản</h2><p>Gửi prompt qua MCP của firmware; robot sẽ nhận và phản hồi qua hội thoại.</p></div><span class="tag">MCP</span></div><textarea id="prompt" maxlength="1000" placeholder="Ví dụ: Hãy chào tôi bằng tiếng Việt…"></textarea><div class="row" style="margin-top:10px"><button id="sendPromptButton" class="primary" onclick="sendPrompt()">Gửi lệnh</button><span id="promptStatus" class="statusline" style="flex:1;margin:0">Sẵn sàng.</span></div><p class="mini-note">Có thể nhấn Ctrl + Enter để gửi.</p></article>
+<article class="card wide"><div class="card-head"><div><h2>Gửi lệnh văn bản</h2><p>Gửi prompt qua MCP của firmware; robot sẽ nhận và phản hồi qua hội thoại.</p></div><span class="tag">MCP</span></div><textarea id="prompt" maxlength="1000" placeholder="Ví dụ: Hãy chào tôi bằng tiếng Việt…"></textarea><div class="row" style="margin-top:10px"><button id="sendPromptButton" class="primary" onclick="sendPrompt()">Gửi lệnh</button><span id="promptStatus" class="statusline" style="flex:1;margin:0">Sẵn sàng.</span></div><p class="mini-note">Có thể nhấn Ctrl + Enter để gửi.</p></article>
             </div>
         </section>
 
@@ -134,7 +148,7 @@ static constexpr char kIndexHtml[] = R"WEBUI(<!doctype html>
         try{const d=await json('/api/qr_config');$('qr_payload').value=d.payload||'';$('qr_caption').value=d.caption||'';say('qrStatus',d.valid?(d.source==='custom'?'Đang dùng QR tùy chỉnh':'Đang dùng bitmap ngân hàng cũ'):'Cấu hình QR lỗi: lưu lại trước khi dùng',!!d.valid)}catch(e){say('qrStatus',e.message)}
         poll();
     }
-    async function poll(){try{const d=await json('/api/status');$('dot').classList.toggle('ok',!!d.wifi_connected);$('connection').textContent=d.wifi_connected?'Đã kết nối':'Mất kết nối';$('ip').textContent='IP: '+(d.ip||'-');$('ipStat').textContent=d.ip||'-';$('state').textContent=d.state||'-';$('heap').textContent=d.free_heap?Math.round(d.free_heap/1024)+' KB':'-'}catch(_){$('connection').textContent='Không truy cập được'}setTimeout(poll,2500)}
+    async function poll(){try{const d=await json('/api/status');$('dot').classList.toggle('ok',!!d.wifi_connected);$('connection').textContent=d.wifi_connected?'Đã kết nối':'Mất kết nối';$('ipStat').textContent=d.ip||'-';$('state').textContent=d.state||'-';$('heap').textContent=d.free_heap?Math.round(d.free_heap/1024)+' KB':'-'}catch(_){$('connection').textContent='Không truy cập được'}setTimeout(poll,2500)}
     function updateMotionLimit(){const delayMs=Number($('delay').value),stepsInput=$('steps'),note=$('motionLimitNote');if(!Number.isInteger(delayMs)||delayMs<1||delayMs>100){note.textContent='Thời gian mỗi đơn vị phải từ 1 đến 100 ms.';return null}const maxSteps=Math.floor(10000/delayMs),requested=Number(stepsInput.value);if(!Number.isInteger(requested)||requested<1){note.textContent='Độ dài lệnh phải là số nguyên dương.';return null}const limited=requested>maxSteps,steps=limited?maxSteps:requested;if(limited)stepsInput.value=String(steps);stepsInput.max=String(maxSteps);note.textContent=limited?'Đã giới hạn từ '+requested+' xuống '+steps+' đơn vị để không vượt quá 10 giây. Lưu cấu hình motor để ghi lại.':'Thời lượng ước tính: '+(steps*delayMs)+' ms · tối đa '+maxSteps+' đơn vị ở mức này (10 giây).';return {steps,delay_ms:delayMs,limited}}
     $('steps').addEventListener('input',updateMotionLimit);$('delay').addEventListener('input',updateMotionLimit);
     async function move(direction){const command=updateMotionLimit();if(!command){say('moveStatus','Kiểm tra lại độ dài lệnh và thời gian mỗi đơn vị.');return}say('moveStatus','Đang chạy '+direction+' · khoảng '+(command.steps*command.delay_ms)+' ms...');try{const d=await json('/api/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction,steps:command.steps,delay_ms:command.delay_ms})});say('moveStatus',d.result||'Đã chạy',true)}catch(e){say('moveStatus',e.message)}}

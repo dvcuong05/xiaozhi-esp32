@@ -1,6 +1,9 @@
 #pragma once
 
-inline constexpr char kRobotTimePage[] = R"TIME(<!doctype html>
+#include "web_navigation.h"
+
+inline constexpr char kRobotTimePage[] =
+    R"TIME(<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8">
@@ -36,12 +39,12 @@ inline constexpr char kRobotTimePage[] = R"TIME(<!doctype html>
     a { color: inherit; text-decoration: none; }
     button, input { font: inherit; }
     button { color: inherit; }
-    .topbar, .topbar nav, .live-pill, .section-heading, .event-top, .event-actions,
+    .live-pill, .section-heading, .event-top, .event-actions,
     .button-row, .session-controls, .filters, .days, .clock-heading { display: flex; align-items: center; }
-    .topbar { justify-content: space-between; gap: 16px; margin-bottom: 30px; }
-    .back-link { display: inline-flex; align-items: center; gap: 9px; color: #bbc8df; font-size: 14px; font-weight: 650; }
-    .back-link:hover { color: #fff; }
-    .back-mark { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.04); }
+
+
+
+
     .live-pill { gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(17, 29, 49, .8); color: #b7c5de; font-size: 12px; }
     .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(117,223,177,.62); }
     .live-pill.offline .live-dot { background: var(--amber); box-shadow: 0 0 12px rgba(255,204,122,.45); }
@@ -147,7 +150,7 @@ inline constexpr char kRobotTimePage[] = R"TIME(<!doctype html>
       .form-grid { gap: 11px; }
     }
     @media (max-width: 560px) {
-      .topbar { margin-bottom: 24px; }
+
       .live-pill { max-width: 52%; font-size: 10px; }
       .form-grid { grid-template-columns: 1fr; }
       .section, .schedules, .session { padding: 18px; }
@@ -160,13 +163,15 @@ inline constexpr char kRobotTimePage[] = R"TIME(<!doctype html>
       .schedule-head { align-items: flex-start; flex-direction: column; }
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
-  </style>
+  )TIME" ROBOT_WEB_NAV_STYLE
+    R"TIME(</style>
 </head>
 <body>
-  <nav class="topbar" aria-label="Điều hướng">
-    <a class="back-link" href="/"><span class="back-mark" aria-hidden="true">←</span> Bảng điều khiển</a>
-    <div id="connectionPill" class="live-pill"><span class="live-dot" aria-hidden="true"></span><span id="connection">Đang kết nối robot…</span></div>
-  </nav>
+  )TIME" ROBOT_WEB_NAV(
+        "", "", ROBOT_WEB_NAV_CURRENT, "", "Lịch cá nhân", "time",
+        "<div id=\"connectionPill\" class=\"live-pill\"><span class=\"live-dot\" "
+        "aria-hidden=\"true\"></span><span id=\"connection\">Đang kết nối robot…</span></div>")
+        R"TIME(
 
   <header class="page-head">
     <div>

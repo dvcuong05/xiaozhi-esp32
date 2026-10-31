@@ -157,6 +157,10 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
 - [x] Refactor kiến trúc firmware: board khởi tạo phần cứng, HTTP/MCP cùng
       gọi `RobotController`, NVS tập trung trong `RobotSettings`, OLED có
       service riêng sở hữu I2C/framebuffer/task; bỏ C wrapper và global board.
+- [x] Tổ chức source theo `core/`, `features/`, `display/`, `integration/` và
+      `web/`; HTTP handler ở `web/server/`, giao diện nhúng ở `web/ui/`.
+      Source firmware khai báo trong `board_sources.cmake`; xem bản đồ module
+      và hướng dẫn thêm file trong `readme.md`.
 - [x] Tập trung quyền hiển thị TFT theo thứ tự QR → boot → visualizer → eyes;
       QR hết hạn quay về chế độ phù hợp với playback/boot hiện tại.
 - [x] Chuyển mẫu visualizer qua mailbox cố định, giới hạn UI 25 FPS và xử lý
@@ -266,7 +270,7 @@ thị:
 - Boot OLED độc lập với mode OLED đã lưu, kể cả `OFF`, để luôn có thể hiển thị
   IP local trong giai đoạn kết nối.
 - Khi READY, OLED quay về mode đã lưu và TFT chuyển sang robot eyes.
-- QR được lưu trong `payment_qr_bitmap.h`; không lưu thông tin tài khoản dạng
+- QR được lưu trong `features/payment/payment_qr_bitmap.h`; không lưu thông tin tài khoản dạng
   text trong firmware ngoài dữ liệu bitmap người dùng cung cấp.
 - [ ] Kiểm tra boot/beep/TTS không bật spectrum; nhạc/radio chỉ bật sau PCM
       đầu tiên, dừng/reconnect/QR expiry khôi phục đúng mode. Xác nhận miệng

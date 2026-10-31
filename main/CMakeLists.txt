@@ -937,10 +937,14 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT BOARD_TYPE MATCHES "^[a-z0-9.-]+$")
     )
 endif()
 
+if(BOARD_DIR STREQUAL "kynangso-robot")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/board_sources.cmake")
+else()
 file(GLOB BOARD_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.c
 )
+endif()
 list(APPEND SOURCES ${BOARD_SOURCES})
 
 # Select one audio engine for each chip family

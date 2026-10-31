@@ -45,7 +45,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_robot_hint_preserves_new_speech_and_full_screen_actions_cancel_it(self):
-        source = (ROOT / "main/boards/kynangso-robot/robot_screen_layout.cc").read_text(encoding="utf-8")
+        source = (ROOT / "main/boards/kynangso-robot/display/tft/robot_screen_layout.cc").read_text(encoding="utf-8")
         platform = r'''
             #include <algorithm>
             #include <cassert>

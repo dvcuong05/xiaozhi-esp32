@@ -10,16 +10,16 @@ class StreamChannelLifecycleTests(unittest.TestCase):
     compile_and_run = host.StartupWakeWordHintTests.compile_and_run
 
     def test_media_ui_stays_visible_when_output_queue_temporarily_drains(self):
-        display_source = (host.ROOT / "main/boards/kynangso-robot/kynangso_robot_display.cc")
+        display_source = (host.ROOT / "main/boards/kynangso-robot/display/tft/kynangso_robot_display.cc")
         get_ui_mode = host.definition(
             display_source.read_text(encoding="utf-8"),
             "KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const",
         )
-        session_header = (host.ROOT / "main/boards/kynangso-robot/robot_music_session.h")
+        session_header = (host.ROOT / "main/boards/kynangso-robot/features/media/robot_music_session.h")
         session_header = session_header.read_text(encoding="utf-8")
-        session_source = (host.ROOT / "main/boards/kynangso-robot/robot_music_session.cc")
+        session_source = (host.ROOT / "main/boards/kynangso-robot/features/media/robot_music_session.cc")
         session_source = session_source.read_text(encoding="utf-8").replace(
-            '#include "robot_music_session.h"', ""
+            '#include "features/media/robot_music_session.h"', ""
         )
         driver = r'''
             #include <cassert>

@@ -1,4 +1,4 @@
-#include "robot_music_session.h"
+#include "features/media/robot_music_session.h"
 
 #include <cassert>
 #include <cstdio>

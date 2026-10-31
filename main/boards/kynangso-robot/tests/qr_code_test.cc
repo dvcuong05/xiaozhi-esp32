@@ -1,4 +1,4 @@
-#include "robot_qr_code.h"
+#include "features/payment/robot_qr_code.h"
 
 #include <cassert>
 #include <cstdio>

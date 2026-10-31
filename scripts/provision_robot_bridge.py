@@ -105,7 +105,7 @@ def exchange(connection, command, expected, timeout):
                     received = bytes(line).rstrip(b"\r")
                     if received.endswith(expected):
                         return
-                    if b"KNSBRIDGE ERROR " in received:
+                    if b"MRKBRIDGE ERROR " in received:
                         raise ProvisionError("Firmware từ chối cấu hình hoặc ghi NVS thất bại.")
                 line.clear()
                 overflow = False
@@ -142,7 +142,7 @@ def main(argv=None):
         # Check the firmware is listening, not merely whether Windows can open COM.
         for attempt in range(args.retries):
             try:
-                exchange(connection, b"\nKNSBRIDGE PING\n", b"KNSBRIDGE READY", 3)
+                exchange(connection, b"\nMRKBRIDGE PING\n", b"MRKBRIDGE READY", 3)
                 break
             except ProvisionError:
                 if attempt + 1 == args.retries:
@@ -158,12 +158,12 @@ def main(argv=None):
         credentials = enroll(args.server, code, args.ca_file)
         code = None
         redeemed = True
-        command = ("KNSBRIDGE " + json.dumps({"uri": args.uri, **credentials},
+        command = ("MRKBRIDGE " + json.dumps({"uri": args.uri, **credentials},
                                             ensure_ascii=True, separators=(",", ":")) + "\n").encode("ascii")
         print("Đã enroll; đang ghi cấu hình qua USB và chờ ACK sau NVS commit...")
         for attempt in range(args.retries):
             try:
-                exchange(connection, b"\n" + command, b"KNSBRIDGE ACK", 10)
+                exchange(connection, b"\n" + command, b"MRKBRIDGE ACK", 10)
                 print("Đã nhận ACK. Robot sẽ reboot; hãy kiểm tra trạng thái online trên server.")
                 return 0
             except (serial.SerialException, OSError, ProvisionError):

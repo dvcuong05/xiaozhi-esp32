@@ -89,19 +89,19 @@ class ProvisionTests(unittest.TestCase):
     def test_serial_log_noise_and_oversize_cannot_fake_ack(self):
         port = mock.Mock()
         port.write.return_value = 1
-        port.read.side_effect = [b"log\n" + b"z" * 2049 + b"KNSBRIDGE ACK\n", b"KNSBRIDGE ACK\n"]
-        provision.exchange(port, b"x", b"KNSBRIDGE ACK", 1)
+        port.read.side_effect = [b"log\n" + b"z" * 2049 + b"MRKBRIDGE ACK\n", b"MRKBRIDGE ACK\n"]
+        provision.exchange(port, b"x", b"MRKBRIDGE ACK", 1)
         self.assertEqual(port.read.call_count, 2)
 
     def test_serial_timeout_and_storage_failure(self):
         port = mock.Mock()
         port.write.return_value = 1
-        port.read.return_value = b"KNSBRIDGE ERROR storage\n"
+        port.read.return_value = b"MRKBRIDGE ERROR storage\n"
         with self.assertRaises(provision.ProvisionError):
-            provision.exchange(port, b"x", b"KNSBRIDGE ACK", 1)
+            provision.exchange(port, b"x", b"MRKBRIDGE ACK", 1)
         with mock.patch.object(provision.time, "monotonic", side_effect=[0, 2]):
             with self.assertRaises(provision.ProvisionError):
-                provision.exchange(port, b"x", b"KNSBRIDGE ACK", 1)
+                provision.exchange(port, b"x", b"MRKBRIDGE ACK", 1)
 
     def test_unavailable_serial_does_not_redeem_or_prompt(self):
         with mock.patch.dict("sys.modules", {"serial": mock.Mock()}), \

@@ -15,7 +15,7 @@ Server companion: `xiaozhi-kynangso-services/docs/features/live-tv/README.md`.
 - `tv_web_server.*`: trang `/tv`, API HTTP bất đồng bộ, một job tại một thời
   điểm; worker stack 8 KiB trong PSRAM. Status/Stop tại chỗ trả nhanh ngay cả
   khi catalog đang chờ server. Stop không phụ thuộc VPS để dừng loa/video.
-- `tv_web_ui.h`: HTML/CSS/JS giải trí, responsive, không tải video về browser;
+- `web/ui/tv_web_ui.h`: HTML/CSS/JS giải trí, responsive, không tải video về browser;
   card kênh, search, editor tên/URL/bí danh, check nguồn, phát/dừng và lỗi thật.
 - `DeviceBridgeClient`: chỉ thêm RPC chung request/response trên TLS WSS;
   không biết catalog hay tên kênh. `Application` cung cấp facade RPC và đọc
@@ -26,7 +26,7 @@ Server companion: `xiaozhi-kynangso-services/docs/features/live-tv/README.md`.
 Bốn tool `tv_search`, `tv_play`, `tv_stop`, `tv_status` được đăng ký bằng
 `@mcp.tool` tại MCP service `webserver/app.py`. `XiaoZhiMcpEndpoint` chuyển
 JSON-RPC từ MCP Access Point vào app. Firmware không đăng ký lại catalog TV
-trong `robot_mcp_tools.cc`; nó chỉ thực thi lệnh có ID do service gửi.
+trong `integration/robot_mcp_tools.cc`; nó chỉ thực thi lệnh có ID do service gửi.
 
 ```mermaid
 sequenceDiagram

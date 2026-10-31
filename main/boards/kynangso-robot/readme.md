@@ -2,6 +2,30 @@
 
 **KyNangSo Robot**
 
+## Cấu trúc source
+
+Thư mục gốc giữ `kynangso_robot.cc` để khởi tạo phần cứng và nối các module, `config.h`, `config.json` cùng `board_sources.cmake`. Logic được nhóm theo trách nhiệm:
+
+| Thư mục | Trách nhiệm |
+| --- | --- |
+| `core/` | Controller điều phối và cấu hình dùng chung của robot |
+| `features/motion/` | Điều khiển motor và routine |
+| `features/time/` | Báo thức, nhắc việc, countdown, Pomodoro |
+| `features/media/` | Trạng thái phiên phát nhạc |
+| `features/live_tv/` | Luồng phát và controller Live TV |
+| `features/storage/` | microSD, quản lý file và thư viện offline |
+| `features/payment/` | Tạo QR và tài nguyên QR thanh toán |
+| `display/tft/` | Mắt robot, layout, spectrum, UI thời gian và font TFT |
+| `display/oled/` | Clock/status/chữ chạy và font OLED |
+| `integration/` | Đăng ký MCP, web chat và provision WSS qua USB |
+| `web/server/` | HTTP handler, kiểm tra request và gọi controller/service |
+| `web/ui/` | HTML/CSS/JavaScript nhúng và navigation dùng chung |
+| `docs/`, `scripts/`, `tests/`, `partitions/` | Tài liệu, công cụ, kiểm thử và sơ đồ phân vùng |
+
+Luồng gọi: web UI → HTTP handler → controller/service của feature → phần cứng hoặc display. MCP đi qua `integration/` tới cùng controller/service. UI nhúng không chứa logic điều khiển phần cứng.
+
+Khi thêm file C/C++, khai báo trong `board_sources.cmake`; CMake chỉ dùng manifest này cho board KyNangSo. Các board khác giữ cách gom source hiện có. Include nội bộ dùng đường dẫn từ gốc board, ví dụ `features/time/robot_time_service.h`, giúp nhận biết module sở hữu và tránh phụ thuộc thứ tự include directory. Test không nằm trong manifest firmware.
+
 Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiển thị đồng hồ/chữ chạy/trạng thái, micro và loa I2S simplex, nút bấm, TTP223, microSD, LED và hai motor DC qua hai cầu H của L298N. Build chỉ chọn một board factory qua `DECLARE_BOARD(KyNangSoRobot)`.
 
 ## Phần cứng
@@ -305,10 +329,10 @@ tạm khi upload lỗi. Đây không phải kiểm thử thẻ thật. Bộ host
 C++ host; không coi các ca đó là pass.
 
 Test nhận diện nhạc/lyrics nằm tại `tests/music_session_test.cc`, chạy trên
-host bằng C++23 cùng `robot_music_session.cc` (không được compile vào firmware).
+host bằng C++23 cùng `features/media/robot_music_session.cc` (không được compile vào firmware).
 Test replay marker/tên bài/lời trong log tenclass, giới hạn UTF-8 và reset sau
-khi kết thúc bài. Khi thêm file `.cc` mới vào board, chạy `idf.py reconfigure`
-trước build vì danh sách source board dùng GLOB ở thời điểm cấu hình.
+khi kết thúc bài. Khi thêm file `.cc` hoặc `.c` mới vào board, khai báo trong
+`board_sources.cmake`, rồi build bằng `kynangso-build-firmware.bat` để CMake cập nhật danh sách source.
 
 ## Cần xác nhận trên phần cứng
 
@@ -348,7 +372,7 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `robot_controller.*` | Một đường xử lý chung cho lệnh HTTP và MCP; kiểm tra yêu cầu, lưu cấu hình rồi chuyển việc cập nhật UI/phần cứng sang task phù hợp. |
 | `robot_settings.*` | Nguồn duy nhất cho schema, giá trị mặc định, validation và migration của NVS motor/OLED/TFT/âm thanh boot. |
 | `secondary_display.*` | Sở hữu OLED SSD1306, I2C, framebuffer, mutex, task cập nhật và nội dung IP/boot/clock/marquee/status. |
-| `oled_display_controller.*`, `oled_clock_font.h` | Vẽ bitmap, ký tự tiếng Việt và emoji lên framebuffer; không đọc NVS hoặc xử lý HTTP/MCP. |
+| `oled_display_controller.*`, `display/oled/oled_clock_font.h` | Vẽ bitmap, ký tự tiếng Việt và emoji lên framebuffer; không đọc NVS hoặc xử lý HTTP/MCP. |
 | `web_server.*`, `robot_mcp_tools.*` | Adapter nhận đầu vào, kiểm tra JSON/tham số và gọi controller; giữ tên route/tool hiện có. |
 | `web_chat_bridge.*` | Giữ tối đa một prompt chờ, trigger `web_chat`, trạng thái consume và timeout 30 giây. |
 | `kynangso_robot_display.*`, `robot_eyes.*` | Điều phối màn TFT và vẽ mắt/boot console/QR/visualizer. |
@@ -358,7 +382,7 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `robot_qr_code.*` | Mã hóa text/URL thành QR động bằng Nayuki có sẵn trong LVGL, kiểm tra UTF-8, giữ ma trận module 1-bit; không tải ảnh hoặc tạo thông tin ngân hàng. |
 | `robot_drive.*` | Điều khiển motor, timeout và routine; nhận cấu hình từ controller thay vì tự đọc NVS. |
 | `sd_storage.*` | Sở hữu SPI2/thẻ/FatFs, worker mount và đo dung lượng; kiểm tra đường dẫn, tuần tự hóa file I/O, upload tạm và tháo thẻ. |
-| `sd_web_server.*`, `sd_web_ui.h` | Trang `/storage`, API file và worker async HTTP có giới hạn; không đưa truyền file vào task audio/LVGL hoặc HTTP điều khiển. |
+| `sd_web_server.*`, `web/ui/sd_web_ui.h` | Trang `/storage`, API file và worker async HTTP có giới hạn; không đưa truyền file vào task audio/LVGL hoặc HTTP điều khiển. |
 
 ### Phát nhạc từ microSD bằng MCP
 
@@ -694,7 +718,7 @@ Dashboard web co them nut `Hieu dong`, `Dancing` va `Dung`. Routine chay trong t
 
 Mode status cua OLED hien ngay theo dang `dd-MMM` (vi du `14-Oct`) thay cho `dd/mm/yy`.
 
-> Bitmap 1-bit 37x37 gốc trong `payment_qr_bitmap.h` (185 byte) vẫn là mặc định
+> Bitmap 1-bit 37x37 gốc trong `features/payment/payment_qr_bitmap.h` (185 byte) vẫn là mặc định
 > dự phòng khi chưa cấu hình QR mới. QR động dùng bộ mã hóa Nayuki có sẵn
 > trong LVGL, bật bằng `CONFIG_LV_USE_QRCODE=y` ở variant board. Ma trận tối đa
 > 65x65 chiếm khoảng 0,6 KiB, buffer mã hóa tạm khoảng 1 KiB; không tạo canvas

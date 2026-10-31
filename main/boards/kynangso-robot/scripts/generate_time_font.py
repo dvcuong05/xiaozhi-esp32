@@ -33,7 +33,7 @@ def main():
         npx = shutil.which("npx.cmd" if os.name == "nt" else "npx")
         if not npx:
             raise SystemExit("Node.js/npx is required only when regenerating this font")
-        output = BOARD / "robot_time_font.c"
+        output = BOARD / "display/tft/robot_time_font.c"
         subprocess.run([
             npx, "--yes", "lv_font_conv@1.5.3", "--size", "14", "--bpp", "1",
             "--no-compress", "--no-kerning", "--font", str(font.resolve()),

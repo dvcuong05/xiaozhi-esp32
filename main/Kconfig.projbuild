@@ -7,8 +7,8 @@ config OTA_URL
         The application will access this URL to check for new firmwares and server address.
 
 config XIAOZHI_MCP_DEVICE_WSS_ENABLE
-    bool "Enable outbound WSS control bridge for MrKenDDo Robot"
-    depends on BOARD_TYPE_MRKENDDO_ROBOT
+    bool "Enable outbound WSS control bridge for KyNangSo Robot"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
     default n
     help
         Keep an authenticated WebSocket connection from the robot to the MCP music server.
@@ -16,12 +16,12 @@ config XIAOZHI_MCP_DEVICE_WSS_ENABLE
 config XIAOZHI_MCP_DEVICE_WSS_URI
     string "MCP device bridge WSS URL"
     depends on XIAOZHI_MCP_DEVICE_WSS_ENABLE
-    default "wss://103.77.242.31:18443/device/bridge"
+    default "wss://robot.kynangso.com/device/bridge"
 
 config XIAOZHI_MCP_DEVICE_WSS_DEVICE_ID
     string "MCP device bridge ID"
     depends on XIAOZHI_MCP_DEVICE_WSS_ENABLE
-    default "mrkenddo-robot"
+    default "kynangso-robot"
 
 config XIAOZHI_MCP_DEVICE_WSS_TOKEN
     string "MCP device bridge token"
@@ -422,8 +422,8 @@ choice BOARD_TYPE
     config BOARD_TYPE_MOVECALL_MOJI2_ESP32C5
         bool "Movecall Moji 2.0"
         depends on IDF_TARGET_ESP32C5
-    config BOARD_TYPE_MRKENDDO_ROBOT
-        bool "MrKenDDo Robot (Custom)"
+    config BOARD_TYPE_KYNANGSO_ROBOT
+        bool "KyNangSo Robot (Custom)"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XINGZHI_ABS_2_0
         bool "Nologo Xingzhi ABS 2.0 (无名科技星智)"
@@ -1014,7 +1014,7 @@ config WAKE_WORD_DETECTION_IN_LISTENING
 
 config ENABLE_MP3_PLAYBACK
     bool "Enable MP3 playback for HTTP and local media"
-    default y if BOARD_TYPE_MRKENDDO_ROBOT
+    default y if BOARD_TYPE_KYNANGSO_ROBOT
     default n
     help
         Decode MP3 on the device using the Espressif streaming decoder.

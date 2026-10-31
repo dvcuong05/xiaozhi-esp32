@@ -105,7 +105,7 @@ sample rate loa trước khi gọi `PushPcmToPlaybackQueue`. Metadata nguồn, p
 và timestamp đi qua cùng output task nên visualizer/subtitle dùng được với cả hai.
 Timestamp MP3 cộng theo số sample với phần dư, tránh trôi lyrics ở 44,1 kHz.
 
-MP3 được điều khiển bởi `CONFIG_ENABLE_MP3_PLAYBACK` (mặc định bật cho MrKenDDo
+MP3 được điều khiển bởi `CONFIG_ENABLE_MP3_PLAYBACK` (mặc định bật cho KyNangSo
 Robot). Bộ giải mã và resampler được cấp phát theo phiên rồi giải phóng khi kết
 thúc; không có worker/buffer MP3 khi idle. PCM producer chờ hàng đợi có giới hạn
 trên media worker; generation token làm mất hiệu lực producer khi reset/dừng.

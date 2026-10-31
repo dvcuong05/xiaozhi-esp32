@@ -6,6 +6,10 @@
 #include <memory>
 
 #include <esp_log.h>
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
+#endif
 
 #include "board.h"
 #include "http.h"
@@ -69,8 +73,18 @@ bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subt
         completion_reported_ = false;
     }
 
-    BaseType_t created = xTaskCreate(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
-                                     kNotifyTaskPriority, &task_handle_);
+    BaseType_t created = pdFAIL;
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    if (options.external_task_stack) {
+        created = xTaskCreateWithCaps(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
+                                      kNotifyTaskPriority, &task_handle_,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else
+#endif
+        if (!options.external_task_stack) {
+        created = xTaskCreate(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
+                              kNotifyTaskPriority, &task_handle_);
+    }
     if (created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create notification HTTP task");
         std::lock_guard<std::mutex> lock(mutex_);
@@ -179,8 +193,20 @@ void NotifyPlayer::OnPlaybackDrained() {
 
 void NotifyPlayer::WorkerEntry(void* arg) {
     auto* player = static_cast<NotifyPlayer*>(arg);
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    bool external;
+    {
+        std::lock_guard<std::mutex> lock(player->mutex_);
+        external = player->options_.external_task_stack;
+    }
+#endif
     player->WorkerTask();
-    vTaskDelete(nullptr);
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    if (external)
+        vTaskDeleteWithCaps(nullptr);
+    else
+#endif
+        vTaskDelete(nullptr);
 }
 
 void NotifyPlayer::WorkerTask() {

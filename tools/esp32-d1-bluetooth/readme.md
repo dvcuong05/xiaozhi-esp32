@@ -2,7 +2,7 @@
 
 Đây là subproject chính thức trong `tools/esp32-d1-bluetooth`, dùng ESP-IDF 6.1 để vận hành ESP32-WROOM-32 D1 Mini như A2DP Source. Firmware có trang local để quét, chọn, kết nối và chuyển giữa các loa Bluetooth; sau mỗi kết nối mới, mạch phát âm thử 440 Hz để xác nhận đường âm thanh. Khi chưa có nguồn I2S từ robot, âm thử được dùng thay cho nhạc. Cấp nguồn/nạp firmware bằng cổng USB-C D1 Mini; chưa cần đấu dây với robot.
 
-Project D1 Mini quản lý Bluetooth Classic riêng; firmware XiaoZhi của robot vẫn chạy trên ESP32-S3 và không được nạp lên D1. Kết nối I2S từ robot tới D1 là bước mở rộng phần cứng riêng, chưa thuộc firmware hiện tại. Sơ đồ và trạng thái tích hợp nằm trong [tài liệu mạch Bluetooth của MrKenDDo Robot](../../main/boards/mrkenddo-robot/docs/bluetooth-speaker-wiring.md); tổng quan bo robot ở [readme của mrkenddo-robot](../../main/boards/mrkenddo-robot/readme.md). Source tham khảo trình tự API trong ví dụ `examples/bluetooth/bluedroid/classic_bt/a2dp_source` của ESP-IDF. Codec SBC dùng cấu hình stereo 44,1 kHz.
+Project D1 Mini quản lý Bluetooth Classic riêng; firmware XiaoZhi của robot vẫn chạy trên ESP32-S3 và không được nạp lên D1. Kết nối I2S từ robot tới D1 là bước mở rộng phần cứng riêng, chưa thuộc firmware hiện tại. Sơ đồ và trạng thái tích hợp nằm trong [tài liệu mạch Bluetooth của KyNangSo Robot](../../main/boards/kynangso-robot/docs/bluetooth-speaker-wiring.md); tổng quan bo robot ở [readme của kynangso-robot](../../main/boards/kynangso-robot/readme.md). Source tham khảo trình tự API trong ví dụ `examples/bluetooth/bluedroid/classic_bt/a2dp_source` của ESP-IDF. Codec SBC dùng cấu hình stereo 44,1 kHz.
 
 ## Build và nạp
 
@@ -31,11 +31,11 @@ Build và sdkconfig được sinh trong `build-v3/` của subproject này, cấu
 
 Bản firmware tạo mạng Wi-Fi riêng để cấu hình Bluetooth từ điện thoại hoặc máy tính:
 
-- SSID from current source: `MrKenDDo Robot Bluetooth`
+- SSID from current source: `KyNangSo Robot Bluetooth`
 - Wi-Fi mở, không cần mật khẩu
 - Mở `http://192.168.4.1/`
 
-Mạng này nối trực tiếp tới D1 Mini, không cung cấp Internet. Nếu điện thoại tự chuyển sang dữ liệu di động, giữ kết nối Wi-Fi `MrKenDDo Robot Bluetooth` rồi mở địa chỉ trên bằng trình duyệt.
+Mạng này nối trực tiếp tới D1 Mini, không cung cấp Internet. Nếu điện thoại tự chuyển sang dữ liệu di động, giữ kết nối Wi-Fi `KyNangSo Robot Bluetooth` rồi mở địa chỉ trên bằng trình duyệt.
 
 Trong trang local, bấm **Quét thiết bị Bluetooth**, chọn loa theo tên, rồi bấm **Kết nối loa đã chọn**. Nếu đang có loa kết nối và cần quét mới, firmware sẽ dừng âm thanh, ngắt loa hiện tại rồi mới bắt đầu scan; chọn loa mới và bấm kết nối. Nếu loa đích đã có trong danh sách scan cũ, có thể bấm kết nối trực tiếp: firmware gửi yêu cầu ngắt A2DP với loa đang dùng, đợi sự kiện xác nhận ngắt rồi mới kết nối địa chỉ mới. Trang hiển thị riêng loa hiện tại, loa đích và trạng thái chuyển. Nếu yêu cầu ngắt thất bại sau các lần thử, firmware giữ trạng thái hiện tại và báo lỗi; người dùng có thể bấm **Ngắt kết nối** rồi thử lại. A2DP chỉ duy trì một loa tại một thời điểm. Bật loa đích ở chế độ pairing và ngắt loa khỏi điện thoại/máy tính nếu thiết bị đó đang giữ kết nối. Danh sách hiển thị RSSI và địa chỉ để phân biệt loa trùng tên. Bấm **Phát tiếng thử nhỏ** để phát lại; **Dừng tiếng thử** tắt âm mà vẫn giữ kết nối.
 
@@ -93,7 +93,7 @@ Khôi phục toàn bộ flash sẽ đưa firmware, partition table và NVS về 
 - Đọc đúng chip ESP32-D0WD-V3 revision 3.1, flash 4 MB trên COM13; Bluetooth MAC `30:76:f5:e4:cb:2e`.
 - Sao lưu đủ 4.194.304 byte vào `tmp/d1-mini-bt-backup/esp32-3076f5e4cb2c-backup-115200.bin` tại gốc repo. SHA-256: `f58662a41c9d5423ea618cb71353121a034e2feb4a97e69b2718c7e1cbfab1d5`.
 - Build subproject tên `esp32_d1_bluetooth` bằng ESP-IDF 6.1 thành công; app 1.333.520 byte, còn 13% phân vùng app `0x177000`. SHA-256: `71d618d154564d68570e7e01c99dc8d3fcbff0ec3614d56f72bf45b3fd183c02`.
-- Đã nạp riêng app tại offset `0x10000` trên COM13, 115200 baud; esptool báo `Hash of data verified`. Boot log xác nhận DHCP `192.168.4.1`, AP mở `MrKenDDo Robot Bluetooth`, HTTP server và A2DP profile sẵn sàng.
+- Đã nạp riêng app tại offset `0x10000` trên COM13, 115200 baud; esptool báo `Hash of data verified`. Boot log xác nhận DHCP `192.168.4.1`, AP mở `KyNangSo Robot Bluetooth`, HTTP server và A2DP profile sẵn sàng.
 - D1 khởi động GAP scan thành công. Chủ robot đã xác nhận ở lần chạy trước truy cập `192.168.4.1`, quét và kết nối `Tronsmart Element Groove` thành công. Bản vừa nạp thêm hành vi ngắt loa hiện tại khi yêu cầu quét lại; vẫn cần thử trực tiếp đổi loa thứ hai qua trang web và xác nhận nghe tiếng thử.
-- Host dùng để nạp vẫn nối Wi-Fi `RUBY`, nên chưa gọi trực tiếp HTTP API của D1 từ máy này. Để thử bằng điện thoại, kết nối Wi-Fi mở `MrKenDDo Robot Bluetooth` rồi vào `http://192.168.4.1/`.
+- Host dùng để nạp vẫn nối Wi-Fi `RUBY`, nên chưa gọi trực tiếp HTTP API của D1 từ máy này. Để thử bằng điện thoại, kết nối Wi-Fi mở `KyNangSo Robot Bluetooth` rồi vào `http://192.168.4.1/`.
 - Log và bản sao lưu nằm trong `tmp/d1-mini-bt-backup/`, không đưa vào Git. Đã format source C và build firmware; firmware I2S và luồng MCP/webserver tập trung vẫn chưa được tích hợp.

@@ -1349,9 +1349,12 @@ def _device_bridge_token_options(options: list[str]) -> list[str]:
             raise ValueError(
                 "Unable to read XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE."
             ) from error
-    if len(token) < 32:
+    if not token and not token_file:
+        # Explicitly clear stale credentials from an earlier legacy build.
+        return ['CONFIG_XIAOZHI_MCP_DEVICE_WSS_TOKEN=""']
+    if not 32 <= len(token) <= 128 or any(ord(c) < 33 or ord(c) > 126 for c in token):
         raise ValueError(
-            "WSS bridge is enabled; provide a token of at least 32 characters "
+            "Legacy WSS token must contain 32..128 visible ASCII characters "
             "through XIAOZHI_MCP_DEVICE_WSS_TOKEN or "
             "XIAOZHI_MCP_DEVICE_WSS_TOKEN_FILE."
         )

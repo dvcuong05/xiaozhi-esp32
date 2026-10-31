@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1170" viewBox="0 0 1600 1170" role="img" aria-labelledby="title description">
+  <title id="title">Music và radio từ XiaoZhi MCP tới robot</title>
+  <desc id="description">Sơ đồ hai luồng MCP riêng biệt, WSS command, tải audio, state machine và TFT visualizer.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#67e8f9"/></marker>
+    <marker id="arrowStart" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#67e8f9"/></marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#86efac"/></marker>
+    <marker id="arrowO" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#fbbf24"/></marker>
+    <style>
+      text{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#e5edf8}.title{font-size:32px;font-weight:700}.sub{font-size:16px;fill:#9db0ca}.head{font-size:19px;font-weight:700;fill:#a5f3fc}.label{font-size:15px;fill:#d2deed}.small{font-size:13px;fill:#a8bad0}.box{fill:#112139;stroke:#3b5878;stroke-width:2}.core{fill:#122c40;stroke:#22d3ee;stroke-width:2}.cloud{fill:#211a36;stroke:#a78bfa;stroke-width:2}.robot{fill:#123427;stroke:#4ade80;stroke-width:2}.ui{fill:#302717;stroke:#fbbf24;stroke-width:2}.edge{fill:none;stroke:#67e8f9;stroke-width:2.5;marker-end:url(#arrow)}.edgeG{fill:none;stroke:#86efac;stroke-width:2.5;marker-end:url(#arrowG)}.edgeO{fill:none;stroke:#fbbf24;stroke-width:2.5;marker-end:url(#arrowO)}.dash{stroke-dasharray:8 7}
+      .edgeBoth{fill:none;stroke:#67e8f9;stroke-width:2.5;marker-start:url(#arrowStart);marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="1170" fill="#08111f"/>
+  <text class="title" x="55" y="59">Music / Radio · XiaoZhi KyNangSo Service ↔ KyNangSo Robot</text>
+  <text class="sub" x="55" y="88">Service MCP tools và firmware device tools đăng ký riêng; playback được gửi qua device WSS.</text>
+
+  <rect x="45" y="125" width="1510" height="165" rx="22" fill="#17152a" stroke="#7767a8" stroke-width="2"/>
+  <text class="head" x="800" y="158" text-anchor="middle">XiaoZhi / Tenclass Cloud · agent chọn tool theo yêu cầu hội thoại</text>
+  <rect class="cloud" x="100" y="182" width="310" height="80" rx="14"/><text class="head" x="255" y="215" text-anchor="middle">Người dùng → Assistant</text><text class="small" x="255" y="241" text-anchor="middle">yêu cầu tìm nhạc / mở radio</text>
+  <rect class="cloud" x="535" y="182" width="490" height="80" rx="14"/><text class="head" x="780" y="215" text-anchor="middle">MCP Access Point của agent</text><text class="small" x="780" y="241" text-anchor="middle">nhận tool registration, chuyển tiếp các tool call</text>
+  <rect class="cloud" x="1150" y="182" width="350" height="80" rx="14"/><text class="head" x="1325" y="215" text-anchor="middle">Firmware device tools</text><text class="small" x="1325" y="238" text-anchor="middle">self.robot.* · RegisterRobotMcpTools()</text><text class="small" x="1325" y="255" text-anchor="middle">đăng ký qua XiaoZhi device protocol</text>
+  <path class="edge" d="M410 222H528"/>
+
+  <rect x="45" y="325" width="705" height="370" rx="22" fill="#0c1727" stroke="#45627b" stroke-width="2"/>
+  <text class="head" x="397" y="359" text-anchor="middle">xiaozhi-kynangso-services · Docker container</text>
+  <rect class="core" x="85" y="391" width="250" height="105" rx="14"/><text class="head" x="210" y="425" text-anchor="middle">FastMCP · app.py</text><text class="label" x="210" y="454" text-anchor="middle">@mcp.tool → music_* · radio_*</text><text class="small" x="210" y="478" text-anchor="middle">/mcp · tool input/output</text>
+  <rect class="core" x="430" y="391" width="270" height="105" rx="14"/><text class="head" x="565" y="425" text-anchor="middle">MusicRadioService</text><text class="label" x="565" y="454" text-anchor="middle">search · resolve · lifecycle</text><text class="small" x="565" y="478" text-anchor="middle">result_id · metadata · subtitles</text>
+  <path class="edge" d="M335 442H423"/><path class="edgeBoth" d="M780 262V310H210V384"/>
+  <text class="small" x="488" y="303" text-anchor="middle">XiaoZhiMcpEndpoint.run_forever · WSS · MCP JSON-RPC qua loopback /mcp</text>
+
+  <rect class="box" x="85" y="530" width="250" height="122" rx="14"/><text class="head" x="210" y="564" text-anchor="middle">Provider adapters</text><text class="label" x="210" y="593" text-anchor="middle">Zing MP3 / Radio Browser</text><text class="small" x="210" y="620" text-anchor="middle">search và resolve tại backend</text>
+  <rect class="box" x="430" y="530" width="270" height="122" rx="14"/><text class="head" x="565" y="564" text-anchor="middle">Bridge + Audio Proxy</text><text class="label" x="565" y="593" text-anchor="middle">TLS WSS command / ACK</text><text class="small" x="565" y="620" text-anchor="middle">HTTP: MP3 / Ogg Opus</text>
+  <path class="edge" d="M430 462H380V590H342"/><path class="edge" d="M565 496V523"/>
+
+  <rect x="850" y="325" width="705" height="370" rx="22" fill="#0c1727" stroke="#3d755a" stroke-width="2"/>
+  <text class="head" x="1202" y="359" text-anchor="middle">Robot ESP32-S3 · main/application.cc</text>
+  <text class="small" x="1202" y="380" text-anchor="middle">Application::Initialize → McpServer common/user tools · board → RegisterRobotMcpTools()</text>
+  <rect class="robot" x="895" y="391" width="270" height="105" rx="14"/><text class="head" x="1030" y="425" text-anchor="middle">DeviceBridgeClient</text><text class="label" x="1030" y="454" text-anchor="middle">TLS WSS outbound → VPS</text><text class="small" x="1030" y="478" text-anchor="middle">nhận lệnh · xác thực · ACK queued</text>
+  <rect class="robot" x="1230" y="391" width="280" height="105" rx="14"/><text class="head" x="1370" y="425" text-anchor="middle">HandleDeviceBridgeCommand</text><text class="label" x="1370" y="454" text-anchor="middle">parse JSON → Schedule()</text><text class="small" x="1370" y="478" text-anchor="middle">chạy trên main task</text>
+  <path class="edgeG" d="M1165 442H1223"/>
+  <path class="edgeG" d="M700 560H790V442H887"/><text class="small" x="795" y="546" text-anchor="middle">1 · lệnh điều khiển WSS</text>
+  <rect class="robot" x="895" y="530" width="270" height="122" rx="14"/><text class="head" x="1030" y="564" text-anchor="middle">Application + state</text><text class="label" x="1030" y="593" text-anchor="middle">media: Idle → Notifying</text><text class="label" x="1030" y="620" text-anchor="middle">radio: Idle → Radio</text>
+  <rect class="robot" x="1230" y="530" width="280" height="122" rx="14"/><text class="head" x="1370" y="564" text-anchor="middle">Player / audio pipeline</text><text class="label" x="1370" y="593" text-anchor="middle">NotifyPlayer / Radio wrapper</text><text class="small" x="1370" y="620" text-anchor="middle">AudioStreamDecoder → PCM / Opus</text>
+  <path class="edgeG" d="M1370 496V520H1030V523"/><path class="edgeG" d="M1165 590H1223"/>
+
+  <rect x="45" y="747" width="1510" height="325" rx="22" fill="#151c2a" stroke="#715d34" stroke-width="2"/>
+  <text class="head" x="800" y="782" text-anchor="middle">Hai đường dữ liệu chạy độc lập với đường điều khiển WSS</text>
+
+  <rect class="ui" x="95" y="820" width="365" height="120" rx="14"/><text class="head" x="277" y="854" text-anchor="middle">A · Music · track hữu hạn</text><text class="label" x="277" y="883" text-anchor="middle">music_search → result_id → music_play</text><text class="small" x="277" y="910" text-anchor="middle">metadata + lyrics → TFT title / subtitle</text>
+  <rect class="ui" x="95" y="958" width="365" height="90" rx="14"/><text class="label" x="277" y="990" text-anchor="middle">GET /audio/stream/{result_id}</text><text class="small" x="277" y="1020" text-anchor="middle">Media PCM → Audio Visualizer</text>
+
+  <rect class="ui" x="620" y="820" width="365" height="120" rx="14"/><text class="head" x="802" y="854" text-anchor="middle">B · Radio · stream liên tục</text><text class="label" x="802" y="883" text-anchor="middle">radio_search → radio_start</text><text class="small" x="802" y="910" text-anchor="middle">radio_status · radio_stop</text>
+  <rect class="ui" x="620" y="958" width="365" height="90" rx="14"/><text class="label" x="802" y="990" text-anchor="middle">GET /audio/radio/{result_id}</text><text class="small" x="802" y="1020" text-anchor="middle">Radio PCM → Audio Visualizer</text>
+
+  <rect class="box" x="1145" y="820" width="355" height="228" rx="14"/><text class="head" x="1322" y="854" text-anchor="middle">Giao diện &amp; vòng đời</text><text class="label" x="1322" y="887" text-anchor="middle">TFT hiện spectrum khi có PCM</text><text class="label" x="1322" y="915" text-anchor="middle">hiện title / lyrics của track</text><text class="small" x="1322" y="950" text-anchor="middle">media.stop / radio_stop → stop player</text><text class="small" x="1322" y="976" text-anchor="middle">kết thúc → idle, khôi phục giao diện</text><text class="small" x="1322" y="1014" text-anchor="middle">Audio task gửi frame qua queue; UI chạy main task</text>
+
+  <path class="edgeO" d="M1030 652V725H277V813"/><text class="small" x="465" y="720" text-anchor="middle">2 · robot tải audio trực tiếp từ proxy</text>
+  <path class="edgeO" d="M1030 652V735H802V813"/>
+  <path class="edge" d="M460 880H613"/><path class="edge" d="M985 880H1138"/>
+  <text class="small" x="800" y="1103" text-anchor="middle">app.py @mcp.tool → FastMCP → XiaoZhiMcpEndpoint → Access Point; firmware AddCommonTools/AddUserOnlyTools/RegisterRobotMcpTools dùng XiaoZhi protocol.</text>
+</svg>

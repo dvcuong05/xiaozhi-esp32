@@ -10,6 +10,15 @@
 
 class DeviceBridgeClient {
 public:
+    struct Config {
+        std::string uri;
+        std::string device_id;
+        std::string token;
+    };
+    // Shared validation/storage contract for local provisioning. Never logs credentials.
+    static bool ValidateConfig(const Config& config);
+    static bool ParseConfig(const char* json, Config* config);
+    static bool SaveConfig(const Config& config);
     using CommandHandler = std::function<bool(const std::string&, std::string*, std::string*)>;
 
     explicit DeviceBridgeClient(CommandHandler command_handler);
@@ -33,6 +42,7 @@ private:
     uint32_t request_sequence_ = 0;
 
     CommandHandler command_handler_;
+    Config config_;
     bool started_ = false;
     std::atomic_bool connected_{false};
 };

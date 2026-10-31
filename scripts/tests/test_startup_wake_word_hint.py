@@ -45,7 +45,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_robot_hint_preserves_new_speech_and_full_screen_actions_cancel_it(self):
-        source = (ROOT / "main/boards/mrkenddo-robot/robot_screen_layout.cc").read_text(encoding="utf-8")
+        source = (ROOT / "main/boards/kynangso-robot/robot_screen_layout.cc").read_text(encoding="utf-8")
         platform = r'''
             #include <algorithm>
             #include <cassert>
@@ -56,7 +56,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             void lv_obj_remove_flag(lv_obj_t* obj, int) { obj->hidden = false; }
             void lv_obj_add_flag(lv_obj_t* obj, int) { obj->hidden = true; }
             void lv_obj_move_foreground(lv_obj_t*) {}
-            namespace mrkenddo {
+            namespace kynangso {
             CLIP_TEXT
             class RobotScreenLayout {
             public:
@@ -79,7 +79,7 @@ class StartupWakeWordHintTests(unittest.TestCase):
             METHODS
             }
             int main() {
-                mrkenddo::RobotScreenLayout layout;
+                kynangso::RobotScreenLayout layout;
                 layout.SetVisible(true);
                 layout.ShowStartupHint("Hint");
                 assert(layout.rendered == "Hint");

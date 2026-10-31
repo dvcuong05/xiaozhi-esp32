@@ -10,14 +10,14 @@ class StreamChannelLifecycleTests(unittest.TestCase):
     compile_and_run = host.StartupWakeWordHintTests.compile_and_run
 
     def test_media_ui_stays_visible_when_output_queue_temporarily_drains(self):
-        display_source = (host.ROOT / "main/boards/mrkenddo-robot/mrkenddo_robot_display.cc")
+        display_source = (host.ROOT / "main/boards/kynangso-robot/kynangso_robot_display.cc")
         get_ui_mode = host.definition(
             display_source.read_text(encoding="utf-8"),
-            "MrkenDDoRobotDisplay::UiMode MrkenDDoRobotDisplay::GetUiMode() const",
+            "KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const",
         )
-        session_header = (host.ROOT / "main/boards/mrkenddo-robot/robot_music_session.h")
+        session_header = (host.ROOT / "main/boards/kynangso-robot/robot_music_session.h")
         session_header = session_header.read_text(encoding="utf-8")
-        session_source = (host.ROOT / "main/boards/mrkenddo-robot/robot_music_session.cc")
+        session_source = (host.ROOT / "main/boards/kynangso-robot/robot_music_session.cc")
         session_source = session_source.read_text(encoding="utf-8").replace(
             '#include "robot_music_session.h"', ""
         )
@@ -27,7 +27,7 @@ class StreamChannelLifecycleTests(unittest.TestCase):
             #include <string>
             #include <string_view>
             SESSION_HEADER
-            class MrkenDDoRobotDisplay {
+            class KyNangSoRobotDisplay {
             public:
                 enum class UiMode { Time, PaymentQr, BootConsole, AudioVisualizer,
                                     SdImage, NormalFace };
@@ -35,22 +35,22 @@ class StreamChannelLifecycleTests(unittest.TestCase):
                 BootState boot_state_ = BootState::Finished;
                 bool time_alert_ = false, payment_qr_active_ = false, time_visible_ = false;
                 bool audio_playback_active_ = false, sd_image_active_ = false;
-                mrkenddo::RobotMusicSession music_session_;
+                kynangso::RobotMusicSession music_session_;
                 UiMode GetUiMode() const;
             };
             GET_UI_MODE
             SESSION_SOURCE
             int main() {
-                MrkenDDoRobotDisplay display;
+                KyNangSoRobotDisplay display;
                 display.music_session_.SetMediaMetadata("Online track", "Artist", "", 0);
                 assert(display.music_session_.IsActive());
                 assert(display.music_session_.Station().empty());
                 display.audio_playback_active_ = true;
-                assert(display.GetUiMode() == MrkenDDoRobotDisplay::UiMode::AudioVisualizer);
+                assert(display.GetUiMode() == KyNangSoRobotDisplay::UiMode::AudioVisualizer);
                 display.audio_playback_active_ = false; // Audio output queue drained briefly.
-                assert(display.GetUiMode() == MrkenDDoRobotDisplay::UiMode::AudioVisualizer);
+                assert(display.GetUiMode() == KyNangSoRobotDisplay::UiMode::AudioVisualizer);
                 display.music_session_.Reset();
-                assert(display.GetUiMode() == MrkenDDoRobotDisplay::UiMode::NormalFace);
+                assert(display.GetUiMode() == KyNangSoRobotDisplay::UiMode::NormalFace);
             }
         '''
         self.compile_and_run(

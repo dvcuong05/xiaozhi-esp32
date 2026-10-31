@@ -799,8 +799,8 @@ elseif(CONFIG_BOARD_TYPE_ZHENGCHEN_CAM)
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_20_4)
     set(BUILTIN_ICON_FONT font_material_symbols_20_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
-elseif(CONFIG_BOARD_TYPE_MRKENDDO_ROBOT)
-    set(BOARD_DIR "mrkenddo-robot")
+elseif(CONFIG_BOARD_TYPE_KYNANGSO_ROBOT)
+    set(BOARD_DIR "kynangso-robot")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
     set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 elseif(CONFIG_BOARD_TYPE_ZHENGCHEN_CAM_ML307)
@@ -1103,7 +1103,7 @@ endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
 # ESP-IDF dependency discovery runs before board Kconfig values are available.
-if(CMAKE_BUILD_EARLY_EXPANSION OR CONFIG_BOARD_TYPE_MRKENDDO_ROBOT)
+if(CMAKE_BUILD_EARLY_EXPANSION OR CONFIG_BOARD_TYPE_KYNANGSO_ROBOT)
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA espressif__dl_fft)
 endif()
 if(CONFIG_XIAOZHI_NETWORK_ETHERNET AND CONFIG_XIAOZHI_ETH_PHY_IP101)
@@ -1125,15 +1125,15 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND IDF_VERSION_MAJOR LESS 6)
         espressif__touch_button_sensor
     )
 endif()
-if(CONFIG_BOARD_TYPE_MRKENDDO_ROBOT OR BOARD_DIR STREQUAL "mrkenddo-robot" OR
-   BOARD_NAME STREQUAL "mrkenddo-robot")
+if(CONFIG_BOARD_TYPE_KYNANGSO_ROBOT OR BOARD_DIR STREQUAL "kynangso-robot" OR
+   BOARD_NAME STREQUAL "kynangso-robot")
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
         esp_driver_sdspi
         sdmmc
     )
 endif()
-if(CMAKE_BUILD_EARLY_EXPANSION OR CONFIG_BOARD_TYPE_MRKENDDO_ROBOT OR
-   BOARD_DIR STREQUAL "mrkenddo-robot" OR BOARD_NAME STREQUAL "mrkenddo-robot")
+if(CMAKE_BUILD_EARLY_EXPANSION OR CONFIG_BOARD_TYPE_KYNANGSO_ROBOT OR
+   BOARD_DIR STREQUAL "kynangso-robot" OR BOARD_NAME STREQUAL "kynangso-robot")
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA esp_http_client)
 endif()
 if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)

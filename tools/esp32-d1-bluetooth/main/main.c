@@ -27,7 +27,7 @@
 #define TONE_FRAMES (6U * SAMPLE_RATE)
 #define NAME_SIZE 65
 #define PEER_COUNT 16
-#define AP_SSID "MrKenDDo-Robot BT"
+#define AP_SSID "KyNangSo-Robot BT"
 static const char* TAG = "ESP32_D1_BT";
 
 typedef enum {

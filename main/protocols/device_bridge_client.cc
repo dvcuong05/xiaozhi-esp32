@@ -1,5 +1,6 @@
 #include "device_bridge_client.h"
 
+#include <nvs.h>
 #include <atomic>
 #include <cstring>
 #include <memory>
@@ -95,6 +96,107 @@ std::string PrintJson(cJSON* value) {
 
 }  // namespace
 
+bool DeviceBridgeClient::ValidateConfig(const Config& config) {
+    const auto& uri = config.uri;
+    if (uri.size() < 7 || uri.size() > 256 || uri.compare(0, 6, "wss://") != 0 ||
+        config.device_id.empty() || config.device_id.size() > 64 || config.token.size() < 32 ||
+        config.token.size() > 128)
+        return false;
+    for (unsigned char c : uri) {
+        if (c <= 32 || c >= 127 || c == '@' || c == '#' || c == '?' || c == '\\' || c == '"')
+            return false;
+    }
+    const auto authority = uri.substr(6, uri.find('/', 6) - 6);
+    const auto colon = authority.find(':');
+    const auto host = authority.substr(0, colon);
+    if (host.empty() || host.front() == '.' || host.front() == '-' || host.back() == '.' ||
+        host.back() == '-')
+        return false;
+    for (unsigned char c : host) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '.' || c == '-'))
+            return false;
+    }
+    if (colon != std::string::npos) {
+        const auto port = authority.substr(colon + 1);
+        if (port.empty() || port.size() > 5)
+            return false;
+        unsigned number = 0;
+        for (char c : port) {
+            if (c < '0' || c > '9')
+                return false;
+            number = number * 10 + c - '0';
+        }
+        if (number == 0 || number > 65535)
+            return false;
+    }
+    for (unsigned char c : config.device_id) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-'))
+            return false;
+    }
+    for (unsigned char c : config.token) {
+        if (c < 33 || c > 126)
+            return false;
+    }
+    return true;
+}
+
+bool DeviceBridgeClient::ParseConfig(const char* json, Config* config) {
+    // Reject escaped Unicode/NUL rather than silently accepting a truncated C string.
+    if (!json || !config || strlen(json) > 768)
+        return false;
+    for (const char* p = json; *p; ++p) {
+        if (*p == '\\') {
+            ++p;
+            if (!*p || *p == 'u')
+                return false;
+        }
+    }
+    cJSON* root = cJSON_ParseWithOpts(json, nullptr, true);
+    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 3;
+    Config parsed;
+    const char* keys[] = {"uri", "device_id", "token"};
+    std::string* values[] = {&parsed.uri, &parsed.device_id, &parsed.token};
+    for (size_t i = 0; valid && i < 3; ++i) {
+        auto* item = cJSON_GetObjectItemCaseSensitive(root, keys[i]);
+        valid = cJSON_IsString(item);
+        if (valid)
+            *values[i] = item->valuestring;
+    }
+    cJSON_Delete(root);
+    if (!valid || !ValidateConfig(parsed))
+        return false;
+    *config = std::move(parsed);
+    return true;
+}
+
+bool DeviceBridgeClient::SaveConfig(const Config& config) {
+    if (!ValidateConfig(config))
+        return false;
+    cJSON* root = cJSON_CreateObject();
+    if (!root)
+        return false;
+    bool valid = cJSON_AddStringToObject(root, "uri", config.uri.c_str()) &&
+                 cJSON_AddStringToObject(root, "device_id", config.device_id.c_str()) &&
+                 cJSON_AddStringToObject(root, "token", config.token.c_str());
+    char* encoded = valid ? cJSON_PrintUnformatted(root) : nullptr;
+    cJSON_Delete(root);
+    if (!encoded)
+        return false;
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("mcp_bridge", NVS_READWRITE, &handle);
+    if (result == ESP_OK) {
+        // One value prevents mixing credentials across interrupted provisioning attempts.
+        result = nvs_set_str(handle, "config", encoded);
+        if (result == ESP_OK)
+            result = nvs_commit(handle);
+        nvs_close(handle);
+    }
+    cJSON_free(encoded);
+    return result == ESP_OK;
+}
+
 struct DeviceBridgeClient::RpcRequest {
     std::string id, payload, result, error;
     SemaphoreHandle_t done = xSemaphoreCreateBinary();
@@ -185,9 +287,32 @@ void DeviceBridgeClient::Start() {
     if (!kDeviceBridgeEnabled || started_) {
         return;
     }
-    if (strncmp(kBridgeUri, "wss://", 6) != 0 || kBridgeDeviceId[0] == '\0' ||
-        strlen(kBridgeToken) < 32) {
-        ESP_LOGE(TAG, "WSS config needs a wss:// URL, device ID, and token of at least 32 chars");
+    nvs_handle_t handle;
+    bool configured = false;
+    if (nvs_open("mcp_bridge", NVS_READONLY, &handle) == ESP_OK) {
+        char json[769];
+        size_t length = sizeof(json);
+        if (nvs_get_str(handle, "config", json, &length) == ESP_OK)
+            configured = ParseConfig(json, &config_);
+        nvs_close(handle);
+    }
+    // Move the previously documented VPS endpoint to the public TLS hostname
+    // without rotating or printing the robot credential stored in NVS.
+    constexpr char kPreviousBridgeUri[] = "wss://103.77.242.31:18443/device/bridge";
+    if (configured && config_.uri == kPreviousBridgeUri) {
+        config_.uri = "wss://robot.kynangso.com/device/bridge";
+        if (SaveConfig(config_)) {
+            ESP_LOGI(TAG, "Migrated device bridge to the public TLS domain");
+        } else {
+            ESP_LOGW(TAG, "Using the public TLS domain for this boot; NVS migration failed");
+        }
+    }
+    if (!configured) {
+        config_ = {kBridgeUri, kBridgeDeviceId, kBridgeToken};
+        configured = ValidateConfig(config_);
+    }
+    if (!configured) {
+        ESP_LOGI(TAG, "WSS bridge awaiting local provisioning");
         return;
     }
     started_ = true;
@@ -202,7 +327,7 @@ void DeviceBridgeClient::TaskEntry(void* context) {
 }
 
 void DeviceBridgeClient::Run() {
-    const std::string authorization = std::string("Bearer ") + kBridgeToken;
+    const std::string authorization = std::string("Bearer ") + config_.token;
     while (true) {
         auto* network = Board::GetInstance().GetNetwork();
         auto socket = network == nullptr ? nullptr : network->CreateWebSocket(2);
@@ -221,7 +346,7 @@ void DeviceBridgeClient::Run() {
 
         socket->SetReceiveBufferSize(kBridgeReceiveBufferSize);
         socket->SetHeader("Authorization", authorization.c_str());
-        socket->SetHeader("X-Device-Id", kBridgeDeviceId);
+        socket->SetHeader("X-Device-Id", config_.device_id.c_str());
         auto disconnected = std::make_shared<std::atomic_bool>(false);
         auto last_pong = std::make_shared<std::atomic<TickType_t>>(xTaskGetTickCount());
         socket->OnData([inbox](const char* data, size_t length, bool binary) {
@@ -241,7 +366,7 @@ void DeviceBridgeClient::Run() {
         socket->OnPong([last_pong](const char*, size_t) { last_pong->store(xTaskGetTickCount()); });
 
         ESP_LOGI(TAG, "Connecting to the MCP WSS bridge");
-        auto connected = socket->Connect(kBridgeUri);
+        auto connected = socket->Connect(config_.uri.c_str());
         if (!connected) {
             ESP_LOGW(TAG, "WSS connect failed: %s", connected.error().ToString().c_str());
         } else {

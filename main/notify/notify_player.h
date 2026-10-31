@@ -24,6 +24,8 @@ struct NotifySubtitle {
 // sources (radio, music, and future media providers).
 struct StreamPlaybackOptions {
     bool continuous = false;
+    // Opt in only for HTTP readers whose callbacks never write flash/NVS.
+    bool external_task_stack = false;
     uint32_t reconnect_delay_ms = 1000;
     uint32_t http_timeout_ms = 5000;
     AudioPlaybackSource source = AudioPlaybackSource::Notification;

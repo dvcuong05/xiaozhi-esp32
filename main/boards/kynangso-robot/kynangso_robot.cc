@@ -7,6 +7,7 @@
 #include "core/robot_settings.h"
 #include "display/oled/secondary_display.h"
 #include "display/tft/kynangso_robot_display.h"
+#include "features/firmware/robot_ota.h"
 #include "features/live_tv/robot_live_tv.h"
 #include "features/live_tv/robot_tv_controller.h"
 #include "features/motion/robot_drive.h"
@@ -817,6 +818,19 @@ public:
         ESP_LOGI(TAG, "Dang tao web server");
         web_server_ = new WebServer(*controller_, *tv_controller_);
         tv_controller_->SetBeforePlay([this]() { web_server_->StopSdSlideshow(); });
+#if CONFIG_KYNANGSO_MANAGED_OTA
+        kynangso::StartRobotOta(
+            [this]() {
+                drive_->SetInhibited(true);
+                controller_->Stop();
+                web_server_->StopSdSlideshow();
+            },
+            [this](const char* status, int progress) {
+                if (progress < 0)
+                    drive_->SetInhibited(false);
+                display_->ShowOtaProgress(status, progress);
+            });
+#endif
 
         ESP_LOGI(TAG, "Ham tao KyNangSoRobot hoan tat");
     }
@@ -846,6 +860,8 @@ public:
         static SingleLed led(BUILTIN_LED_GPIO);
         return &led;
     }
+
+    bool AllowAutomaticFirmwareUpgrade() const override { return false; }
 
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,

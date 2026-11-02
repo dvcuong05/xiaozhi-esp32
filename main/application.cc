@@ -851,7 +851,7 @@ void Application::CheckNewVersion() {
         retry_count = 0;
         retry_delay = 10;  // Reset retry delay
 
-        if (ota_->HasNewVersion()) {
+        if (ota_->HasNewVersion() && Board::GetInstance().AllowAutomaticFirmwareUpgrade()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
                 return;  // This line will never be reached after reboot
             }
@@ -2227,7 +2227,16 @@ void Application::Reboot() {
     esp_restart();
 }
 
-bool Application::UpgradeFirmware(const std::string& url, const std::string& version) {
+bool Application::UpgradeFirmware(const std::string& url, const std::string& version,
+                                  const std::string& expected_sha256, size_t expected_size,
+                                  std::function<void(int)> on_progress) {
+    static std::atomic_flag in_progress = ATOMIC_FLAG_INIT;
+    if (in_progress.test_and_set())
+        return false;
+    struct UpgradeGuard {
+        std::atomic_flag& flag;
+        ~UpgradeGuard() { flag.clear(); }
+    } guard{in_progress};
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
 
@@ -2245,12 +2254,14 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         ESP_LOGI(TAG, "Closing audio channel before firmware upgrade");
         protocol_->CloseAudioChannel();
     }
-    ESP_LOGI(TAG, "Starting firmware upgrade from URL: %s", upgrade_url.c_str());
+    ESP_LOGI(TAG, "Starting firmware upgrade");
 
     Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download",
           Lang::Sounds::OGG_UPGRADE);
     vTaskDelay(pdMS_TO_TICKS(3000));
 
+    // Managed board workers admit on the main task before calling this method.
+    // Preserve the synchronous state change for existing main-task callers.
     SetDeviceState(kDeviceStateUpgrading);
 
     std::string message = std::string(Lang::Strings::NEW_VERSION) + version_info;
@@ -2260,13 +2271,18 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     audio_service_.Stop();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
-        Schedule([display, message = std::string(buffer)]() {
-            display->SetChatMessage("system", message.c_str());
-        });
-    });
+    bool upgrade_success = Ota::Upgrade(
+        upgrade_url,
+        [this, display, on_progress](int progress, size_t speed) {
+            if (on_progress)
+                on_progress(progress);
+            char buffer[32];
+            snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
+            Schedule([display, message = std::string(buffer)]() {
+                display->SetChatMessage("system", message.c_str());
+            });
+        },
+        expected_sha256, expected_size);
 
     if (!upgrade_success) {
         // Upgrade failed, restart audio service and continue running
@@ -2277,6 +2293,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "cancel",
               Lang::Sounds::OGG_EXCLAMATION);
         vTaskDelay(pdMS_TO_TICKS(3000));
+        Schedule([this]() { SetDeviceState(kDeviceStateIdle); });
         return false;
     } else {
         // Upgrade success, reboot immediately

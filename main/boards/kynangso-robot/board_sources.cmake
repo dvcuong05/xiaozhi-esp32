@@ -1,5 +1,6 @@
 # KyNangSo board sources; tests are built separately.
 set(KYNANGSO_BOARD_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/features/firmware/robot_ota.cc"
     "${CMAKE_CURRENT_LIST_DIR}/kynangso_robot.cc"
     "${CMAKE_CURRENT_LIST_DIR}/core/robot_controller.cc"
     "${CMAKE_CURRENT_LIST_DIR}/core/robot_settings.cc"

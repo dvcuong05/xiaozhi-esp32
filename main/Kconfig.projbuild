@@ -1,5 +1,15 @@
 menu "Xiaozhi Assistant"
 
+config OTA_VERIFY_DELAY_SECONDS
+    int "Minimum running time before confirming an OTA image"
+    range 0 300
+    default 0
+
+config KYNANGSO_MANAGED_OTA
+    bool "KyNangSo managed OTA client"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    default y
+
 config OTA_URL
     string "Default OTA URL"
     default "https://api.tenclass.net/xiaozhi/ota/"
@@ -308,6 +318,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_KEVIN_YUYING_313LCD
         bool "Kevin Yuying 3.13-inch LCD (鱼鹰科技)"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_KYNANGSO_ROBOT
+        bool "KyNangSo Robot (Custom)"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_LABPLUS_LEDONG_V2
         bool "Labplus Ledong V2"
         depends on IDF_TARGET_ESP32S3
@@ -422,9 +435,6 @@ choice BOARD_TYPE
     config BOARD_TYPE_MOVECALL_MOJI2_ESP32C5
         bool "Movecall Moji 2.0"
         depends on IDF_TARGET_ESP32C5
-    config BOARD_TYPE_KYNANGSO_ROBOT
-        bool "KyNangSo Robot (Custom)"
-        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XINGZHI_ABS_2_0
         bool "Nologo Xingzhi ABS 2.0 (无名科技星智)"
         depends on IDF_TARGET_ESP32S3

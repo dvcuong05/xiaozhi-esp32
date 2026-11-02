@@ -68,6 +68,8 @@ RobotDrive::~RobotDrive() {
 }
 
 void RobotDrive::SetOutputsLocked(int left, int right) {
+    if (inhibited_.load())
+        left = right = 0;
     if (left_inverted_)
         left = -left;
     if (right_inverted_)
@@ -79,6 +81,8 @@ void RobotDrive::SetOutputsLocked(int left, int right) {
 }
 
 bool RobotDrive::Move(Direction direction, int steps, int delay_ms) {
+    if (inhibited_.load())
+        return false;
     if (steps <= 0 || steps > kMaxSteps || delay_ms < 0 || delay_ms > kMaxDelayMs ||
         mutex_ == nullptr || stop_timer_ == nullptr) {
         return false;
@@ -148,6 +152,8 @@ bool RobotDrive::Step(int steps, int delay_ms) {
 }
 
 bool RobotDrive::StartRoutine(Routine routine) {
+    if (inhibited_.load())
+        return false;
     if (mutex_ == nullptr || stop_timer_ == nullptr) {
         return false;
     }
@@ -329,6 +335,8 @@ void RobotDrive::SetSpeaking(bool speaking) {
 }
 
 bool RobotDrive::PlayEmotion(int preset, bool preview) {
+    if (inhibited_.load())
+        return false;
     if (preset < 0 || preset > 7 || mutex_ == nullptr || emotion_timer_ == nullptr)
         return false;
     // The display/audio path must never wait for a motor command.

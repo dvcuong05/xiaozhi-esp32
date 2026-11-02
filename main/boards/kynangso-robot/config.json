@@ -27,7 +27,10 @@
                 "CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n",
                 "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"main/boards/kynangso-robot/partitions/16m.csv\"",
                 "CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE=y",
-                "CONFIG_XIAOZHI_MCP_DEVICE_WSS_URI=\"wss://robot.kynangso.com/device/bridge\""
+                "CONFIG_XIAOZHI_MCP_DEVICE_WSS_URI=\"wss://robot.kynangso.com/device/bridge\"",
+                "CONFIG_OTA_VERIFY_DELAY_SECONDS=30",
+                "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y",
+                "CONFIG_KYNANGSO_MANAGED_OTA=y"
             ]
         }
     ]

@@ -24,7 +24,9 @@ public:
     bool HasActivationCode() { return has_activation_code_; }
     bool HasServerTime() { return has_server_time_; }
     bool StartUpgrade(std::function<void(int progress, size_t speed)> callback);
-    static bool Upgrade(const std::string& firmware_url, std::function<void(int progress, size_t speed)> callback);
+    static bool Upgrade(const std::string& firmware_url,
+                        std::function<void(int progress, size_t speed)> callback,
+                        const std::string& expected_sha256 = "", size_t expected_size = 0);
     void MarkCurrentVersionValid();
 
     const std::string& GetFirmwareVersion() const { return firmware_version_; }
@@ -58,4 +60,4 @@ private:
     std::unique_ptr<Http> SetupHttp();
 };
 
-#endif // _OTA_H
+#endif  // _OTA_H

@@ -150,7 +150,9 @@ public:
     MediaPlaybackMetadata GetActiveRadioMetadata() const;
     bool HandleDeviceBridgeCommand(const std::string& payload_json, std::string* result_json,
                                    std::string* error);
-    bool UpgradeFirmware(const std::string& url, const std::string& version = "");
+    bool UpgradeFirmware(const std::string& url, const std::string& version = "",
+                         const std::string& expected_sha256 = "", size_t expected_size = 0,
+                         std::function<void(int)> on_progress = {});
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);

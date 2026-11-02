@@ -67,6 +67,8 @@ public:
     }
 
     virtual ~Board() = default;
+    // Managed products may retain activation while owning their release channel.
+    virtual bool AllowAutomaticFirmwareUpgrade() const { return true; }
     virtual std::string GetBoardType() = 0;
     virtual std::string GetUuid() { return uuid_; }
     virtual Backlight* GetBacklight() { return nullptr; }

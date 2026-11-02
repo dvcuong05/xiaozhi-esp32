@@ -25,6 +25,7 @@ public:
 
     void SetupUI() override;
     void SetTimeView(const kynangso::TimeView& view);
+    void ShowOtaProgress(const char* status, int progress);
     void SetStatus(const char* status) override;
     void SetChatMessage(const char* role, const char* content) override;
     void RemoveChatMessage(const char* role, const char* content) override;
@@ -82,6 +83,9 @@ private:
     std::unique_ptr<kynangso::RobotSpectrum> spectrum_;
     kynangso::RobotMusicSession music_session_;
     lv_obj_t* boot_console_ = nullptr;
+    lv_obj_t* ota_overlay_ = nullptr;
+    lv_obj_t* ota_progress_ = nullptr;
+    lv_obj_t* ota_label_ = nullptr;
     lv_obj_t* boot_console_label_ = nullptr;
     lv_timer_t* boot_console_timer_ = nullptr;
     lv_obj_t* payment_qr_overlay_ = nullptr;

@@ -1,5 +1,7 @@
 # Live TV trên KyNangSo Robot
 
+Kênh có `scope=service` thuộc nhà cung cấp: giao diện `/tv` hiện nhãn **◆ Kênh nhà cung cấp** và ẩn nút sửa/xóa. Kênh có `scope=robot` và ID bắt đầu bằng `p_` thuộc robot: người dùng có thể sửa/xóa. Thiếu thông tin quyền sở hữu thì giao diện chỉ cho phát. Catalog chung được quản lý tại tab **Kênh TV** trên dashboard admin `robot.kynangso.com`; quyền truy cập vẫn được backend kiểm tra khi nhận lệnh.
+
 Kế hoạch đã chốt và checklist tiếp tục công việc: [PLAN.md](PLAN.md).
 Server companion: `xiaozhi-kynangso-services/docs/features/live-tv/README.md`.
 

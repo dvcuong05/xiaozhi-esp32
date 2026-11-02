@@ -161,6 +161,10 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       `web/`; HTTP handler ở `web/server/`, giao diện nhúng ở `web/ui/`.
       Source firmware khai báo trong `board_sources.cmake`; xem bản đồ module
       và hướng dẫn thêm file trong `readme.md`.
+- [x] OTA KyNangSo: source hỗ trợ rollout theo robot, khách yêu cầu cập nhật,
+      kiểm tra model/partition/assets/SHA-256, tiến độ TFT và telemetry qua WSS.
+      Xem `features/firmware-ota/README.md`; nghiệm thu tải/reboot/rollback trên
+      phần cứng là bước riêng sau build và kiểm thử backend.
 - [x] Tập trung quyền hiển thị TFT theo thứ tự QR → boot → visualizer → eyes;
       QR hết hạn quay về chế độ phù hợp với playback/boot hiện tại.
 - [x] Chuyển mẫu visualizer qua mailbox cố định, giới hạn UI 25 FPS và xử lý

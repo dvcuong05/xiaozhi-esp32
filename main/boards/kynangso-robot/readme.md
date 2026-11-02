@@ -15,6 +15,7 @@ Thư mục gốc giữ `kynangso_robot.cc` để khởi tạo phần cứng và 
 | `features/live_tv/` | Luồng phát và controller Live TV |
 | `features/storage/` | microSD, quản lý file và thư viện offline |
 | `features/payment/` | Tạo QR và tài nguyên QR thanh toán |
+| `features/firmware/` | OTA KyNangSo qua WSS/HTTPS và báo trạng thái phiên bản |
 | `display/tft/` | Mắt robot, layout, spectrum, UI thời gian và font TFT |
 | `display/oled/` | Clock/status/chữ chạy và font OLED |
 | `integration/` | Đăng ký MCP, web chat và provision WSS qua USB |
@@ -25,6 +26,8 @@ Thư mục gốc giữ `kynangso_robot.cc` để khởi tạo phần cứng và 
 Luồng gọi: web UI → HTTP handler → controller/service của feature → phần cứng hoặc display. MCP đi qua `integration/` tới cùng controller/service. UI nhúng không chứa logic điều khiển phần cứng.
 
 Khi thêm file C/C++, khai báo trong `board_sources.cmake`; CMake chỉ dùng manifest này cho board KyNangSo. Các board khác giữ cách gom source hiện có. Include nội bộ dùng đường dẫn từ gốc board, ví dụ `features/time/robot_time_service.h`, giúp nhận biết module sở hữu và tránh phụ thuộc thứ tự include directory. Test không nằm trong manifest firmware.
+
+Workflow OTA, giới hạn tương thích và kiểm thử trên robot: [docs/features/firmware-ota/README.md](docs/features/firmware-ota/README.md).
 
 Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiển thị đồng hồ/chữ chạy/trạng thái, micro và loa I2S simplex, nút bấm, TTP223, microSD, LED và hai motor DC qua hai cầu H của L298N. Build chỉ chọn một board factory qua `DECLARE_BOARD(KyNangSoRobot)`.
 

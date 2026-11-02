@@ -27,6 +27,11 @@ public:
     bool StartRoutine(Routine routine);
     bool IsRoutineRunning() const { return routine_running_.load(); }
     void Stop();
+    void SetInhibited(bool inhibited) {
+        inhibited_.store(inhibited);
+        if (inhibited)
+            Stop();
+    }
     void SetSpeed(int delay_ms);
     void SetInversion(bool left_inverted, bool right_inverted);
     void ConfigureEmotionMotion(bool enabled, int intensity);
@@ -34,6 +39,7 @@ public:
     bool PlayEmotion(int preset, bool preview = false);
 
 private:
+    std::atomic<bool> inhibited_{false};
     gpio_num_t left_a_;
     gpio_num_t left_b_;
     gpio_num_t right_a_;

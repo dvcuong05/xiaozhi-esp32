@@ -9,6 +9,45 @@
 #include <cstdio>
 #include <cstring>
 
+LV_FONT_DECLARE(robot_time_font_14);
+
+void KyNangSoRobotDisplay::ShowOtaProgress(const char* status, int progress) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    if (progress < 0 || !status) {
+        if (ota_overlay_)
+            lv_obj_add_flag(ota_overlay_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (!ota_overlay_) {
+        ota_overlay_ = lv_obj_create(lv_display_get_layer_top(display_));
+        lv_obj_set_size(ota_overlay_, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(ota_overlay_, lv_color_hex(0x101827), 0);
+        lv_obj_set_style_bg_opa(ota_overlay_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(ota_overlay_, 0, 0);
+        lv_obj_set_style_radius(ota_overlay_, 0, 0);
+        lv_obj_remove_flag(ota_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_text_font(ota_overlay_, &robot_time_font_14, 0);
+        lv_obj_set_style_text_color(ota_overlay_, lv_color_white(), 0);
+        auto* title = lv_label_create(ota_overlay_);
+        lv_label_set_text(title, "CẬP NHẬT FIRMWARE");
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 36);
+        ota_label_ = lv_label_create(ota_overlay_);
+        lv_obj_set_width(ota_label_, LV_PCT(100));
+        lv_obj_set_style_text_align(ota_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(ota_label_, LV_ALIGN_CENTER, 0, -4);
+        ota_progress_ = lv_bar_create(ota_overlay_);
+        lv_obj_set_size(ota_progress_, LV_PCT(88), 12);
+        lv_obj_align(ota_progress_, LV_ALIGN_BOTTOM_MID, 0, -40);
+        lv_obj_set_style_bg_color(ota_progress_, lv_color_hex(0x0abde3), LV_PART_INDICATOR);
+    }
+    lv_obj_remove_flag(ota_overlay_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ota_overlay_);
+    lv_label_set_text_fmt(ota_label_, "%s\n%d%%", status, std::clamp(progress, 0, 100));
+    lv_bar_set_value(ota_progress_, std::clamp(progress, 0, 100), LV_ANIM_OFF);
+}
+
 KyNangSoRobotDisplay::KyNangSoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                                            esp_lcd_panel_handle_t panel, int width, int height,
                                            int offset_x, int offset_y, bool mirror_x, bool mirror_y,
@@ -17,6 +56,8 @@ KyNangSoRobotDisplay::KyNangSoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                     swap_xy) {}
 
 KyNangSoRobotDisplay::~KyNangSoRobotDisplay() {
+    if (ota_overlay_)
+        lv_obj_delete(ota_overlay_);
     if (display_ != nullptr)
         lv_display_remove_event_cb_with_user_data(display_, LiveTvRefreshReady, this);
     time_view_.reset();

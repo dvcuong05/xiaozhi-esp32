@@ -27,7 +27,9 @@ public:
     void HideStartupHint(const char* text);
     void DismissStartupHint();
     void SetHideSubtitle(bool hide);
+    void SetInfoRegionVisible(bool visible);
     void SetFont(const lv_font_t* font);
+    bool CanShowInfoShuttle() const;
 
 private:
     lv_obj_t* root_ = nullptr;

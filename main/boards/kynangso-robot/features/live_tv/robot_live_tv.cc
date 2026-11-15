@@ -28,7 +28,7 @@ constexpr char TAG[] = "RobotLiveTv";
 constexpr size_t kMaxJpegBytes = 128 * 1024;
 constexpr size_t kReadBufferBytes = 2048;
 constexpr size_t kMaxHeaderLine = 256;
-constexpr TickType_t kRadioStartTimeout = pdMS_TO_TICKS(60000);
+constexpr TickType_t kRadioStartTimeout = pdMS_TO_TICKS(15000);
 constexpr uint32_t kStreamTimeoutMs = 15000;
 constexpr TickType_t kVideoReadGrace = pdMS_TO_TICKS(kStreamTimeoutMs);
 constexpr uint32_t kVideoReconnectInitialDelayMs = 1000;
@@ -350,6 +350,13 @@ std::string RobotLiveTv::StatusJson() {
 
 void RobotLiveTv::StopVideoOnly() { active_.store(false); }
 
+void RobotLiveTv::StopForMediaHandoff() {
+    if (!active_.exchange(false))
+        return;
+    application_.Schedule([this]() { display_.SetLiveTvActive(false, {}); });
+    ESP_LOGI(TAG, "Live TV video stopped for media audio handoff");
+}
+
 void RobotLiveTv::TaskEntry(void* context) {
     auto* player = static_cast<RobotLiveTv*>(context);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -444,7 +451,7 @@ void RobotLiveTv::Run() {
             if (radio_started)
                 break;
             if (xTaskGetTickCount() - radio_wait_started >= kRadioStartTimeout) {
-                StopAfterFailure("radio audio did not start within 60 seconds");
+                StopAfterFailure("radio audio did not start within 15 seconds");
                 break;
             }
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -575,7 +582,7 @@ void RobotLiveTv::Run() {
             FinishAfterRadioStopped();
         } else if (!radio_started &&
                    xTaskGetTickCount() - radio_wait_started >= kRadioStartTimeout) {
-            StopAfterFailure("radio audio did not start within 60 seconds");
+            StopAfterFailure("radio audio did not start within 15 seconds");
         }
     }
 }

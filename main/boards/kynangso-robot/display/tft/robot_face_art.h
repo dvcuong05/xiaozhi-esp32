@@ -87,7 +87,53 @@ void Draw(Canvas& c, RobotEyesMode mode, unsigned frame, bool speaking) {
             left_y = right_y = 72 - eye_h / 2;
             can_blink = false;
             break;
-        case RobotEyesMode::Neutral:
+        case RobotEyesMode::Neutral: {
+            // At 25 fps: quick saccades, a curious hold, then settle back.
+            // Keep the cycle bounded so long idle sessions retain precision.
+            struct Pose {
+                unsigned frame;
+                float x, y, height, tilt;
+            };
+            static constexpr Pose poses[] = {
+                {0, 0, 0, 48, 0},      {28, 0, 0, 48, 0},     {34, 12, -19, 52, -3},
+                {67, 12, -19, 52, -3}, {73, -8, -15, 50, 3},  {94, -8, -15, 50, 3},
+                {102, 0, 0, 48, 0},    {143, 0, 0, 48, 0},    {150, -13, 29, 35, 3},
+                {187, -13, 29, 35, 3}, {193, 10, 25, 38, -3}, {216, 10, 25, 38, -3},
+                {224, 0, 0, 48, 0},    {270, 0, 0, 48, 0},    {276, 15, -6, 44, -4},
+                {305, 15, -6, 44, -4}, {313, 0, 0, 48, 0},    {350, 0, 0, 48, 0},
+            };
+            const unsigned phase = frame % 350;
+            for (unsigned i = 1; i < sizeof(poses) / sizeof(poses[0]); ++i) {
+                const auto& a = poses[i - 1];
+                const auto& b = poses[i];
+                if (phase > b.frame)
+                    continue;
+                float u = (phase - a.frame) / static_cast<float>(b.frame - a.frame);
+                u = u * u * (3 - 2 * u);
+                gaze = a.x + (b.x - a.x) * u;
+                eye_h = a.height + (b.height - a.height) * u;
+                const float y = a.y + (b.y - a.y) * u;
+                const float tilt = a.tilt + (b.tilt - a.tilt) * u;
+                left_y = 72 + y - eye_h / 2 + tilt;
+                right_y = 72 + y - eye_h / 2 - tilt;
+                break;
+            }
+            // Soft single blink, then a playful double blink after looking down.
+            float openness = 1;
+            static constexpr unsigned blink_starts[] = {112, 236, 245, 326};
+            for (unsigned start : blink_starts) {
+                if (phase >= start && phase < start + 7) {
+                    const unsigned step = phase - start;
+                    openness = step < 3 ? 1 - step / 3.0f : (step - 3) / 4.0f;
+                }
+            }
+            const float closed_h = 4 + (eye_h - 4) * openness;
+            left_y += (eye_h - closed_h) / 2;
+            right_y += (eye_h - closed_h) / 2;
+            eye_h = closed_h;
+            can_blink = false;
+            break;
+        }
         case RobotEyesMode::Speaking:
             // Look, settle, then look the other way; brief pauses add intention.
             gaze = std::sin(t * 0.65f) * 7;
@@ -224,6 +270,8 @@ void Draw(Canvas& c, RobotEyesMode mode, unsigned frame, bool speaking) {
     if (speaking)
         return;  // The audio envelope continues to own the speaking mouth.
     switch (mode) {
+        case RobotEyesMode::Neutral:
+            break;  // Neutral communicates entirely through the eyes.
         case RobotEyesMode::Laugh:
             c.Box(101, 100, 38, 22 + wave * 3, 10, kCyan);
             c.Box(108, 101, 24, 5, 2, kBlack);

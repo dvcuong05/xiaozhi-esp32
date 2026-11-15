@@ -81,6 +81,13 @@ void RobotScreenLayout::SetVisible(bool visible) {
     }
 }
 
+void RobotScreenLayout::SetInfoRegionVisible(bool visible) {
+    if (visible)
+        lv_obj_remove_flag(info_region_, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_add_flag(info_region_, LV_OBJ_FLAG_HIDDEN);
+}
+
 void RobotScreenLayout::RenderText() {
     lv_anim_delete(info_label_, nullptr);
     lv_obj_set_y(info_label_, 0);
@@ -152,6 +159,11 @@ void RobotScreenLayout::DismissStartupHint() {
 void RobotScreenLayout::SetHideSubtitle(bool hide) {
     hide_subtitle_ = hide;
     RenderText();
+}
+
+bool RobotScreenLayout::CanShowInfoShuttle() const {
+    return !hide_subtitle_ && !startup_hint_ &&
+           role_.empty();
 }
 
 }  // namespace kynangso

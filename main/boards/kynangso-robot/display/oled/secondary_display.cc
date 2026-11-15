@@ -20,7 +20,8 @@ namespace {
 constexpr char TAG[] = "SecondaryDisplay";
 }
 
-SecondaryDisplay::SecondaryDisplay(RobotSettings& settings) : settings_(settings) {}
+SecondaryDisplay::SecondaryDisplay(RobotSettings& settings)
+    : settings_(settings), enabled_(settings.LoadExtensions().oled) {}
 
 SecondaryDisplay::~SecondaryDisplay() {
     // Let the task finish its current render and release the mutex before freeing resources.
@@ -46,14 +47,44 @@ SecondaryDisplay::~SecondaryDisplay() {
 }
 
 void SecondaryDisplay::Initialize() {
+    if (!enabled_) {
+        return;
+    }
     if (second_display_mutex_ == nullptr) {
         second_display_mutex_ = xSemaphoreCreateMutex();
     }
     if (second_display_mutex_ == nullptr) {
+        last_error_.store(ESP_ERR_NO_MEM);
         ESP_LOGE(TAG, "Khong the cap phat mutex OLED");
         return;
     }
     Reinitialize();
+}
+
+void SecondaryDisplay::SetEnabled(bool enabled) {
+    if (enabled == enabled_.load())
+        return;
+    enabled_.store(enabled);
+    if (enabled) {
+        Initialize();
+    } else if (second_display_mutex_) {
+        xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+        DestroySecondDisplayPanel();
+        if (second_display_i2c_bus_) {
+            i2c_del_master_bus(second_display_i2c_bus_);
+            second_display_i2c_bus_ = nullptr;
+        }
+        bluetooth_text_.clear();
+        last_error_.store(ESP_OK);
+        xSemaphoreGive(second_display_mutex_);
+    }
+    if (time_display_task_handle_)
+        xTaskNotifyGive(time_display_task_handle_);
+}
+
+void SecondaryDisplay::StartRenderTask() {
+    if (!available_.load())
+        return;
     if (render_task_stopped_ == nullptr) {
         render_task_stopped_ = xSemaphoreCreateBinary();
     }
@@ -70,7 +101,7 @@ void SecondaryDisplay::Initialize() {
 }
 
 void SecondaryDisplay::DestroySecondDisplayPanel() {
-    available_.store(false);
+    const bool was_available = available_.exchange(false);
     oled_display_controller_.Disable();
     free(second_display_framebuffer_);
     second_display_framebuffer_ = nullptr;
@@ -78,7 +109,8 @@ void SecondaryDisplay::DestroySecondDisplayPanel() {
     second_display_width_ = 0;
     second_display_height_ = 0;
     if (second_panel_) {
-        esp_lcd_panel_disp_on_off(second_panel_, false);
+        if (was_available)
+            esp_lcd_panel_disp_on_off(second_panel_, false);
         esp_lcd_panel_del(second_panel_);
         second_panel_ = nullptr;
     }
@@ -147,7 +179,7 @@ const char* SecondaryDisplay::GetOledDeviceStateLabel() const {
 }
 
 bool SecondaryDisplay::RenderSecondOledLocked() {
-    if (second_panel_ == nullptr || second_display_framebuffer_ == nullptr) {
+    if (second_panel_ == nullptr || second_display_framebuffer_ == nullptr || last_error_.load() != ESP_OK) {
         return false;
     }
 
@@ -164,7 +196,10 @@ bool SecondaryDisplay::RenderSecondOledLocked() {
         oled_text_display_active_ = false;
         oled_text_display_[0] = '\0';
     }
-    if (boot_display_active_ || ip_display_active) {
+    if (!boot_display_active_ && !bluetooth_text_.empty()) {
+        if (!oled_display_controller_.RenderBluetooth(bluetooth_text_.c_str(), bluetooth_phase_))
+            return false;
+    } else if (boot_display_active_ || ip_display_active) {
         char network_line[96] = {};
         const std::string connected_address =
             wifi.IsConnected() ? wifi.GetIpAddress() : "CONNECTING...";
@@ -196,6 +231,8 @@ bool SecondaryDisplay::RenderSecondOledLocked() {
     esp_err_t ret = esp_lcd_panel_draw_bitmap(second_panel_, 0, 0, second_display_width_,
                                               second_display_height_, second_display_framebuffer_);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
+        available_.store(false);
         ESP_LOGE(TAG, "Khong the ve noi dung OLED: %s", esp_err_to_name(ret));
         return false;
     }
@@ -203,9 +240,11 @@ bool SecondaryDisplay::RenderSecondOledLocked() {
 }
 
 bool SecondaryDisplay::InitializeSecondDisplayI2c(const kynangso::OledConfig& config) {
-    ESP_LOGI(TAG, "Khoi tao I2C cho man hinh thu hai");
+    ESP_LOGI(TAG, "OLED I2C: SDA=%ld SCL=%ld address=0x%s, 100 kHz",
+             static_cast<long>(config.sda), static_cast<long>(config.scl), config.address);
 
     if (!RobotSettings::ValidateOled(config)) {
+        last_error_.store(ESP_ERR_INVALID_ARG);
         ESP_LOGE(TAG, "Cau hinh OLED khong hop le");
         return false;
     }
@@ -225,6 +264,7 @@ bool SecondaryDisplay::InitializeSecondDisplayI2c(const kynangso::OledConfig& co
     };
     esp_err_t err = i2c_new_master_bus(&bus_config, &second_display_i2c_bus_);
     if (err != ESP_OK) {
+        last_error_.store(err);
         second_display_i2c_bus_ = nullptr;
         ESP_LOGE(TAG, "Khong the tao I2C bus OLED: %s", esp_err_to_name(err));
         return false;
@@ -239,12 +279,35 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
         return false;
     }
 
+    const auto address = static_cast<uint16_t>(std::strtol(config.address, nullptr, 16));
+    esp_err_t probe = i2c_master_probe(second_display_i2c_bus_, address, 40);
+    if (probe == ESP_ERR_TIMEOUT) {
+        ESP_LOGW(TAG, "OLED bus timeout: SDA level=%d SCL level=%d; trying one bus recovery",
+                 gpio_get_level(static_cast<gpio_num_t>(config.sda)),
+                 gpio_get_level(static_cast<gpio_num_t>(config.scl)));
+        const auto recovery = i2c_master_bus_reset(second_display_i2c_bus_);
+        if (recovery == ESP_OK)
+            probe = i2c_master_probe(second_display_i2c_bus_, address, 40);
+        ESP_LOGI(TAG, "OLED bus recovery=%s probe=%s SDA=%d SCL=%d", esp_err_to_name(recovery),
+                 esp_err_to_name(probe), gpio_get_level(static_cast<gpio_num_t>(config.sda)),
+                 gpio_get_level(static_cast<gpio_num_t>(config.scl)));
+    }
+    if (probe != ESP_OK) {
+        last_error_.store(probe);
+        ESP_LOGW(TAG,
+                 "OLED does not respond at 0x%02x (SDA=%ld SCL=%ld): %s; check power, wiring and "
+                 "pull-ups",
+                 address, static_cast<long>(config.sda), static_cast<long>(config.scl),
+                 esp_err_to_name(probe));
+        return false;
+    }
+
     // Convert hex address to integer
     int addr_int = static_cast<int>(std::strtol(config.address, nullptr, 16));
 
     esp_lcd_panel_io_i2c_config_t io_config = {
         .dev_addr = (uint8_t)addr_int,
-        .scl_speed_hz = 400 * 1000,
+        .scl_speed_hz = 100 * 1000,
         .control_phase_bytes = 1,
         .dc_bit_offset = 6,
         .lcd_cmd_bits = 8,
@@ -261,6 +324,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
     esp_err_t ret =
         esp_lcd_new_panel_io_i2c(second_display_i2c_bus_, &io_config, &second_panel_io_);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the tao panel IO I2C: %s", esp_err_to_name(ret));
         second_panel_io_ = nullptr;
         return false;
@@ -277,6 +341,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
 
     ret = esp_lcd_new_panel_ssd1306(second_panel_io_, &panel_config, &second_panel_);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the tao panel SSD1306: %s", esp_err_to_name(ret));
         DestroySecondDisplayPanel();
         return false;
@@ -284,6 +349,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
 
     ret = esp_lcd_panel_reset(second_panel_);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the reset panel: %s", esp_err_to_name(ret));
         DestroySecondDisplayPanel();
         return false;
@@ -291,6 +357,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
 
     ret = esp_lcd_panel_init(second_panel_);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the khoi tao man hinh thu hai: %s", esp_err_to_name(ret));
         DestroySecondDisplayPanel();
         return false;
@@ -299,6 +366,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
     SetActiveOledConfig(config);
     ret = ApplyOledPanelSettings();
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the ap dung cau hinh OLED: %s", esp_err_to_name(ret));
         DestroySecondDisplayPanel();
         return false;
@@ -306,6 +374,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
 
     ret = esp_lcd_panel_disp_on_off(second_panel_, true);
     if (ret != ESP_OK) {
+        last_error_.store(ret);
         ESP_LOGE(TAG, "Khong the bat man hinh: %s", esp_err_to_name(ret));
         DestroySecondDisplayPanel();
         return false;
@@ -331,6 +400,7 @@ bool SecondaryDisplay::InitializeSecondOledDisplay(const kynangso::OledConfig& c
         DestroySecondDisplayPanel();
         return false;
     }
+    last_error_.store(ESP_OK);
     available_.store(true);
     ESP_LOGI(TAG, "Da khoi tao OLED mode=%d", config.mode);
     return true;
@@ -340,6 +410,10 @@ void SecondaryDisplay::TimeDisplayTask(void* pvParameters) {
     auto* robot = static_cast<SecondaryDisplay*>(pvParameters);
 
     while (!robot->stopping_.load()) {
+        if (!robot->enabled_.load() || !robot->available_.load()) {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
+        }
         int delay_ms = 1000;
         if (robot->second_display_mutex_ != nullptr) {
             xSemaphoreTake(robot->second_display_mutex_, portMAX_DELAY);
@@ -347,8 +421,10 @@ void SecondaryDisplay::TimeDisplayTask(void* pvParameters) {
             const bool temporary_text_active =
                 robot->oled_text_display_active_ &&
                 esp_timer_get_time() < robot->oled_text_display_until_us_;
-            if (temporary_text_active ||
-                robot->second_display_settings_.mode == kynangso::OledDisplayMode::Marquee) {
+            if (!robot->bluetooth_text_.empty()) {
+                delay_ms = 100;
+            } else if (temporary_text_active ||
+                       robot->second_display_settings_.mode == kynangso::OledDisplayMode::Marquee) {
                 int speed = std::clamp<int>(robot->second_display_settings_.speed, 1, 5);
                 delay_ms = std::max(50, 260 / speed);
             } else if (robot->second_display_settings_.mode == kynangso::OledDisplayMode::Status) {
@@ -368,7 +444,7 @@ void SecondaryDisplay::TimeDisplayTask(void* pvParameters) {
 }
 
 void SecondaryDisplay::ShowIp(const std::string& address) {
-    if (second_display_mutex_ == nullptr || address.empty()) {
+    if (!enabled_ || second_display_mutex_ == nullptr || address.empty()) {
         return;
     }
     xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
@@ -381,7 +457,7 @@ void SecondaryDisplay::ShowIp(const std::string& address) {
 }
 
 void SecondaryDisplay::ShowText(const std::string& text, int duration_ms) {
-    if (second_display_mutex_ == nullptr || text.empty() || duration_ms < 1000 ||
+    if (!enabled_ || second_display_mutex_ == nullptr || text.empty() || duration_ms < 1000 ||
         duration_ms > 30000) {
         return;
     }
@@ -400,6 +476,9 @@ void SecondaryDisplay::ShowText(const std::string& text, int duration_ms) {
 }
 
 void SecondaryDisplay::ApplySettings() {
+    if (!enabled_) {
+        return;
+    }
     if (second_display_mutex_ == nullptr) {
         ESP_LOGE(TAG, "Mutex OLED chua san sang");
         return;
@@ -412,6 +491,8 @@ void SecondaryDisplay::ApplySettings() {
         if (ret == ESP_OK) {
             RenderSecondOledLocked();
         } else {
+            last_error_.store(ret);
+            available_.store(false);
             ESP_LOGE(TAG, "Khong the ap dung lai cau hinh OLED: %s", esp_err_to_name(ret));
         }
     }
@@ -419,6 +500,10 @@ void SecondaryDisplay::ApplySettings() {
 }
 
 void SecondaryDisplay::Reinitialize() {
+    if (!enabled_) {
+        return;
+    }
+    last_error_.store(ESP_OK);
     ESP_LOGI(TAG, "Khoi tao lai man hinh OLED thu hai");
 
     if (second_display_mutex_ == nullptr) {
@@ -441,10 +526,23 @@ void SecondaryDisplay::Reinitialize() {
         }
     }
     xSemaphoreGive(second_display_mutex_);
+    StartRenderTask();
+}
+
+void SecondaryDisplay::SetBluetoothStatus(const std::string& text, int phase) {
+    if (!enabled_ || !second_display_mutex_)
+        return;
+    xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
+    bluetooth_text_ = text;
+    bluetooth_phase_ = phase;
+    RenderSecondOledLocked();
+    xSemaphoreGive(second_display_mutex_);
+    if (time_display_task_handle_)
+        xTaskNotifyGive(time_display_task_handle_);
 }
 
 void SecondaryDisplay::OnBootEvent(const BootEvent& event) {
-    if (second_display_mutex_ == nullptr) {
+    if (!enabled_ || second_display_mutex_ == nullptr) {
         return;
     }
     xSemaphoreTake(second_display_mutex_, portMAX_DELAY);

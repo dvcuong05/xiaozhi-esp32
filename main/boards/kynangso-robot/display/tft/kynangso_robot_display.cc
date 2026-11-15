@@ -5,6 +5,7 @@
 #include "lvgl_theme.h"
 
 #include <esp_log.h>
+#include <esp_random.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -53,16 +54,28 @@ KyNangSoRobotDisplay::KyNangSoRobotDisplay(esp_lcd_panel_io_handle_t panel_io,
                                            int offset_x, int offset_y, bool mirror_x, bool mirror_y,
                                            bool swap_xy)
     : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y,
-                    swap_xy) {}
+                    swap_xy) {
+    bluetooth_touch_enabled_ = kynangso::RobotSettings().LoadExtensions().touch;
+}
 
 KyNangSoRobotDisplay::~KyNangSoRobotDisplay() {
+    if (bluetooth_overlay_) lv_obj_delete(bluetooth_overlay_);
     if (ota_overlay_)
         lv_obj_delete(ota_overlay_);
     if (display_ != nullptr)
         lv_display_remove_event_cb_with_user_data(display_, LiveTvRefreshReady, this);
     time_view_.reset();
+    info_shuttle_view_.reset();
     if (face_preview_timer_ != nullptr)
         lv_timer_delete(face_preview_timer_);
+    if (info_shuttle_timer_ != nullptr) {
+        lv_timer_delete(info_shuttle_timer_);
+        info_shuttle_timer_ = nullptr;
+    }
+    if (info_shuttle_notification_timer_ != nullptr) {
+        lv_timer_delete(info_shuttle_notification_timer_);
+        info_shuttle_notification_timer_ = nullptr;
+    }
     if (payment_qr_timer_ != nullptr) {
         lv_timer_delete(payment_qr_timer_);
         payment_qr_timer_ = nullptr;
@@ -259,9 +272,18 @@ void KyNangSoRobotDisplay::SetupUI() {
     lv_obj_set_style_bg_opa(live_tv_title_, LV_OPA_70, 0);
     lv_obj_set_style_pad_hor(live_tv_title_, 4, 0);
     lv_obj_add_flag(live_tv_overlay_, LV_OBJ_FLAG_HIDDEN);
+
+    info_shuttle_view_ = std::make_unique<kynangso::RobotInfoShuttleView>(
+        width_, height_, text_font, info_shuttle_config_.calendar_theme,
+        info_shuttle_config_.color_theme);
+    info_shuttle_timer_ =
+        lv_timer_create(OnInfoShuttleTimer, info_shuttle_config_.interval_seconds * 1000, this);
+    if (info_shuttle_timer_ != nullptr)
+        lv_timer_ready(info_shuttle_timer_);
+    ApplyUiMode();
 }
 
-KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
+KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetBaseUiMode() const {
     if (boot_state_ == BootState::Finished && time_alert_)
         return UiMode::Time;
     if (payment_qr_active_) {
@@ -272,6 +294,8 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
     }
     if (boot_state_ == BootState::Finished && time_visible_ && time_alert_)
         return UiMode::Time;
+    if (bluetooth_active_ && boot_state_ == BootState::Finished)
+        return UiMode::Bluetooth;
     if (live_tv_active_)
         return UiMode::LiveTv;
     if (boot_state_ == BootState::Finished && time_visible_)
@@ -288,7 +312,39 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
     return UiMode::NormalFace;
 }
 
+KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
+    const UiMode base_mode = GetBaseUiMode();
+    if (base_mode == UiMode::NormalFace && info_shuttle_active_)
+        return UiMode::InfoShuttle;
+    return base_mode;
+}
+
+bool KyNangSoRobotDisplay::CanPresentInfoShuttle(UiMode base_mode) const {
+    return info_shuttle_config_.enabled && boot_state_ == BootState::Finished &&
+           base_mode == UiMode::NormalFace && !conversation_active_ &&
+           face_preview_timer_ == nullptr && info_shuttle_view_ != nullptr &&
+           screen_layout_ != nullptr && screen_layout_->CanShowInfoShuttle() &&
+           (notification_label_ == nullptr ||
+            lv_obj_has_flag(notification_label_, LV_OBJ_FLAG_HIDDEN));
+}
+
 void KyNangSoRobotDisplay::ApplyUiMode() {
+    const UiMode base_mode = GetBaseUiMode();
+    const bool can_present_shuttle = CanPresentInfoShuttle(base_mode);
+    if (!can_present_shuttle) {
+        info_shuttle_active_ = false;
+        if (info_shuttle_timer_ != nullptr && !info_shuttle_timer_paused_) {
+            lv_timer_pause(info_shuttle_timer_);
+            info_shuttle_timer_paused_ = true;
+        }
+        if (info_shuttle_view_ != nullptr)
+            info_shuttle_view_->SetVisible(false);
+    } else if (info_shuttle_timer_ != nullptr && info_shuttle_timer_paused_) {
+        lv_timer_resume(info_shuttle_timer_);
+        lv_timer_ready(info_shuttle_timer_);
+        info_shuttle_timer_paused_ = false;
+    }
+
     const UiMode mode = GetUiMode();
     const auto set_visible = [](lv_obj_t* object, bool visible) {
         if (object == nullptr) {
@@ -302,17 +358,24 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
         }
     };
 
+    const bool face_shuttle =
+        mode == UiMode::InfoShuttle && info_shuttle_card_ == InfoShuttleCard::Face;
     if (screen_layout_ != nullptr) {
-        screen_layout_->SetVisible(mode == UiMode::NormalFace);
+        screen_layout_->SetInfoRegionVisible(!face_shuttle);
+        screen_layout_->SetVisible(mode == UiMode::NormalFace || face_shuttle);
     }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
     set_visible(live_tv_overlay_, mode == UiMode::LiveTv);
     set_visible(payment_qr_overlay_, mode == UiMode::PaymentQr);
+    set_visible(bluetooth_overlay_, mode == UiMode::Bluetooth);
     if (time_view_)
         time_view_->SetVisible(mode == UiMode::Time);
+    if (info_shuttle_view_ != nullptr)
+        info_shuttle_view_->SetVisible(mode == UiMode::InfoShuttle);
     HideLegacyEmoji();
+    if (ota_overlay_ && !lv_obj_has_flag(ota_overlay_, LV_OBJ_FLAG_HIDDEN)) lv_obj_move_foreground(ota_overlay_);
 }
 
 void KyNangSoRobotDisplay::SetLiveTvActive(bool active, const std::string& title) {
@@ -488,6 +551,119 @@ void KyNangSoRobotDisplay::ConfigureFace(const kynangso::FaceConfig& config) {
         robot_eyes_->SetEmotion(kynangso::kFaceEmotions[config.idle_emotion]);
         robot_eyes_->SetVisible(config.eyes);
     }
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::ConfigureInfoShuttle(const kynangso::InfoShuttleConfig& config) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    if (info_shuttle_view_ != nullptr &&
+        (info_shuttle_config_.color_theme != config.color_theme ||
+         info_shuttle_config_.calendar_theme != config.calendar_theme))
+        info_shuttle_view_->SetColorThemes(config.calendar_theme, config.color_theme);
+    info_shuttle_config_ = config;
+    info_shuttle_card_ = InfoShuttleCard::None;
+    info_shuttle_active_ = false;
+    if (info_shuttle_timer_ != nullptr) {
+        lv_timer_set_period(info_shuttle_timer_, config.interval_seconds * 1000);
+        lv_timer_ready(info_shuttle_timer_);
+    }
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::ShowNextInfoShuttleCard() {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    AdvanceInfoShuttle();
+}
+
+void KyNangSoRobotDisplay::SetUpcomingScheduleProvider(std::function<std::string()> provider) {
+    DisplayLockGuard lock(this);
+    if (lock)
+        upcoming_schedule_provider_ = std::move(provider);
+}
+
+void KyNangSoRobotDisplay::SetInfoShuttleWeather(const std::string& summary, int icon_kind) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    info_shuttle_weather_ = summary;
+    info_shuttle_weather_icon_ = icon_kind;
+    if (info_shuttle_active_ && info_shuttle_card_ == InfoShuttleCard::Weather &&
+        GetUiMode() == UiMode::InfoShuttle && info_shuttle_view_ != nullptr)
+        info_shuttle_view_->ShowWeather(info_shuttle_weather_,
+                                        info_shuttle_config_.weather_location,
+                                        info_shuttle_weather_icon_);
+}
+
+void KyNangSoRobotDisplay::OnInfoShuttleTimer(lv_timer_t* timer) {
+    auto* display = static_cast<KyNangSoRobotDisplay*>(lv_timer_get_user_data(timer));
+    display->AdvanceInfoShuttle();
+}
+
+void KyNangSoRobotDisplay::AdvanceInfoShuttle() {
+    if (!CanPresentInfoShuttle(GetBaseUiMode())) {
+        ApplyUiMode();
+        return;
+    }
+
+    std::array<InfoShuttleCard, 3> cards{};
+    size_t count = 0;
+    if (info_shuttle_config_.show_face)
+        cards[count++] = InfoShuttleCard::Face;
+    if (info_shuttle_config_.show_schedule)
+        cards[count++] = InfoShuttleCard::Schedule;
+    if (info_shuttle_config_.show_weather)
+        cards[count++] = InfoShuttleCard::Weather;
+    if (count == 0) {
+        ApplyUiMode();
+        return;
+    }
+
+    size_t selected = 0;
+    if (info_shuttle_config_.random) {
+        selected = esp_random() % count;
+        if (count > 1 && cards[selected] == info_shuttle_card_)
+            selected = (selected + 1 + esp_random() % (count - 1)) % count;
+    } else {
+        size_t current = 0;
+        for (; current < count; ++current) {
+            if (cards[current] == info_shuttle_card_)
+                break;
+        }
+        selected = current == count ? 0 : (current + 1) % count;
+    }
+
+    info_shuttle_card_ = cards[selected];
+    info_shuttle_active_ = true;
+    RenderInfoShuttleCard();
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::RenderInfoShuttleCard() {
+    if (info_shuttle_view_ == nullptr)
+        return;
+    switch (info_shuttle_card_) {
+        case InfoShuttleCard::Face:
+            info_shuttle_view_->ShowFace();
+            break;
+        case InfoShuttleCard::Schedule: {
+            const std::string summary = upcoming_schedule_provider_
+                                            ? upcoming_schedule_provider_()
+                                            : "Lịch tiếp theo: chưa có dữ liệu";
+            info_shuttle_view_->ShowSchedule(summary);
+            break;
+        }
+        case InfoShuttleCard::Weather:
+            info_shuttle_view_->ShowWeather(info_shuttle_weather_,
+                                            info_shuttle_config_.weather_location,
+                                            info_shuttle_weather_icon_);
+            break;
+        case InfoShuttleCard::None:
+            break;
+    }
 }
 
 void KyNangSoRobotDisplay::PreviewFaceEmotion(const char* emotion, int duration_ms) {
@@ -503,9 +679,11 @@ void KyNangSoRobotDisplay::PreviewFaceEmotion(const char* emotion, int duration_
             display->robot_eyes_->SetEmotion(
                 kynangso::kFaceEmotions[display->face_config_.idle_emotion]);
             display->face_preview_timer_ = nullptr;
+            display->ApplyUiMode();
             lv_timer_delete(timer);
         },
         duration_ms, this);
+    ApplyUiMode();
 }
 
 void KyNangSoRobotDisplay::HideLegacyEmoji() {
@@ -530,6 +708,14 @@ void KyNangSoRobotDisplay::SetStatus(const char* status) {
         DisplayLockGuard lock(this);
         if (!lock) {
             return;
+        }
+        if (std::strcmp(status, Lang::Strings::LISTENING) == 0 ||
+            std::strcmp(status, Lang::Strings::SPEAKING) == 0) {
+            conversation_active_ = true;
+        } else if (std::strcmp(status, Lang::Strings::STANDBY) == 0 ||
+                   std::strcmp(status, Lang::Strings::CONNECTING) == 0 ||
+                   std::strcmp(status, Lang::Strings::ERROR) == 0) {
+            conversation_active_ = false;
         }
         if (screen_layout_ != nullptr && std::strcmp(status, Lang::Strings::STANDBY) != 0) {
             // Status changes dismiss only the transient hint. Speaking text
@@ -658,6 +844,7 @@ void KyNangSoRobotDisplay::SetChatMessage(const char* role, const char* content)
         DisplayLockGuard lock(this);
         if (lock && screen_layout_ != nullptr) {
             screen_layout_->SetText(role, content);
+            ApplyUiMode();
         }
     }
 }
@@ -666,6 +853,7 @@ void KyNangSoRobotDisplay::RemoveChatMessage(const char* role, const char* conte
     DisplayLockGuard lock(this);
     if (lock && screen_layout_ != nullptr) {
         screen_layout_->RemoveText(role, content);
+        ApplyUiMode();
     }
 }
 
@@ -673,14 +861,16 @@ void KyNangSoRobotDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
     if (lock && screen_layout_ != nullptr) {
         screen_layout_->ClearText();
+        ApplyUiMode();
     }
 }
 
 void KyNangSoRobotDisplay::ShowStartupHint(const char* text) {
     DisplayLockGuard lock(this);
-    if (lock && screen_layout_ != nullptr && GetUiMode() == UiMode::NormalFace &&
+    if (lock && screen_layout_ != nullptr && GetBaseUiMode() == UiMode::NormalFace &&
         boot_state_ == BootState::Finished && text != nullptr) {
         screen_layout_->ShowStartupHint(text);
+        ApplyUiMode();
     }
 }
 
@@ -688,6 +878,7 @@ void KyNangSoRobotDisplay::HideStartupHint(const char* text) {
     DisplayLockGuard lock(this);
     if (lock && screen_layout_ != nullptr) {
         screen_layout_->HideStartupHint(text);
+        ApplyUiMode();
     }
 }
 
@@ -696,12 +887,33 @@ void KyNangSoRobotDisplay::SetHideSubtitle(bool hide) {
     DisplayLockGuard lock(this);
     if (lock && screen_layout_ != nullptr) {
         screen_layout_->SetHideSubtitle(hide);
+        ApplyUiMode();
     }
 }
 
 void KyNangSoRobotDisplay::ShowNotification(const char* notification, int duration_ms) {
     SpiLcdDisplay::ShowNotification(notification, duration_ms);
     AppendBootConsoleLine(notification);
+    DisplayLockGuard lock(this);
+    if (!lock || notification_label_ == nullptr ||
+        lv_obj_has_flag(notification_label_, LV_OBJ_FLAG_HIDDEN))
+        return;
+    if (info_shuttle_notification_timer_ != nullptr)
+        lv_timer_delete(info_shuttle_notification_timer_);
+    info_shuttle_notification_timer_ =
+        lv_timer_create(OnInfoShuttleNotificationTimer, std::max(1, duration_ms) + 100, this);
+    if (info_shuttle_notification_timer_ != nullptr)
+        lv_timer_set_repeat_count(info_shuttle_notification_timer_, 1);
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::OnInfoShuttleNotificationTimer(lv_timer_t* timer) {
+    auto* display = static_cast<KyNangSoRobotDisplay*>(lv_timer_get_user_data(timer));
+    if (display == nullptr || display->info_shuttle_notification_timer_ != timer)
+        return;
+    display->info_shuttle_notification_timer_ = nullptr;
+    display->ApplyUiMode();
+    lv_timer_delete(timer);
 }
 
 void KyNangSoRobotDisplay::SetEmotion(const char* emotion) {
@@ -792,7 +1004,13 @@ void KyNangSoRobotDisplay::OnBootEvent(BootStage stage, const char* detail) {
         FinishBootSequence();
     }
     if (stage == BootStage::Ready) {
-        SetEmotion("robot_2");
+        DisplayLockGuard lock(this);
+        if (lock && robot_eyes_ != nullptr) {
+            // The app can already be idle when boot finishes, so no later
+            // status transition is guaranteed to replace the boot expression.
+            robot_eyes_->SetStatus(RobotEyesMode::Neutral);
+            robot_eyes_->SetEmotion("neutral");
+        }
     }
 }
 
@@ -805,6 +1023,7 @@ void KyNangSoRobotDisplay::OnAudioPlaybackFrame(const AudioPlaybackFrame& frame)
     const bool server_music =
         frame.source == AudioPlaybackSource::Conversation && music_session_.IsActive();
     if (frame.source == AudioPlaybackSource::Conversation && !server_music) {
+        conversation_active_ = true;
         audio_playback_active_ = false;
         if (robot_eyes_ != nullptr) {
             robot_eyes_->SetSpeechLevel(kynangso::RobotSpectrum::SpeechLevel(frame));
@@ -947,6 +1166,8 @@ void KyNangSoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     if (boot_console_label_ != nullptr) {
         lv_obj_set_style_text_font(boot_console_label_, text_font, 0);
     }
+    if (info_shuttle_view_ != nullptr)
+        info_shuttle_view_->SetFont(text_font);
     for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,
                         music_lyric_, payment_qr_caption_, live_tv_title_}) {
         if (label != nullptr) {
@@ -1105,4 +1326,149 @@ void KyNangSoRobotDisplay::AppendBootConsoleLine(const char* text) {
             std::min(boot_console_visible_chars_, boot_console_text_.size());
     }
     RenderBootConsole();
+}
+
+void KyNangSoRobotDisplay::ShowBluetooth(const kynangso::BluetoothStatus& status, size_t selected,
+                                         const std::string& message) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    if (!bluetooth_overlay_) {
+        bluetooth_overlay_ = lv_obj_create(lv_display_get_layer_top(display_));
+        auto* panel = bluetooth_overlay_;
+        lv_obj_set_size(panel, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_pad_all(panel, 6, 0);
+        lv_obj_set_style_radius(panel, 0, 0);
+        lv_obj_set_style_border_width(panel, 0, 0);
+        lv_obj_set_style_bg_color(panel, lv_color_hex(0x091827), 0);
+        lv_obj_set_style_text_color(panel, lv_color_hex(0xeaf5ff), 0);
+        lv_obj_set_style_text_font(panel, &robot_time_font_14, 0);
+        lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+        static const lv_point_precise_t points[] = {{0, 3}, {12, 15}, {6, 21},
+                                                    {6, 0}, {12, 6},  {0, 18}};
+        auto* icon = lv_line_create(panel);
+        lv_line_set_points(icon, points, 6);
+        lv_obj_set_pos(icon, 3, 0);
+        lv_obj_set_style_line_width(icon, 2, 0);
+        lv_obj_set_style_line_color(icon, lv_color_hex(0x42dfbd), 0);
+        if (bluetooth_touch_enabled_) {
+            static const lv_point_precise_t touch_points[] = {
+                {3, 17}, {3, 7}, {4, 5}, {6, 5}, {7, 7}, {7, 12},
+                {10, 10}, {12, 11}, {12, 13}, {10, 16}, {7, 18}, {4, 18}, {3, 17}};
+            auto* touch_icon = lv_line_create(panel);
+            lv_line_set_points(touch_icon, touch_points, sizeof(touch_points) / sizeof(touch_points[0]));
+            lv_obj_set_pos(touch_icon, 160, 0);
+            lv_obj_set_style_line_width(touch_icon, 2, 0);
+            lv_obj_set_style_line_color(touch_icon, lv_color_hex(0xffd166), 0);
+        }
+        auto* title = lv_label_create(panel);
+        lv_label_set_text(title, "Loa Bluetooth");
+        lv_obj_set_pos(title, 25, 0);
+        bluetooth_spinner_ = lv_bar_create(panel);
+        lv_obj_set_size(bluetooth_spinner_, 30, 5);
+        lv_obj_align(bluetooth_spinner_, LV_ALIGN_TOP_RIGHT, 0, 6);
+        lv_obj_set_style_bg_color(bluetooth_spinner_, lv_color_hex(0x42dfbd), LV_PART_INDICATOR);
+        lv_obj_add_flag(bluetooth_spinner_, LV_OBJ_FLAG_HIDDEN);
+        bluetooth_status_ = lv_label_create(panel);
+        lv_obj_set_pos(bluetooth_status_, 0, 25);
+        lv_obj_set_width(bluetooth_status_, LV_PCT(100));
+        lv_label_set_long_mode(bluetooth_status_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_color(bluetooth_status_, lv_color_hex(0x42dfbd), 0);
+        for (int i = 0; i < 3; ++i) {
+            auto* row = bluetooth_rows_[i] = lv_obj_create(panel);
+            lv_obj_set_pos(row, 0, 47 + i * 34);
+            lv_obj_set_size(row, LV_PCT(100), 30);
+            lv_obj_set_style_pad_all(row, 2, 0);
+            lv_obj_set_style_radius(row, 7, 0);
+            lv_obj_set_style_border_width(row, 1, 0);
+            lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            bluetooth_names_[i] = lv_label_create(row);
+            lv_obj_set_width(bluetooth_names_[i], LV_PCT(100));
+            lv_label_set_long_mode(bluetooth_names_[i], LV_LABEL_LONG_DOT);
+            lv_obj_set_style_text_color(bluetooth_names_[i], lv_color_hex(0xffd166), 0);
+            lv_obj_center(bluetooth_names_[i]);
+        }
+        bluetooth_count_ = lv_label_create(panel);
+        lv_obj_set_pos(bluetooth_count_, 0, 153);
+        lv_obj_set_width(bluetooth_count_, LV_PCT(100));
+        lv_label_set_long_mode(bluetooth_count_, LV_LABEL_LONG_DOT);
+        auto* help = bluetooth_hint_ = lv_label_create(panel);
+        lv_obj_set_width(help, LV_PCT(100));
+        lv_label_set_text(help, "VOL +/-: chọn  BOOT: nối\nGiữ VOL-: đóng bảng");
+        lv_obj_set_style_text_color(help, lv_color_hex(0x9bb2c8), 0);
+        lv_obj_align(help, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    }
+    bluetooth_active_ = true;
+    lv_label_set_text(bluetooth_status_, message.c_str());
+    if (status.scanning || status.switching) {
+        if (lv_obj_has_flag(bluetooth_spinner_, LV_OBJ_FLAG_HIDDEN)) {
+            lv_anim_t activity;
+            lv_anim_init(&activity);
+            lv_anim_set_var(&activity, bluetooth_spinner_);
+            lv_anim_set_values(&activity, 10, 100);
+            lv_anim_set_duration(&activity, 900);
+            lv_anim_set_reverse_duration(&activity, 900);
+            lv_anim_set_repeat_count(&activity, LV_ANIM_REPEAT_INFINITE);
+            lv_anim_set_exec_cb(&activity, [](void* obj, int32_t value) {
+                lv_bar_set_value(static_cast<lv_obj_t*>(obj), value, LV_ANIM_OFF);
+            });
+            lv_anim_start(&activity);
+        }
+        lv_obj_remove_flag(bluetooth_spinner_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_anim_delete(bluetooth_spinner_, nullptr);
+        lv_obj_add_flag(bluetooth_spinner_, LV_OBJ_FLAG_HIDDEN);
+    }
+    const size_t start = selected / 3 * 3;
+    for (size_t i = 0; i < 3; ++i) {
+        const size_t index = start + i;
+        auto* row = bluetooth_rows_[i];
+        if (index >= status.devices.size()) {
+            lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_HIDDEN);
+        const bool active = index == selected;
+        lv_obj_set_style_bg_color(row, lv_color_hex(active ? 0x17443f : 0x11263b), 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(active ? 0x42dfbd : 0x263b52), 0);
+        const auto& device = status.devices[index];
+        lv_label_set_text(bluetooth_names_[i],
+                          device.name.empty() ? "Loa không có tên" : device.name.c_str());
+    }
+    if (status.devices.empty())
+        lv_label_set_text(bluetooth_count_,
+                          status.scanning ? "Đang tìm loa ở gần..." : "Chưa tìm thấy loa");
+    else
+        lv_label_set_text_fmt(bluetooth_count_, "%u/%u · chọn loa",
+                              static_cast<unsigned>(selected + 1),
+                              static_cast<unsigned>(status.devices.size()));
+    if (bluetooth_touch_enabled_) {
+        lv_label_set_text(bluetooth_hint_, status.devices.empty()
+                                               ? "2 touch rescan · hold to exit"
+                                               : "1 touch move · 2 touch connect\nHold to exit");
+        lv_obj_set_style_text_color(bluetooth_hint_, lv_color_hex(0xffd166), 0);
+    } else {
+        lv_label_set_text(bluetooth_hint_, status.devices.empty()
+                                               ? "BOOT: quét lại\nGiữ VOL- để thoát"
+                                               : "VOL +/- chọn · BOOT nối\nGiữ VOL- để thoát");
+    }
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::HideBluetooth() {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    bluetooth_active_ = false;
+    if (bluetooth_spinner_) {
+        lv_anim_delete(bluetooth_spinner_, nullptr);
+        lv_obj_add_flag(bluetooth_spinner_, LV_OBJ_FLAG_HIDDEN);
+    }
+    ApplyUiMode();
+}
+
+bool KyNangSoRobotDisplay::IsBluetoothVisible() {
+    DisplayLockGuard lock(this);
+    return lock && GetUiMode() == UiMode::Bluetooth &&
+           (!ota_overlay_ || lv_obj_has_flag(ota_overlay_, LV_OBJ_FLAG_HIDDEN));
 }

@@ -4,6 +4,7 @@
 #include <driver/gpio.h>
 #include <driver/i2c_types.h>
 #include <driver/i2s_std.h>
+#include "sdkconfig.h"
 
 // Audio configuration (adjust based on your hardware)
 #define AUDIO_INPUT_SAMPLE_RATE  16000
@@ -26,21 +27,17 @@
 #define AUDIO_I2S_SPK_GPIO_LRCK GPIO_NUM_16
 
 // Button pins
-#define BUILTIN_LED_GPIO        GPIO_NUM_48
+// External Edison LED wiring reserves GPIO19 (USB D-); no LED driver is enabled.
+#define BUILTIN_LED_GPIO        GPIO_NUM_NC  // GPIO48 is assigned to microSD CS.
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
-#define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_38
-// GPIO39 now belongs to microSD MISO (confirmed product wiring).
+#define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_NC
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_NC
 
-// Dedicated SPI2 bus; the TFT stays on SPI3.
-#define SD_CS_PIN   GPIO_NUM_42
-#define SD_SCK_PIN  GPIO_NUM_41
-#define SD_MOSI_PIN GPIO_NUM_40
-#define SD_MISO_PIN GPIO_NUM_39
-
-// TTP223 direct-mode output: HIGH while touched, LOW after release.
-// GPIO20 is shared with native USB D+; this board uses UART for firmware logs.
-#define TOUCH_SENSOR_GPIO GPIO_NUM_20
+// Dedicated SPI2 bus; the SDCard TFT stays on SPI3.
+#define SD_CS_PIN   GPIO_NUM_48
+#define SD_SCK_PIN  GPIO_NUM_39
+#define SD_MOSI_PIN GPIO_NUM_38
+#define SD_MISO_PIN GPIO_NUM_40
 
 // L298N dual DC motor driver: IN1/IN2 = motor A, IN3/IN4 = motor B
 #define STEPPER_INT1_GPIO       GPIO_NUM_11
@@ -49,8 +46,8 @@
 #define STEPPER_INT4_GPIO       GPIO_NUM_14
 
 // Second OLED 128x32 I2C display pins
-#define SECOND_DISPLAY_SDA_PIN  GPIO_NUM_2
-#define SECOND_DISPLAY_SCL_PIN  GPIO_NUM_1
+#define SECOND_DISPLAY_SDA_PIN  GPIO_NUM_1
+#define SECOND_DISPLAY_SCL_PIN  GPIO_NUM_2
 #define SECOND_DISPLAY_I2C_PORT I2C_NUM_1
 #define SECOND_DISPLAY_I2C_ADDRESS 0x3C
 #define SECOND_DISPLAY_WIDTH    128

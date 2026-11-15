@@ -17,6 +17,7 @@ namespace {
 constexpr char kTag[] = "RobotSettings";
 constexpr int32_t kRotationVersion = 4;
 constexpr int32_t kBootVersion = 2;
+constexpr uint8_t kFaceConfigVersion = 2;
 constexpr int32_t kBootVolume = 45;
 
 class NvsHandle {
@@ -54,6 +55,30 @@ bool ReadBool(nvs_handle_t handle, const char* key, bool fallback) {
     return nvs_get_u8(handle, key, &value) == ESP_OK && value <= 1 ? value != 0 : fallback;
 }
 }  // namespace
+
+ExtensionConfig RobotSettings::LoadExtensions() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ExtensionConfig config;
+    NvsHandle handle("robot_ext", NVS_READONLY);
+    if (handle.error == ESP_OK) {
+        config.bluetooth = ReadBool(handle.value, "bluetooth", false);
+        config.oled = ReadBool(handle.value, "oled", false);
+        config.touch = ReadBool(handle.value, "touch", false);
+    }
+    return config;
+}
+
+esp_err_t RobotSettings::SaveExtensions(const ExtensionConfig& config) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("robot_ext", [&config](nvs_handle_t handle) {
+        esp_err_t error = nvs_set_u8(handle, "bluetooth", config.bluetooth);
+        if (error == ESP_OK)
+            error = nvs_set_u8(handle, "oled", config.oled);
+        if (error == ESP_OK)
+            error = nvs_set_u8(handle, "touch", config.touch);
+        return error;
+    });
+}
 
 bool RobotSettings::ValidateMotor(const MotorConfig& config) {
     return config.steps >= 1 && config.steps <= RobotDrive::kMaxSteps &&
@@ -96,8 +121,12 @@ esp_err_t RobotSettings::SaveMotor(const MotorConfig& config) {
 OledConfig RobotSettings::DefaultOled() {
     OledConfig config;
     std::snprintf(config.address, sizeof(config.address), "%02X", SECOND_DISPLAY_I2C_ADDRESS);
-    config.sda = SECOND_DISPLAY_SDA_PIN;
-    config.scl = SECOND_DISPLAY_SCL_PIN;
+    config.sda = CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SDA_GPIO < 0
+                     ? SECOND_DISPLAY_SDA_PIN
+                     : CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SDA_GPIO;
+    config.scl = CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SCL_GPIO < 0
+                     ? SECOND_DISPLAY_SCL_PIN
+                     : CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SCL_GPIO;
     config.width = SECOND_DISPLAY_WIDTH;
     config.height = SECOND_DISPLAY_HEIGHT;
     return config;
@@ -163,6 +192,8 @@ OledConfig RobotSettings::LoadOled() const {
         config.font_size = 0;
     if (config.contrast < 0 || config.contrast > 255)
         config.contrast = 255;
+    if (config.sda < 0) config.sda = DefaultOled().sda;
+    if (config.scl < 0) config.scl = DefaultOled().scl;
     if (!ValidateOled(config)) {
         ESP_LOGW(kTag, "Invalid saved OLED configuration; using hardware defaults");
         return DefaultOled();
@@ -367,13 +398,35 @@ FaceConfig RobotSettings::LoadFace() const {
     FaceConfig config;
     uint8_t record[7] = {};
     size_t length = sizeof(record);
-    NvsHandle handle("face_config", NVS_READONLY);
-    if (handle.error == ESP_OK && nvs_get_blob(handle.value, "record", record, &length) == ESP_OK &&
-        length == sizeof(record) && record[0] == 1 && record[1] <= 1 && record[2] <= 1 &&
-        record[3] <= 1 && record[4] <= 1 && record[5] >= 20 && record[5] <= 100 &&
-        record[6] < kFaceEmotionCount) {
-        config = {record[1] != 0, record[2] != 0, record[3] != 0,
-                  record[4] != 0, record[5],      record[6]};
+    bool migrate_to_neutral = false;
+    {
+        NvsHandle handle("face_config", NVS_READONLY);
+        if (handle.error == ESP_OK &&
+            nvs_get_blob(handle.value, "record", record, &length) == ESP_OK &&
+            length == sizeof(record) && (record[0] == 1 || record[0] == kFaceConfigVersion) &&
+            record[1] <= 1 && record[2] <= 1 && record[3] <= 1 && record[4] <= 1 &&
+            record[5] >= 20 && record[5] <= 100 && record[6] < kFaceEmotionCount) {
+            config = {record[1] != 0, record[2] != 0, record[3] != 0,
+                      record[4] != 0, record[5],      record[6]};
+            migrate_to_neutral = record[0] == 1;
+        }
+    }
+
+    if (migrate_to_neutral) {
+        config.idle_emotion = 0;
+        const uint8_t migrated_record[] = {kFaceConfigVersion,
+                                           config.eyes,
+                                           config.animation,
+                                           config.follow_emotion,
+                                           config.motion,
+                                           static_cast<uint8_t>(config.intensity),
+                                           static_cast<uint8_t>(config.idle_emotion)};
+        const auto error = WriteNamespace("face_config", [&migrated_record](nvs_handle_t handle) {
+            return nvs_set_blob(handle, "record", migrated_record, sizeof(migrated_record));
+        });
+        if (error != ESP_OK) {
+            ESP_LOGW(kTag, "Could not migrate idle face to Neutral: %s", esp_err_to_name(error));
+        }
     }
     return config;
 }
@@ -382,7 +435,7 @@ esp_err_t RobotSettings::SaveFace(const FaceConfig& config) {
     if (config.intensity < 20 || config.intensity > 100 || config.idle_emotion < 0 ||
         config.idle_emotion >= kFaceEmotionCount)
         return ESP_ERR_INVALID_ARG;
-    const uint8_t record[] = {1,
+    const uint8_t record[] = {kFaceConfigVersion,
                               config.eyes,
                               config.animation,
                               config.follow_emotion,
@@ -392,6 +445,82 @@ esp_err_t RobotSettings::SaveFace(const FaceConfig& config) {
     std::lock_guard<std::mutex> lock(mutex_);
     return WriteNamespace("face_config", [&record](nvs_handle_t handle) {
         return nvs_set_blob(handle, "record", record, sizeof(record));
+    });
+}
+
+InfoShuttleConfig RobotSettings::LoadInfoShuttle() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    InfoShuttleConfig config;
+    uint8_t record[9] = {};
+    size_t length = 0;
+    NvsHandle handle("info_shuttle", NVS_READONLY);
+    if (handle.error == ESP_OK) {
+        const bool record_sized =
+            nvs_get_blob(handle.value, "record", nullptr, &length) == ESP_OK &&
+            (length == 7 || length == 8 || length == sizeof(record));
+        size_t record_length = sizeof(record);
+        const bool record_read =
+            record_sized &&
+            nvs_get_blob(handle.value, "record", record, &record_length) == ESP_OK &&
+            record_length == length;
+        if (record_read &&
+            ((length == 7 && record[0] == 1) || (length == 8 && record[0] == 2) ||
+             (length == sizeof(record) && record[0] == 3)) &&
+            record[1] <= 1 && record[2] <= 1 && record[3] <= 1 && record[4] <= 1 &&
+            record[5] <= 1) {
+            config.enabled = record[1] != 0;
+            config.random = record[2] != 0;
+            config.show_face = record[3] != 0;
+            config.show_schedule = record[4] != 0;
+            config.show_weather = record[5] != 0;
+            config.interval_seconds = record[6];
+            if (length >= 8)
+                config.color_theme = record[7];
+            if (length == sizeof(record))
+                config.calendar_theme = record[8];
+            if (!ValidateInfoShuttle(config)) {
+                config = {};
+            }
+        }
+
+        char location[97] = {};
+        size_t location_length = sizeof(location);
+        if (nvs_get_str(handle.value, "wx_location", location, &location_length) == ESP_OK &&
+            location_length > 1 && location_length <= sizeof(location)) {
+            config.weather_location.assign(location, location_length - 1);
+        }
+    }
+    return config;
+}
+
+bool RobotSettings::ValidateInfoShuttle(const InfoShuttleConfig& config) {
+    return config.interval_seconds >= 5 && config.interval_seconds <= 120 &&
+           config.color_theme >= 0 && config.color_theme <= 3 && config.calendar_theme >= 0 &&
+           config.calendar_theme <= 3 && !config.weather_location.empty() &&
+           config.weather_location.size() <= 96 &&
+           std::none_of(config.weather_location.begin(), config.weather_location.end(),
+                        [](unsigned char value) { return value < 0x20 || value == 0x7f; }) &&
+           (config.show_face || config.show_schedule || config.show_weather);
+}
+
+esp_err_t RobotSettings::SaveInfoShuttle(const InfoShuttleConfig& config) {
+    if (!ValidateInfoShuttle(config))
+        return ESP_ERR_INVALID_ARG;
+    const uint8_t record[] = {3,
+                              static_cast<uint8_t>(config.enabled),
+                              static_cast<uint8_t>(config.random),
+                              static_cast<uint8_t>(config.show_face),
+                              static_cast<uint8_t>(config.show_schedule),
+                              static_cast<uint8_t>(config.show_weather),
+                              static_cast<uint8_t>(config.interval_seconds),
+                              static_cast<uint8_t>(config.color_theme),
+                              static_cast<uint8_t>(config.calendar_theme)};
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("info_shuttle", [&record, &config](nvs_handle_t handle) {
+        esp_err_t error = nvs_set_blob(handle, "record", record, sizeof(record));
+        if (error == ESP_OK)
+            error = nvs_set_str(handle, "wx_location", config.weather_location.c_str());
+        return error;
     });
 }
 

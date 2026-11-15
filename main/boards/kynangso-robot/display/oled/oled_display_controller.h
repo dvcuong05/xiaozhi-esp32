@@ -31,6 +31,7 @@ public:
                    int rotation);
     void Disable();
 
+    bool RenderBluetooth(const char* text, int phase);
     bool RenderBoot(const char* title, const char* network_line);
     bool Render(const OledDisplaySettings& settings, const char* status_line_1,
                 const char* status_line_2, time_t now, int wifi_rssi = 0);

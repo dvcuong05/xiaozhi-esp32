@@ -28,6 +28,10 @@
                 "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"main/boards/kynangso-robot/partitions/16m.csv\"",
                 "CONFIG_XIAOZHI_MCP_DEVICE_WSS_ENABLE=y",
                 "CONFIG_XIAOZHI_MCP_DEVICE_WSS_URI=\"wss://robot.kynangso.com/device/bridge\"",
+                "CONFIG_XIAOZHI_AFE_FETCH_TASK_PRIORITY=3",
+                "CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT=y",
+                "CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SDA_GPIO=1",
+                "CONFIG_KYNANGSO_ROBOT_SECONDARY_OLED_SCL_GPIO=2",
                 "CONFIG_OTA_VERIFY_DELAY_SECONDS=30",
                 "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y",
                 "CONFIG_KYNANGSO_MANAGED_OTA=y"

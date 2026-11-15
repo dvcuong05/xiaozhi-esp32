@@ -39,6 +39,7 @@ public:
     bool Start();
     void Stop();
     std::string Command(const cJSON* request);
+    std::string UpcomingSummary();
     bool DismissAlert();
 
 private:

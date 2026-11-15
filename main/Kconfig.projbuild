@@ -10,6 +10,51 @@ config KYNANGSO_MANAGED_OTA
     depends on BOARD_TYPE_KYNANGSO_ROBOT
     default y
 
+config KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+    bool "Compile D1 Mini Bluetooth extension support"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    default n
+    help
+        Include the D1 Mini Bluetooth control path in the S3 firmware.
+        Runtime activation remains separately disabled until enabled in robot settings.
+
+config KYNANGSO_ROBOT_BLUETOOTH_UART_TX_GPIO
+    int "Bluetooth extension UART TX GPIO (-1 = use suggested pin)"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    range -1 48
+    default 10
+
+config KYNANGSO_ROBOT_BLUETOOTH_UART_RX_GPIO
+    int "Bluetooth extension UART RX GPIO (-1 = use suggested pin)"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    range -1 48
+    default 21
+
+config KYNANGSO_ROBOT_SECONDARY_OLED_SDA_GPIO
+    int "Secondary OLED SDA GPIO (-1 = use suggested pin)"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    range -1 48
+    default 1
+
+config KYNANGSO_ROBOT_SECONDARY_OLED_SCL_GPIO
+    int "Secondary OLED SCL GPIO (-1 = use suggested pin)"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    range -1 48
+    default 2
+
+config KYNANGSO_ROBOT_TOUCH_GPIO
+    int "TTP223 output GPIO (-1 = use suggested pin)"
+    depends on BOARD_TYPE_KYNANGSO_ROBOT
+    range -1 48
+    default 20
+
+config XIAOZHI_AFE_FETCH_TASK_PRIORITY
+    int "AFE fetch task priority"
+    range 1 24
+    default 3
+    help
+        Priority of the AFE consumer task that drains processed microphone frames.
+
 config OTA_URL
     string "Default OTA URL"
     default "https://api.tenclass.net/xiaozhi/ota/"

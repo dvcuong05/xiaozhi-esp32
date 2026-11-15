@@ -12,6 +12,8 @@ Server companion: `xiaozhi-kynangso-services/docs/features/live-tv/README.md`.
 - `robot_live_tv.*` / `RobotLiveTv`: worker video, frame giới hạn, PSRAM,
   trạng thái thật và vòng đời start/stop. Audio dùng `Application::RequestRadio`
   và `ContinuousStreamPlayer`/`NotifyPlayer`, không thêm audio pipeline riêng.
+  Khi bắt đầu TV, media đang phát từ SD/HTTP bị dừng và playlist SD bị hủy;
+  radio TV khởi động sau khi worker audio cũ thoát.
 - `robot_tv_controller.*`: hợp đồng sản phẩm cho `tv.start/stop/status`, nối
   yêu cầu catalog từ web tới `Application::RequestService`.
 - `tv_web_server.*`: trang `/tv`, API HTTP bất đồng bộ, một job tại một thời
@@ -38,6 +40,7 @@ sequenceDiagram
     participant B as DeviceBridgeClient
     participant C as RobotTvController
     participant P as RobotLiveTv
+    participant Q as Application media arbiter
     participant A as Audio player chung
     U->>X: Mở HTV9
     X->>M: tools/call tv_search(query=HTV9)
@@ -47,7 +50,10 @@ sequenceDiagram
     M->>B: command tv.start (session/channel ID, token URLs)
     B->>C: HandleCommand trên bridge worker
     C->>P: Start
-    P->>A: RequestRadio (Schedule/main loop)
+    P->>Q: RequestRadio
+    Q->>A: dừng media SD/HTTP đang phát
+    Q->>Q: chờ worker cũ thoát, thử lại trên main loop
+    Q->>A: bắt đầu audio TV
     B-->>M: ACK starting
     P->>M: HTTP video.mjpeg
     A->>M: HTTP audio
@@ -98,6 +104,10 @@ không tạo cây cJSON cho cả danh sách kênh trong SRAM nội bộ. Lỗi n
 
 ## Hiển thị, tài nguyên và khôi phục
 
+Khi người dùng yêu cầu nhạc SD trong lúc TV đang chạy, board báo dừng worker TV và xóa lớp TV trên TFT ngay. Bộ điều phối dừng audio radio; track SD vẫn được giữ chờ tới khi worker HTTP audio cũ thoát rồi mới bắt đầu phát. Lần đọc mạng đang diễn ra có timeout 15 giây nên thời gian chuyển audio còn phụ thuộc lúc worker nhận được hủy.
+
+Worker SD dùng stack PSRAM khi cấu hình cho phép, tránh phụ thuộc block SRAM nội liền 8 KiB trong lúc TV đang dùng mạng.
+
 Tên kênh là badge góc trên bên phải, nền bán trong suốt, rút gọn tên dài để
 tránh redraw chữ chạy. Cảnh báo đồng hồ/báo thức và QR có ưu tiên; màn đồng hồ
 bình thường không che TV. Dừng quay về mode hiện tại theo bộ điều phối UI.
@@ -106,8 +116,12 @@ không tự kế thừa font này. TV bị từ chối khi boot hoặc chuông b
 Mở TV dừng slideshow SD; mở ảnh dừng cả TV/tiếng. Nhạc/radio mới nhận quyền
 audio sẽ dừng riêng video TV để không hủy âm thanh vừa được yêu cầu.
 
-`starting` chưa xác nhận có hình/tiếng. `playing` cần frame hợp lệ và audio
-position đã tiến. `reconnecting` có backoff, tối đa 5 lần thất bại liên tiếp;
+`starting` chưa xác nhận có hình/tiếng. Nếu audio TV chưa khởi động trong 15
+giây, firmware dừng phiên và trả trạng thái lỗi thay vì giữ trang loading. TV
+chủ động dừng media SD/HTTP hiện tại và xóa playlist SD đang chờ; worker audio
+cũ được hủy bất đồng bộ, còn lệnh TV được thử lại mỗi nhịp main loop sau khi
+worker thoát. `playing` cần frame hợp lệ và audio position đã tiến.
+`reconnecting` có backoff, tối đa 5 lần thất bại liên tiếp;
 nguồn video không phục hồi sẽ dừng cả audio. Frame được xác thực baseline JPEG
 và kích thước tối đa 240×240 **trước** khi gọi decoder, payload tối đa 128 KiB.
 

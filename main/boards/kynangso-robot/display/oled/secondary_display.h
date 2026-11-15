@@ -28,11 +28,15 @@ public:
     SecondaryDisplay& operator=(const SecondaryDisplay&) = delete;
 
     void Initialize();
+    void SetEnabled(bool enabled);
+    bool IsEnabled() const { return enabled_.load(); }
+    esp_err_t LastError() const { return last_error_.load(); }
     void Reinitialize();
     void ApplySettings();
     bool IsAvailable() const { return available_.load(); }
     void ShowIp(const std::string& address);
     void ShowText(const std::string& text, int duration_ms);
+    void SetBluetoothStatus(const std::string& text, int phase);
     void OnBootEvent(const BootEvent& event);
 
 private:
@@ -54,6 +58,8 @@ private:
     kynangso::OledDisplaySettings second_display_settings_;
     int32_t second_display_contrast_ = 255;
     bool second_display_invert_ = false;
+    std::string bluetooth_text_;
+    int bluetooth_phase_ = 0;
     bool boot_display_active_ = true;
     bool oled_ip_display_active_ = false;
     int64_t oled_ip_display_until_us_ = 0;
@@ -64,6 +70,9 @@ private:
     BootStage boot_stage_ = BootStage::SystemInitializing;
     char boot_stage_detail_[kBootEventDetailSize] = {};
 
+    std::atomic<bool> enabled_{false};
+    std::atomic<esp_err_t> last_error_{ESP_OK};
+    void StartRenderTask();
     void DestroySecondDisplayPanel();
     void SetActiveOledConfig(const kynangso::OledConfig& config);
     esp_err_t ApplyOledPanelSettings();

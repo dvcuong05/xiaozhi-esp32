@@ -14,6 +14,12 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 
 ## Planned features
 
+- [x] Màn hình chính động (Dynamic Main Screen) có thẻ toàn màn hình cho khuôn mặt, lịch kế
+      tiếp và thời tiết; dashboard cấu hình thẻ, thứ tự và chu kỳ. Radio/nhạc/TV/đồng hồ, hội
+      thoại cùng overlay ưu tiên tạm dừng tính năng. Workflow: features/info-shuttle/README.md.
+- [ ] Nối weather provider/MCP backend để gửi dữ liệu tới thẻ thời tiết qua
+      WSS Device Bridge `display.weather`.
+
 - [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo tên
       file trong `/robot/music` vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
       tìm kiếm và phát playlist vẫn tra catalog RAM, có thao tác khôi phục metadata.
@@ -25,7 +31,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       hai OTA slot 3,9375 MiB và assets 8 MiB; hướng dẫn chuyển lần đầu qua
       USB/serial, backup flash và dọn phần mở rộng NVS. Cần xác nhận giữ cấu hình,
       boot/assets và OTA/rollback trên robot thật.
-- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module đã nhận thẻ khi VCC được chuyển sang 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
+- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module microSD đời trước đã nhận thẻ ở VCC 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
+- [x] Chuyển sang module microSD mini: SPI2 CS48/SCK39/MOSI38/MISO40, VCC 3,3 V; GPIO48 thay LED tích hợp và không dùng các nút âm lượng vật lý. Không dùng GPIO35–37 vì cấu hình bật Octal PSRAM, các chân này dành cho bộ nhớ. Source/docs đã cập nhật; cần kiểm tra mount với module mới trên robot thật.
 - [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
 - [x] MicroSD đợt 3: `sd_status`, `sd_search`, `sd_play`, `sd_album_play`, `sd_artist_play`, `sd_stop` qua MCP/device WSS; thư viện phẳng `/robot/music`, upload file luôn vào thư mục đang mở; nhạc phải tải trực tiếp vào folder này mới lập chỉ mục, ID3v2.3/2.4 ưu tiên và fallback tên file `Ca sĩ - Tên bài - Album - Thể loại`. Catalog tối đa 512 bài trên PSRAM dựng sau mount/upload/xóa; hoãn index khi phát SD. Tìm tên bài/ca sĩ/album/thể loại có dấu hoặc không dấu, xếp hạng ổn định; web có bộ lọc, trạng thái index và nút cập nhật. Không ghi catalog lên thẻ. Cần kiểm tra trên robot thật.
 - [x] Duyệt thư viện nhạc lớn trên web: API tìm kiếm trả tổng số kết quả và phân trang offset/limit; giao diện chọn 25/50 bài mỗi trang, sắp xếp theo tên bài/ca sĩ/album/thể loại/thời lượng và lọc bài thiếu metadata. Chỉ đọc catalog RAM, không quét thẻ mỗi lần đổi trang.
@@ -69,7 +76,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       [Workflow](features/live-tv/README.md) và [kế hoạch/kết quả kiểm chứng](features/live-tv/PLAN.md).
       Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
       có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
-- [ ] Tạm hoãn pause bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
+- [ ] Tạm hoãn (pause) bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
+- [ ] Tính năng MCP wheel the names random: input by voice, run wheel, firework who win and read the result...
 - [x] Cấp token WSS theo từng robot qua enrollment/USB UART, cấu hình NVS và registry nhiều thiết bị trên MCP server. Đã deploy, nạp/provision/revoke/reboot một robot và kiểm tra cùng client giả lập; hai robot vật lý còn chờ; [kế hoạch](features/device-bridge/PLAN.md).
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
@@ -83,7 +91,10 @@ ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi m�
       nguồn cấp và định dạng thẻ. Xác nhận mạch TTP223, VL53L1X, bộ phát/thu IR,
       loại đèn Edison và driver. Với thông tin 3 V/120 mA, chưa được giả định
       LED là addressable hay 120 mA cho từng đèn/cả cụm; không cấp dòng tải từ
-      GPIO ESP32.
+      GPIO ESP32. Sơ đồ ngày 15/11/2026 đã dành GPIO19 cho nhánh LED Edison;
+      chân này trùng native USB D−, chưa có driver điều khiển LED trong firmware.
+      OLED mặc định chuyển sang SDA1/SCL2; nguồn D1 đổi sang 3,3 V.
+      Kiểm tra driver LED và nguồn dưới tải vẫn chưa được nghiệm thu.
 - [x] **P1 - Nền tảng lưu trữ microSD:** `SdStorage` sở hữu SPI2/FatFs,
       mount/unmount, trạng thái lỗi, truy cập file giới hạn và đồng bộ vòng đời.
       Async HTTP worker phục vụ quản lý file, không chặn audio/main loop.

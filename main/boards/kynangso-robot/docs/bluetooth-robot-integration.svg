@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<defs>
+ <marker id="blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#2186d1"/></marker>
+ <marker id="green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#168a64"/></marker>
+ <marker id="amber" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#d58b13"/></marker>
+ <style>
+ .bg{fill:#f3f7fb}.title{font:700 34px Arial;fill:#17324d}.sub{font:18px Arial;fill:#526a80}.board{fill:#fff;stroke:#47708f;stroke-width:3;rx:20}.head{font:700 23px Arial;fill:#17324d}.txt{font:18px Arial;fill:#223d55}.small{font:15px Arial;fill:#526a80}.pin{font:700 17px Arial;fill:#17324d}.uart{fill:none;stroke:#2186d1;stroke-width:5;marker-end:url(#blue)}.i2s{fill:none;stroke:#168a64;stroke-width:5;marker-end:url(#green)}.pwr{fill:none;stroke:#d58b13;stroke-width:5;marker-end:url(#amber)}.gnd{fill:none;stroke:#526a80;stroke-width:4;stroke-dasharray:10 8}.note{fill:#fff7df;stroke:#d58b13;stroke-width:2;rx:12}
+ </style>
+</defs>
+<rect class="bg" width="1600" height="1000"/>
+<text class="title" x="55" y="66">Sơ đồ đấu nối mở rộng Bluetooth cho robot</text>
+<text class="sub" x="55" y="102">ESP32-S3 điều khiển + ESP32-WROOM-32 D1 Mini phát A2DP</text>
+
+<rect class="board" x="55" y="155" width="540" height="615"/>
+<text class="head" x="90" y="205">Robot ESP32-S3</text>
+<text class="small" x="90" y="237">Wi-Fi, webserver, MCP và I2S master hiện có</text>
+<rect x="90" y="270" width="465" height="220" rx="14" fill="#eaf2f8" stroke="#9cb8ce" stroke-width="2"/>
+<text class="head" x="125" y="315">UART2 - điều khiển</text>
+<text class="pin" x="125" y="365">GPIO10 TX</text><text class="small" x="330" y="365">lệnh tới D1</text>
+<text class="pin" x="125" y="410">GPIO21 RX</text><text class="small" x="330" y="410">trạng thái và kết quả quét</text>
+<text class="pin" x="125" y="455">GND</text><text class="small" x="330" y="455">mass chung</text>
+<text class="head" x="125" y="525">Ngõ ra I2S (net hiện có)</text>
+<text class="pin" x="125" y="560">GPIO15 BCLK</text>
+<text class="pin" x="125" y="595">GPIO16 WS / LRCK</text>
+<text class="pin" x="125" y="630">GPIO7 DATA OUT</text>
+<rect x="90" y="665" width="465" height="70" rx="14" fill="#eef8f2" stroke="#8bc6a8" stroke-width="2"/>
+<text class="small" x="120" y="695">MAX98357A vẫn nối chung các net I2S</text>
+<text class="small" x="120" y="718">Không nối ngõ loa công suất vào D1 hoặc GPIO</text>
+
+<rect class="board" x="800" y="155" width="470" height="615"/>
+<text class="head" x="835" y="205">ESP32-WROOM-32 D1 Mini</text>
+<text class="small" x="835" y="237">Bluetooth Classic A2DP Source</text>
+<rect x="835" y="270" width="400" height="220" rx="14" fill="#eaf2f8" stroke="#9cb8ce" stroke-width="2"/>
+<text class="head" x="870" y="315">UART2 - điều khiển</text>
+<text class="pin" x="870" y="365">IO23 RX</text><text class="small" x="1065" y="365">từ S3 GPIO10 TX</text>
+<text class="pin" x="870" y="410">IO4 TX</text><text class="small" x="1065" y="410">tới S3 GPIO21 RX</text>
+<text class="pin" x="870" y="455">GND</text><text class="small" x="1065" y="455">mass chung</text>
+<rect x="835" y="520" width="400" height="195" rx="14" fill="#eef8f2" stroke="#8bc6a8" stroke-width="2"/>
+<text class="head" x="870" y="565">Đầu vào I2S - đã thêm firmware</text>
+<text class="pin" x="870" y="610">IO33 BCLK</text>
+<text class="pin" x="870" y="650">IO34 WS</text>
+<text class="pin" x="870" y="690">IO35 DATA IN</text>
+
+<rect class="board" x="1350" y="270" width="205" height="190"/>
+<text class="head" x="1380" y="320">Bluetooth</text><text class="txt" x="1380" y="360">loa</text><text class="small" x="1380" y="398">A2DP Sink</text>
+<path d="M1270 365H1340" stroke="#7552bd" stroke-width="5" stroke-dasharray="9 8"/>
+<text x="1282" y="345" font="15px Arial" fill="#7552bd">âm thanh không dây</text>
+<rect class="board" x="1350" y="520" width="205" height="170"/>
+<text class="head" x="1380" y="565">Nguồn 3,3 V</text><text class="small" x="1380" y="600">nguồn ổn định</text><text class="small" x="1380" y="630">tới chân 3V3 D1</text><text class="small" x="1380" y="660">GND chung với S3</text>
+<path class="pwr" d="M1340 600H1275"/>
+
+<path class="uart" d="M595 365H785"/><text x="625" y="352" font="14px Arial" fill="#2186d1">GPIO10 TX -&gt; IO23 RX</text>
+<path class="uart" d="M800 410H610"/><text x="630" y="438" font="14px Arial" fill="#2186d1">GPIO21 RX &lt;- IO4 TX</text>
+<path class="gnd" d="M595 455H800"/><text class="small" x="665" y="482">mass UART</text>
+
+<path class="i2s" d="M595 560H650V610H825"/><text x="625" y="550" font="14px Arial" fill="#168a64">BCLK</text>
+<path class="i2s" d="M595 595H690V650H825"/><text x="660" y="585" font="14px Arial" fill="#168a64">WS</text>
+<path class="i2s" d="M595 630H730V690H825"/><text x="700" y="620" font="14px Arial" fill="#168a64">DATA</text>
+<path class="i2s" d="M555 560H585"/><path class="i2s" d="M555 595H585"/><path class="i2s" d="M555 630H585"/>
+
+<rect class="note" x="55" y="790" width="1490" height="180"/>
+<text class="head" x="85" y="825">Ghi chú cấu hình, nguồn và xác minh</text>
+<text class="txt" x="85" y="858">Bluetooth, OLED phụ và TTP223 có sẵn trong firmware; bật/tắt qua web và reboot. Chỉ chiếm GPIO khi bật; UART đề xuất GPIO10/21.</text>
+<text class="txt" x="85" y="890">Nguồn D1: 3,3 V theo sơ đồ 15/11/2026; dùng chân 3V3, GND chung. Không cấp đồng thời USB và nguồn robot vào cùng rail.</text>
+<text class="txt" x="85" y="922">D1 pin map IO4/IO23 và IO33/34/35 đã build; cần nạp bản mới vào D1 trước khi đấu dây.</text>
+<text class="txt" x="85" y="954">D1 đã có I2S RX sang A2DP; đường UART/I2S và âm thanh thực tế chưa kiểm chứng trên phần cứng.</text>
+</svg>

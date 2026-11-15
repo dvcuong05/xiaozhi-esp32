@@ -15,6 +15,12 @@ File này giữ phạm vi firmware và bằng chứng để tiếp tục sau khi
 - [x] Tên kênh góc trên phải TFT, rút gọn tên dài; TV không chiếm quyền báo thức.
 - [x] Session ID, status thật, retry có giới hạn, dọn player và khôi phục mặt;
   double-tap dừng TV, không tạo pipeline audio riêng.
+- [x] TV giành audio từ nhạc SD/HTTP đang phát, hủy playlist SD cũ và thử lại
+  radio sau khi worker bị hủy thoát; chờ audio tối đa 15 giây rồi báo lỗi.
+- [x] Khi nhạc SD thay TV, báo dừng worker video, gỡ lớp TV trên TFT và để bộ điều phối
+  chờ audio radio thoát trước khi phát track SD.
+- [x] Worker phát file SD dùng stack PSRAM khi được hỗ trợ; nếu task vẫn không tạo được,
+  log ghi SRAM nội còn trống, block lớn nhất và PSRAM.
 - [x] README kỹ thuật có sơ đồ đăng ký MCP/query/start/HTTP streaming/stop,
   API, cấu hình, giới hạn và cách kiểm chứng; cập nhật FEATURE_ROADMAP.
 - [x] Build batch ESP-IDF 6.1, flash đúng artifact qua UART, kiểm chứng robot
@@ -40,8 +46,9 @@ Wi-Fi/LwIP và stack TV trong PSRAM. Không đổi codec trong lượt chính th
 
 ## Kiểm chứng phần cứng còn mở
 
+- [ ] Trên robot, kiểm tra cả hai chiều SD→TV và TV→SD; xác nhận audio cũ dừng, TFT chuyển giao diện và track SD phát. Thử thêm touch, báo thức/QR/ảnh khi TV đang phát.
+
 - [ ] Soak test liên tục 30–60 phút trên bản cuối; đo RAM/FPS/WSS và lệch A/V.
-- [ ] Thao tác touch và chuyển qua báo thức/QR/ảnh/nhạc trong lúc phát TV.
 
 Các mục mở là kiểm chứng vật lý mở rộng, không phải chưa viết implementation.
 Khi đổi phiên: đọc README workflow và PLAN này trước; cập nhật bằng chứng tại

@@ -10,6 +10,8 @@ cd /d "%~dp0"
 :: 2. Nap moi truong ESP-IDF (dung lenh call de khong bi thoat script)
 :: Kiem tra dung thu muc version ESP-IDF thuc te trong C:\Espressif\frameworks\
 set "IDF_EXPORT=C:\esp\v6.1\esp-idf\export.bat"
+set "IDF_TOOLS_PATH=C:\Espressif"
+set "PYTHONUTF8=1"
 
 :: Firmware chung: provision WSS qua USB sau khi nap. Chi dung legacy token khi
 :: nguoi goi chu dong dat XIAOZHI_MCP_DEVICE_WSS_TOKEN hoac *_TOKEN_FILE.

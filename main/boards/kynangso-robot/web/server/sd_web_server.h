@@ -24,11 +24,16 @@ public:
     void StopSlideshow();
 
 private:
+    struct Job;
     SdStorage& storage_;
     std::mutex job_mutex_;
     std::atomic<bool> closing_{false};
     bool busy_ = false;
     SemaphoreHandle_t idle_ = nullptr;
+    SemaphoreHandle_t worker_stopped_ = nullptr;
+    TaskHandle_t worker_ = nullptr;
+    bool worker_external_stack_ = false;
+    Job* pending_job_ = nullptr;
     std::mutex slideshow_mutex_;
     SemaphoreHandle_t slideshow_done_ = nullptr;
     TaskHandle_t slideshow_task_ = nullptr;
@@ -40,7 +45,6 @@ private:
     bool slideshow_random_order_ = true;
     SdStorage::AlbumPhotoSequence slideshow_sequence_;
     struct Job {
-        SdWebServer* owner;
         httpd_req_t* request;
     };
     static esp_err_t Page(httpd_req_t* req);

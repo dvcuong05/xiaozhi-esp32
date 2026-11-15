@@ -226,8 +226,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
             engine->ProcessingTask();
             vTaskDelete(nullptr);
         },
-        "audio_afe", kProcessingTaskStackSize, this, 3, processing_task_stack_,
-        processing_task_buffer_);
+        "audio_afe", kProcessingTaskStackSize, this, CONFIG_XIAOZHI_AFE_FETCH_TASK_PRIORITY,
+        processing_task_stack_, processing_task_buffer_);
     if (processing_task_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE processing task, internal free=%u largest=%u",
                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL),

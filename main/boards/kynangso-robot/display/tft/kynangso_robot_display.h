@@ -2,9 +2,11 @@
 #define KYNANGSO_ROBOT_DISPLAY_H_
 
 #include <functional>
+#include "features/bluetooth/bluetooth_service.h"
 #include "core/robot_settings.h"
 #include "display/lcd_display.h"
 #include "display/tft/robot_eyes.h"
+#include "display/tft/robot_info_shuttle_view.h"
 #include "display/tft/robot_screen_layout.h"
 #include "display/tft/robot_spectrum.h"
 #include "display/tft/robot_time_view.h"
@@ -24,6 +26,9 @@ public:
     ~KyNangSoRobotDisplay() override;
 
     void SetupUI() override;
+    void ShowBluetooth(const kynangso::BluetoothStatus& status, size_t selected, const std::string& message);
+    void HideBluetooth();
+    bool IsBluetoothVisible();
     void SetTimeView(const kynangso::TimeView& view);
     void ShowOtaProgress(const char* status, int progress);
     void SetStatus(const char* status) override;
@@ -36,6 +41,10 @@ public:
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void SetEmotion(const char* emotion) override;
     void ConfigureFace(const kynangso::FaceConfig& config);
+    void ConfigureInfoShuttle(const kynangso::InfoShuttleConfig& config);
+    void ShowNextInfoShuttleCard();
+    void SetUpcomingScheduleProvider(std::function<std::string()> provider);
+    void SetInfoShuttleWeather(const std::string& summary, int icon_kind = -1);
     void PreviewFaceEmotion(const char* emotion, int duration_ms = 2000);
     void SetBehaviorCallbacks(std::function<void(bool)> speaking,
                               std::function<void(const char*)> emotion);
@@ -67,13 +76,16 @@ private:
     enum class BootState { Pending, Active, Finished };
     enum class UiMode {
         NormalFace,
+        Bluetooth,
         BootConsole,
         PaymentQr,
         AudioVisualizer,
         SdImage,
         LiveTv,
-        Time
+        Time,
+        InfoShuttle
     };
+    enum class InfoShuttleCard { None = -1, Face = 0, Schedule = 1, Weather = 2 };
     std::unique_ptr<kynangso::RobotTimeView> time_view_;
     bool time_visible_ = false;
     bool time_alert_ = false;
@@ -82,6 +94,15 @@ private:
     std::unique_ptr<RobotEyesView> robot_eyes_;
     std::unique_ptr<kynangso::RobotSpectrum> spectrum_;
     kynangso::RobotMusicSession music_session_;
+    bool bluetooth_touch_enabled_ = false;
+    bool bluetooth_active_ = false;
+    lv_obj_t* bluetooth_overlay_ = nullptr;
+    lv_obj_t* bluetooth_status_ = nullptr;
+    lv_obj_t* bluetooth_rows_[3] = {};
+    lv_obj_t* bluetooth_names_[3] = {};
+    lv_obj_t* bluetooth_count_ = nullptr;
+    lv_obj_t* bluetooth_hint_ = nullptr;
+    lv_obj_t* bluetooth_spinner_ = nullptr;
     lv_obj_t* boot_console_ = nullptr;
     lv_obj_t* ota_overlay_ = nullptr;
     lv_obj_t* ota_progress_ = nullptr;
@@ -124,6 +145,17 @@ private:
     bool payment_qr_active_ = false;
     kynangso::FaceConfig face_config_;
     lv_timer_t* face_preview_timer_ = nullptr;
+    kynangso::InfoShuttleConfig info_shuttle_config_;
+    lv_timer_t* info_shuttle_timer_ = nullptr;
+    lv_timer_t* info_shuttle_notification_timer_ = nullptr;
+    std::unique_ptr<kynangso::RobotInfoShuttleView> info_shuttle_view_;
+    std::function<std::string()> upcoming_schedule_provider_;
+    std::string info_shuttle_weather_;
+    int info_shuttle_weather_icon_ = -1;
+    InfoShuttleCard info_shuttle_card_ = InfoShuttleCard::None;
+    bool info_shuttle_active_ = false;
+    bool info_shuttle_timer_paused_ = false;
+    bool conversation_active_ = false;
     std::function<void(bool)> speaking_callback_;
     std::function<void(const char*)> emotion_callback_;
     std::string boot_console_text_;
@@ -132,15 +164,21 @@ private:
     static void OnBootConsoleTimer(lv_timer_t* timer);
     static void OnPaymentQrTimer(lv_timer_t* timer);
     static void OnSdImageTimer(lv_timer_t* timer);
+    static void OnInfoShuttleTimer(lv_timer_t* timer);
+    static void OnInfoShuttleNotificationTimer(lv_timer_t* timer);
     static void DrawPaymentQr(lv_event_t* event);
     // Called with the display lock held (including LVGL timer callbacks).
     UiMode GetUiMode() const;
+    UiMode GetBaseUiMode() const;
+    bool CanPresentInfoShuttle(UiMode base_mode) const;
     void ApplyUiMode();
     void HidePaymentQr();
     void AppendBootConsoleLine(const char* text);
     void HideLegacyEmoji();
     void RenderBootConsole();
     void RenderMusicInfo();
+    void AdvanceInfoShuttle();
+    void RenderInfoShuttleCard();
 };
 
 #endif  // KYNANGSO_ROBOT_DISPLAY_H_

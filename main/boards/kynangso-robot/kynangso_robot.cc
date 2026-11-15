@@ -157,7 +157,7 @@ private:
     Button boot_button_;
     Button volume_up_button_;
     Button volume_down_button_;
-    Button touch_button_;
+    std::unique_ptr<Button> touch_button_;
     KyNangSoRobotDisplay* display_ = nullptr;
     RobotDrive* drive_ = nullptr;
     kynangso::RobotSettings settings_;
@@ -222,6 +222,7 @@ private:
 
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
+            if (controller_ && controller_->HandleBluetoothButton(0)) return;
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
@@ -231,6 +232,7 @@ private:
         });
 
         volume_up_button_.OnClick([this]() {
+            if (controller_ && controller_->HandleBluetoothButton(-1)) return;
             auto codec = GetAudioCodec();
             auto volume = codec->output_volume() + 10;
             if (volume > 100) {
@@ -241,11 +243,13 @@ private:
         });
 
         volume_up_button_.OnLongPress([this]() {
+            if (controller_ && controller_->HandleBluetoothButton(-1)) return;
             GetAudioCodec()->SetOutputVolume(100);
             GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
         });
 
         volume_down_button_.OnClick([this]() {
+            if (controller_ && controller_->HandleBluetoothButton(1)) return;
             auto codec = GetAudioCodec();
             auto volume = codec->output_volume() - 10;
             if (volume < 0) {
@@ -256,93 +260,105 @@ private:
         });
 
         volume_down_button_.OnLongPress([this]() {
+            if (controller_ && controller_->HandleBluetoothButton(2)) return;
             GetAudioCodec()->SetOutputVolume(0);
             GetDisplay()->ShowNotification(Lang::Strings::MUTED);
         });
 
-        // The button component waits for the double-click window before emitting
-        // a single click. Keep playlist/player changes on the application task.
-        touch_button_.OnClick([this]() {
-            Application::GetInstance().Schedule([this]() {
+        if (kynangso::RobotSettings().LoadExtensions().touch) {
+            touch_button_ = std::make_unique<Button>(
+                static_cast<gpio_num_t>(
+                    CONFIG_KYNANGSO_ROBOT_TOUCH_GPIO < 0 ? 20 : CONFIG_KYNANGSO_ROBOT_TOUCH_GPIO),
+                true, 1200, 350);
+            // The button component waits for the double-click window before emitting
+            // a single click. Keep playlist/player changes on the application task.
+            touch_button_->OnClick([this]() {
+                if (controller_ && controller_->HandleBluetoothButton(1))
+                    return;
+                Application::GetInstance().Schedule([this]() {
+                    if (controller_ && controller_->TimeService().DismissAlert())
+                        return;
+                    auto& app = Application::GetInstance();
+                    if (app.GetDeviceState() == kDeviceStateNotifying) {
+                        const auto playback = app.GetLocalMediaPlaybackStatus();
+                        if (!playback.active)
+                            return;
+                        std::shared_ptr<SdMusicPlaylistSession> playlist;
+                        {
+                            std::lock_guard<std::mutex> lock(sd_playlist_mutex_);
+                            playlist = sd_playlist_.lock();
+                        }
+                        if (playlist && playlist->SkipNext(playback.metadata.source_path))
+                            ESP_LOGI(TAG, "Touch skipped to the next SD playlist track");
+                        return;
+                    }
+                    if (app.GetDeviceState() != kDeviceStateIdle || controller_ == nullptr) {
+                        return;
+                    }
+                    static constexpr int kReactions[] = {1, 15, 4,
+                                                         8};  // happy, playful, surprised, laugh
+                    auto config = controller_->GetFaceConfig();
+                    size_t next_reaction = 0;
+                    for (size_t i = 0; i < sizeof(kReactions) / sizeof(kReactions[0]); ++i) {
+                        if (kReactions[i] == config.idle_emotion) {
+                            next_reaction = (i + 1) % (sizeof(kReactions) / sizeof(kReactions[0]));
+                            break;
+                        }
+                    }
+                    config.idle_emotion = kReactions[next_reaction];
+                    if (!controller_->ConfigureFace(config)) {
+                        ESP_LOGW(TAG, "Khong the luu bieu cam mac dinh tu cam bien cham");
+                        return;
+                    }
+                    app.PlaySound(Lang::Sounds::OGG_POPUP);
+                });
+            });
+
+            touch_button_->OnDoubleClick([this]() {
+                if (controller_ && controller_->HandleBluetoothButton(0)) return;
                 if (controller_ && controller_->TimeService().DismissAlert())
                     return;
                 auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateNotifying) {
-                    const auto playback = app.GetLocalMediaPlaybackStatus();
-                    if (!playback.active)
-                        return;
-                    std::shared_ptr<SdMusicPlaylistSession> playlist;
-                    {
-                        std::lock_guard<std::mutex> lock(sd_playlist_mutex_);
-                        playlist = sd_playlist_.lock();
-                    }
-                    if (playlist && playlist->SkipNext(playback.metadata.source_path))
-                        ESP_LOGI(TAG, "Touch skipped to the next SD playlist track");
-                    return;
-                }
-                if (app.GetDeviceState() != kDeviceStateIdle || controller_ == nullptr) {
-                    return;
-                }
-                static constexpr int kReactions[] = {1, 15, 4,
-                                                     8};  // happy, playful, surprised, laugh
-                auto config = controller_->GetFaceConfig();
-                size_t next_reaction = 0;
-                for (size_t i = 0; i < sizeof(kReactions) / sizeof(kReactions[0]); ++i) {
-                    if (kReactions[i] == config.idle_emotion) {
-                        next_reaction = (i + 1) % (sizeof(kReactions) / sizeof(kReactions[0]));
-                        break;
-                    }
-                }
-                config.idle_emotion = kReactions[next_reaction];
-                if (!controller_->ConfigureFace(config)) {
-                    ESP_LOGW(TAG, "Khong the luu bieu cam mac dinh tu cam bien cham");
-                    return;
-                }
-                app.PlaySound(Lang::Sounds::OGG_POPUP);
-            });
-        });
-
-        touch_button_.OnDoubleClick([this]() {
-            if (controller_ && controller_->TimeService().DismissAlert())
-                return;
-            auto& app = Application::GetInstance();
-            const auto state = app.GetDeviceState();
-            if (live_tv_ && live_tv_->IsActive()) {
-                live_tv_->Stop();
-                return;
-            }
-            if (state == kDeviceStateRadio) {
-                ClearSdPlaylist();
-                app.RequestStopRadio();
-                return;
-            }
-            if (state == kDeviceStateNotifying) {
-                // Stops online or local media only; RequestStopMedia leaves
-                // unrelated notification sounds alone.
-                ClearSdPlaylist();
-                app.RequestStopMedia();
-                return;
-            }
-            app.Schedule([]() {
-                auto& app = Application::GetInstance();
                 const auto state = app.GetDeviceState();
-                if (state == kDeviceStateIdle) {
-                    app.ToggleChatState();
-                } else if (state == kDeviceStateListening) {
-                    app.StopListening();
-                } else if (state == kDeviceStateSpeaking) {
-                    app.StartListening();
+                if (live_tv_ && live_tv_->IsActive()) {
+                    live_tv_->Stop();
+                    return;
                 }
+                if (state == kDeviceStateRadio) {
+                    ClearSdPlaylist();
+                    app.RequestStopRadio();
+                    return;
+                }
+                if (state == kDeviceStateNotifying) {
+                    // Stops online or local media only; RequestStopMedia leaves
+                    // unrelated notification sounds alone.
+                    ClearSdPlaylist();
+                    app.RequestStopMedia();
+                    return;
+                }
+                app.Schedule([]() {
+                    auto& app = Application::GetInstance();
+                    const auto state = app.GetDeviceState();
+                    if (state == kDeviceStateIdle) {
+                        app.ToggleChatState();
+                    } else if (state == kDeviceStateListening) {
+                        app.StopListening();
+                    } else if (state == kDeviceStateSpeaking) {
+                        app.StartListening();
+                    }
+                });
             });
-        });
 
-        touch_button_.OnLongPress([this]() {
-            // Stop the wheels immediately, including an active routine or an
-            // emotion pulse. Do not route this safety action through the UI queue.
-            if (drive_ != nullptr) {
-                drive_->Stop();
-            }
-        });
+            touch_button_->OnLongPress([this]() {
+                // Stop the wheels immediately, including an active routine or an
+                // emotion pulse. Do not route this safety action through the UI queue.
+                if (drive_ != nullptr) {
+                    drive_->Stop();
+                }
+                if (controller_)
+                    controller_->HandleBluetoothButton(2);
+            });
+        }
     }
 
     void SetSdPlaylist(const std::shared_ptr<SdMusicPlaylistSession>& playlist) {
@@ -457,19 +473,32 @@ public:
                                 std::strncmp(type->valuestring, "sd.", 3) == 0;
         const bool tv_command = cJSON_IsString(type) && type->valuestring &&
                                 std::strncmp(type->valuestring, "tv.", 3) == 0;
+        const bool display_command = cJSON_IsString(type) && type->valuestring &&
+                                     std::strncmp(type->valuestring, "display.", 8) == 0;
         if (tv_command) {
             cJSON_Delete(root);
             return tv_controller_ &&
                    tv_controller_->HandleCommand(payload_json, result_json, error);
         }
-        if (!cJSON_IsObject(root) || (!sd_command && !tv_command)) {
+        if (!cJSON_IsObject(root) || (!sd_command && !tv_command && !display_command)) {
             cJSON_Delete(root);
             return reject("unsupported board command");
         }
         const std::string command(type->valuestring);
         cJSON* response = cJSON_CreateObject();
         bool accepted = false;
-        if (command == "sd.status") {
+        if (command == "display.weather") {
+            const cJSON* summary_json = cJSON_GetObjectItemCaseSensitive(root, "summary");
+            if (!cJSON_IsString(summary_json) || !summary_json->valuestring ||
+                std::strlen(summary_json->valuestring) > 192 || !controller_ ||
+                !controller_->SetInfoShuttleWeather(summary_json->valuestring)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("display.weather requires a summary of at most 192 bytes");
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            accepted = true;
+        } else if (command == "sd.status") {
             const auto status = sd_storage_.GetStatus();
             cJSON_AddStringToObject(response, "state", status.state.c_str());
             cJSON_AddStringToObject(response, "message", status.message.c_str());
@@ -766,8 +795,7 @@ public:
     KyNangSoRobot()
         : boot_button_(BOOT_BUTTON_GPIO),
           volume_up_button_(VOLUME_UP_BUTTON_GPIO),
-          volume_down_button_(VOLUME_DOWN_BUTTON_GPIO),
-          touch_button_(TOUCH_SENSOR_GPIO, true, 1200, 350) {
+          volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
         ESP_LOGI(TAG, "Ham tao KyNangSoRobot bat dau");
         kynangso::StartBridgeProvisioning();
         esp_timer_create_args_t ip_display_timer_args = {
@@ -817,7 +845,10 @@ public:
         // Create web server (start it when WiFi connects)
         ESP_LOGI(TAG, "Dang tao web server");
         web_server_ = new WebServer(*controller_, *tv_controller_);
-        tv_controller_->SetBeforePlay([this]() { web_server_->StopSdSlideshow(); });
+        tv_controller_->SetBeforePlay([this]() {
+            web_server_->StopSdSlideshow();
+            ClearSdPlaylist();
+        });
 #if CONFIG_KYNANGSO_MANAGED_OTA
         kynangso::StartRobotOta(
             [this]() {
@@ -875,6 +906,11 @@ public:
     virtual Display* GetDisplay() override { return display_; }
 
     virtual void OnApplicationReady() override { sd_storage_.Start(); }
+
+    void OnMediaPlaybackRequested() override {
+        if (live_tv_)
+            live_tv_->StopForMediaHandoff();
+    }
 
     void OnBootEvent(const BootEvent& event) override { secondary_display_.OnBootEvent(event); }
 

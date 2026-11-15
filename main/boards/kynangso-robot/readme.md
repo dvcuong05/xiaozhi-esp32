@@ -29,7 +29,9 @@ Khi thêm file C/C++, khai báo trong `board_sources.cmake`; CMake chỉ dùng m
 
 Workflow OTA, giới hạn tương thích và kiểm thử trên robot: [docs/features/firmware-ota/README.md](docs/features/firmware-ota/README.md).
 
-Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, OLED SSD1306 phụ hiển thị đồng hồ/chữ chạy/trạng thái, micro và loa I2S simplex, nút bấm, TTP223, microSD, LED và hai motor DC qua hai cầu H của L298N. Build chỉ chọn một board factory qua `DECLARE_BOARD(KyNangSoRobot)`.
+Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, micro và loa I2S simplex, nút bấm, microSD, LED và hai motor DC qua hai cầu H của L298N. OLED SSD1306 phụ, TTP223 và mạch Bluetooth D1 Mini là phần mở rộng tùy chọn, mặc định không khởi tạo hoặc chiếm GPIO. Build chỉ chọn một board factory qua `DECLARE_BOARD(KyNangSoRobot)`.
+
+MCP và web Bluetooth có bảng chọn loa trên TFT: touch chạm đơn chọn tiếp theo (quay vòng), chạm đôi kết nối/quét lại, giữ chạm đóng bảng và dừng motor; BOOT vẫn dùng được nếu có nút, âm lượng chỉnh trên dashboard; OLED phụ (nếu bật) hiển thị tiến trình tạm rồi trở lại nội dung trước. Xem [workflow hiển thị và chọn loa](docs/bluetooth-speaker-wiring.md#quan-sát-và-chọn-loa-trên-robot).
 
 ## Phần cứng
 
@@ -42,28 +44,34 @@ chuyển loa đang kết nối và phát âm thử trước khi đấu I2S. D1 M
 Bluetooth Classic A2DP riêng; firmware robot ESP32-S3 tiếp tục đảm nhiệm các
 module hiện tại. Xem sơ đồ dây và các giới hạn tích hợp trong
 [`docs/bluetooth-speaker-wiring.md`](docs/bluetooth-speaker-wiring.md).
-Đích tích hợp tiếp theo là gom điều khiển về webserver/MCP của robot: S3 gửi lệnh
-UART nội bộ tới D1, còn audio đi riêng qua I2S. Hiện firmware vẫn dùng trang/AP
-của D1 để bring-up; giao diện chung, MCP Bluetooth và UART chưa được triển khai.
+Điều khiển Bluetooth tập trung đã được triển khai trong source: webserver và MCP gọi cùng `BluetoothService` trên S3, giao tiếp D1 qua UART; D1 nhận audio I2S từ robot và phát qua A2DP. Build firmware S3 và D1 đã thành công; chưa nạp hoặc kiểm chứng đường UART/I2S trên dây thật. Xem [sơ đồ và trạng thái tích hợp Bluetooth](docs/bluetooth-speaker-wiring.md).
+
+Phần mở rộng OLED và touch mặc định tắt trong NVS `robot_ext`. Cấu hình build chính thức của board này biên dịch hỗ trợ D1 Bluetooth (`CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT=y`) để công tắc cấu hình trên web luôn khả dụng. Bluetooth vẫn tắt runtime theo mặc định NVS; khi tắt, S3 không cài UART2, không chiếm GPIO10/21, không tạo task nhận UART hay timer giao diện Bluetooth và không quảng bá các MCP Bluetooth. Để thử D1, bật Bluetooth trong dashboard rồi khởi động lại robot. Nếu build biến thể khác với Kconfig `n`, công tắc sẽ bị khóa và không có hoạt động nền Bluetooth. OLED áp dụng trực tiếp; touch áp dụng sau reboot. OLED dùng chân đã lưu qua web nếu có.
 
 | Chức năng | GPIO / cấu hình |
 | --- | --- |
 | Micro I2S WS/SCK/DIN | 4 / 5 / 6; INMP441 L/R nối GND, slot trái |
 | Loa I2S DOUT/BCLK/LRCK | 7 / 15 / 16 |
-| LED / BOOT / tăng âm lượng | 48 / 0 / 38; nút giảm âm lượng GPIO39 đã bỏ theo wiring mới |
-| microSD CS/SCK/MOSI/MISO | 42 / 41 / 40 / 39; SPI2 riêng, 10 MHz; VCC module 5 V / GND chung theo thử nghiệm phần cứng đã nhận thẻ |
+| LED / BOOT / nút âm lượng | Edison: GPIO19 theo sơ đồ, chưa có driver điều khiển firmware; LED tích hợp không dùng (GPIO48 làm SD CS) / 0 / không dùng nút âm lượng vật lý |
+| microSD CS/SCK/MOSI/MISO | 48 / 39 / 38 / 40; SPI2 riêng, 10 MHz; VCC 3,3 V, nối GND chung |
 | L298N IN1/IN2 (motor A) | 11 / 12 |
 | L298N IN3/IN4 (motor B) | 13 / 14 |
-| OLED SDA/SCL | 2 / 1; I2C_NUM_1, địa chỉ mặc định 0x3C |
-| OLED / TFT | SSD1306 128×32 / ST7789 240×240 |
+| OLED phụ SDA/SCL | Kconfig hoặc cấu hình web; mặc định SDA1 / SCL2, I2C_NUM_1, địa chỉ mặc định 0x3C |
+| Nguồn Bluetooth D1 Mini | 3,3 V theo sơ đồ mới, GND chung; xem ghi chú nguồn trong tài liệu Bluetooth |
+| OLED phụ / TFT | SSD1306 128×32 (tùy chọn, mặc định tắt) / ST7789 240×240 |
 | TFT CS/DC/RST/MOSI/SCLK/BL | 46 / 3 / 8 / 18 / 17 / 9 |
-| TTP223 I/O / VCC / GND | GPIO20 / 3,3 V / GND; ngõ ra mức cao khi chạm, mức thấp khi thả |
+| TTP223 I/O / VCC / GND | GPIO tùy chọn qua Kconfig (đề xuất GPIO20) / 3,3 V / GND; chỉ khởi tạo khi bật tính năng |
 
-Xem [`docs/circuit_diagram.png`](docs/circuit_diagram.png) hoặc tại https://app.cirkitdesigner.com/project/68109f8c-2d1c-428a-bdca-f183fb424fa7 Firmware giả định motor A ở bên trái, motor B ở bên phải; sơ đồ mạch chỉ cho biết cặp dây, không xác nhận vị trí thực tế trên thân robot. Motor B đảo chiều theo mặc định để hai bánh cùng tiến khi bấm Forward. Nếu lắp motor trái/phải khác giả định, dùng hai ô Reverse trên web để hiệu chỉnh. Không đổi GPIO của board hiện có chỉ để hỗ trợ phần cứng khác; board identity ảnh hưởng OTA.
+> Module microSD mini mới nối CS48, MOSI38, CLK39, MISO40, VCC3,3 V và GND chung. GPIO48 được dành cho SD CS nên LED tích hợp không dùng; firmware cũng không dùng các nút âm lượng vật lý, có thể chỉnh âm lượng qua dashboard. Không dùng GPIO35–37 cho SD vì cấu hình hiện tại bật Octal PSRAM và các chân này dành cho bộ nhớ. Module microSD đời trước dùng map MISO39 và từng được thử với VCC5 V; không áp dụng pin map hoặc mức nguồn của module cũ cho module mini mới.
 
-TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Khi phát danh sách album/ca sĩ từ SD, chạm đơn chuyển ngay sang bài kế trong cùng danh sách; chạm đơn khi phát track riêng, nhạc online hoặc radio không đổi bài. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Khi đang phát nhạc online/SD hoặc radio, chạm đôi dừng player tương ứng và đưa robot về `idle`. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot khởi động, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
+Sơ đồ đấu dây hiện tại: [`PNG`](docs/circuit_diagram.png), [`SVG`](docs/circuit_diagram.svg), cập nhật ngày 15/11/2026 (OLED SDA1/SCL2, nguồn D1 3,3 V, LED Edison GPIO19). Bản trực tuyến tham khảo tại https://app.cirkitdesigner.com/project/68109f8c-2d1c-428a-bdca-f183fb424fa7. Sơ đồ trong repo là tham chiếu đấu dây hiện tại và có minh họa OLED SSD1306; OLED là ngoại vi tùy chọn, firmware không khởi tạo hay chiếm GPIO khi chưa bật và gán chân. Firmware giả định motor A ở bên trái, motor B ở bên phải; sơ đồ mạch chỉ cho biết cặp dây, không xác nhận vị trí thực tế trên thân robot. Motor B đảo chiều theo mặc định để hai bánh cùng tiến khi bấm Forward. Nếu lắp motor trái/phải khác giả định, dùng hai ô Reverse trên web để hiệu chỉnh. Không đổi GPIO của board hiện có chỉ để hỗ trợ phần cứng khác; board identity ảnh hưởng OTA.
 
-GPIO20 đồng thời là USB D+ của ESP32-S3. Biến thể này tắt USB Serial/JTAG và console USB phụ để dùng GPIO20 cho TTP223; tiếp tục nạp firmware/xem log qua cổng USB–UART. Không nối cổng USB native với máy tính trong lúc dùng cảm biến. Nếu cần khôi phục nạp qua USB native, tháo dây I/O của TTP223 khỏi GPIO20, giữ BOOT/GPIO0 khi reset rồi nạp bản firmware khác.
+Phần hướng dẫn chạm dưới đây chỉ áp dụng khi đã bật TTP223 và gán GPIO trong Kconfig.
+TTP223 dùng ngõ ra trực tiếp (chạm thì LED sáng, thả thì tắt). Khi bảng Bluetooth đang hiển thị, chạm đơn chọn loa tiếp theo theo vòng, chạm đôi kết nối loa đang chọn hoặc quét lại khi danh sách trống; giữ chạm đóng bảng đồng thời dừng motor. Các thao tác bên dưới áp dụng ngoài bảng Bluetooth. Chạm đơn khi robot rảnh lần lượt chọn biểu cảm vui, tinh nghịch, ngạc nhiên và cười kèm âm báo ngắn; biểu cảm được lưu làm gương mặt idle trong NVS nên không tự trở về mặt cũ sau vài giây và vẫn giữ sau khi khởi động lại. Không chạy bánh xe. Khi phát danh sách album/ca sĩ từ SD, chạm đơn chuyển ngay sang bài kế trong cùng danh sách; chạm đơn khi phát track riêng, nhạc online hoặc radio không đổi bài. Chạm đôi khi rảnh bắt đầu hội thoại như nút BOOT; chạm đôi lần nữa khi đang nghe sẽ gửi lệnh dừng nghe và kết thúc phiên về trạng thái chờ. Chạm đôi khi robot đang nói sẽ ngắt lời và chuyển sang nghe thủ công. Khi đang phát nhạc online/SD hoặc radio, chạm đôi dừng player tương ứng và đưa robot về `idle`. Chạm đôi ở các trạng thái khác không làm gì. Nhấn giữ 1,2 giây dừng motor ngay, kể cả routine hoặc nhịp chuyển động cảm xúc; không dừng nhạc hay đổi bài. Thư viện nút bấm lọc nhiễu và chờ 350 ms để phân biệt chạm đơn/chạm đôi. Khi robot khởi động, chạm đơn/đôi không điều khiển player hay thay đổi màn hình. Việc dừng motor vẫn có hiệu lực ở mọi trạng thái.
+
+GPIO19 là USB D−, được dành cho nhánh LED Edison theo sơ đồ mới; GPIO20 là USB D+ của ESP32-S3. Touch mặc định tắt trong NVS, nên không chiếm GPIO20. Biến thể KyNangSo hiện tắt USB Serial/JTAG và console USB phụ trong `config.json`, dùng USB-UART; thiết lập console này độc lập với touch. Nếu chuyển biến thể sang native USB, phải giải phóng cả GPIO19 khỏi nhánh LED và GPIO20 khỏi TTP223.
+
+OLED dùng I²C 100 kHz và kiểm tra ACK tại địa chỉ đã cấu hình trước khi tạo driver SSD1306. Nếu probe timeout, thử phục hồi bus đúng một lần rồi probe lại (mỗi probe tối đa 40 ms); log kèm mức SDA/SCL để phân biệt bus bị giữ. `GET /api/oled_config` trả thêm `enabled` (đang áp dụng), `available` (khởi tạo thành công), `last_error` (lỗi gần nhất). Công tắc OLED trong phần mở rộng áp dụng ngay qua application task; khi tắt sẽ giải phóng panel/bus và cho task hiển thị ngủ. Nếu màn hình không trả lời, không tạo task render mới hoặc tự thử liên tục; sửa nguồn/dây/địa chỉ rồi bấm **Khởi tạo lại**. Thông báo “đã lưu”/“đã yêu cầu” chỉ xác nhận tiếp nhận lệnh, trạng thái kết nối mới xác nhận driver đã khởi tạo. Lỗi `ESP_ERR_TIMEOUT`/I²C transaction timeout cần kiểm tra rail nguồn, GND, SDA/SCL và pull-up; địa chỉ cấu hình phải là địa chỉ 7-bit (thường `3C` hoặc `3D`). Không tự đổi chân hay quét GPIO khác khi lỗi. Sau khi nạp bản mới, NVS vẫn giữ chân OLED đã lưu: vào **Màn hình → Thông số phần cứng OLED → Dùng chân theo sơ đồ → Lưu cài đặt** để chuyển SDA1/SCL2, rồi kiểm tra `available=true`. Mặc định Kconfig/board và form web đều là SDA1/SCL2; không tự ghi đè cấu hình dây tùy chỉnh. API hiện có nhận `POST /api/oled_config` với `sda:1`, `scl:2` cùng các trường cấu hình OLED còn lại.
 
 ## Điều khiển và web API
 
@@ -76,7 +84,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `GET/POST /api/config`: cấu hình `steps`, `delay_ms`, `left_inverted`, `right_inverted`; lưu NVS namespace `motor_config`. Các client cũ không gửi hai cờ đảo chiều sẽ giữ giá trị đã lưu.
 - `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height, `rotation` (0 hoặc 180 độ), `mode` (`0=clock`, `1=marquee`, `2=status`, `3=off`), `text`, `speed`, `font_size`, `contrast` và `invert`; lưu NVS và khởi tạo lại OLED sau khi lưu. `POST /api/oled_message` đổi sang mode chữ chạy và cập nhật nội dung mà không reset I2C; `POST /api/oled_clear` tắt nội dung; `POST /api/oled_test` khởi tạo lại OLED.
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
-- `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10 thay cho nút giảm âm lượng GPIO39.
+- `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10; nút âm lượng vật lý không dùng, GPIO38 dành cho SD MOSI.
 - `GET /storage`: trang quản lý microSD; có liên kết từ dashboard chính. Dùng thẻ FAT32 để bring-up. Không có thẻ hoặc lỗi nguồn/dây sẽ báo lỗi trong trang này và log `RobotSD`, không làm firmware dừng boot. Firmware không tự format hay tự lặp mount liên tục.
 - Ảnh dùng root cố định `/robot/images/`; tạo album bằng thư mục con, ví dụ `/robot/images/Gia-dinh/` hoặc `/robot/images/Du-lich/`. Khi tải ảnh qua trang `/storage`, trình duyệt nhận ảnh đầu vào tối đa 5 MiB, áp dụng chiều EXIF, thu vừa cạnh dài 480 px và nén thành JPEG tối đa 512 KiB trước khi upload; ảnh trong suốt được ghép nền trắng. Tên file đầu ra đổi sang `.jpg`; file trùng tên sẽ bị từ chối. Chuyển đổi chạy trên máy mở trình duyệt, không dùng RAM robot. Chép file trực tiếp vào thẻ sẽ bỏ qua bước này. Trong `/storage`, file `.jpg`/`.jpeg` có nút `Xem TFT`; thư mục con trực tiếp của `/robot/images/` có nút `Trình chiếu album` chọn thứ tự tuần tự (theo tên đường dẫn, không lặp) hoặc ngẫu nhiên (xáo trộn, không lặp), đặt thời gian 5–60 giây mỗi ảnh (mặc định 15 giây), xem hết ảnh đã index rồi tự về mặt robot và nút `Dừng trình chiếu album`. Qua chat, MCP `sd_photo_search` tìm theo tên file/album, `sd_photo_show` hiện ảnh cụ thể tối đa 120 giây, `sd_album_random` chiếu ngẫu nhiên tối đa 50 ảnh và `sd_album_stop` dừng/đóng ảnh. Index đường dẫn gọn được dựng lười khi tìm lần đầu, cấp phát khoảng 52 KiB trên PSRAM cho 256 ảnh và tự làm mới sau upload/xóa/tạo thư mục hoặc mount lại; không cache bitmap, không ghi catalog lên thẻ. Nếu vượt giới hạn, kết quả báo `truncated`. JPEG lưu trên thẻ giới hạn 512 KiB và 512 × 512 pixel. Màn hình ảnh được ưu tiên sau boot và audio visualizer, còn QR vẫn ở trên cùng.
 - `GET /api/storage?op=status`: trạng thái `mounting/mounted/unmounted/error`, tổng dung lượng, chỗ trống đã đo và upload đang dở. `space_valid=false` sau thao tác ghi/xóa; bấm **Cập nhật dung lượng** để đo lại ở worker.
@@ -88,7 +96,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file MP3 (`.mp3`) và Ogg/Opus (`.ogg`, `.opus`) trực tiếp từ microSD. `/storage` hiện nút Phát cho ba đuôi này; `POST /api/storage?op=stop` dừng playback. `SdAudioInput` chỉ đọc file có giới hạn, còn `NotifyPlayer` và `AudioStreamDecoder` dùng chung cho SD/HTTP. Decoder được chọn một lần từ nội dung đầu stream, nên đổi tên file không chuyển đổi định dạng. MP3 dùng parser/decoder streaming của Espressif, trộn stereo về mono và resample theo output của board; PCM đi qua cùng hàng đợi loa, visualizer và tiến độ subtitle. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để bảo vệ luồng đọc; sau khi dừng có thể thao tác lại. Không cần mạng để tải audio từ thẻ.
 - `GET /api/storage/download?path=<đường dẫn URL-encoded>`: tải file tối đa 1 GiB dạng attachment, đọc từng khối 4096 byte. Tác vụ file HTTP chạy bằng async request ở worker riêng, tối đa một tác vụ tại một thời điểm; motor Stop và các API điều khiển vẫn được HTTP task phục vụ. Tài nguyên I/O thẻ được tuần tự hóa với mount/unmount.
 
-MicroSD hỗ trợ quản lý file, phát offline MP3/Ogg Opus và xem JPEG trên TFT. Chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho KyNangSo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack và nhật ký offline vẫn là backlog riêng; NVS không chuyển sang thẻ. Module hiện hoạt động với VCC 5 V theo thử nghiệm của chủ robot; chỉ cấp nguồn theo thông số của đúng module đang dùng.
+MicroSD hỗ trợ quản lý file, phát offline MP3/Ogg Opus và xem JPEG trên TFT. Chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho KyNangSo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack và nhật ký offline vẫn là backlog riêng; NVS không chuyển sang thẻ. Module microSD đời trước đã được thử với VCC 5 V; module microSD mini mới dùng VCC 3,3 V theo thông tin phần cứng. Không suy rộng mức nguồn giữa hai module; xem ghi chú pin map ở trên.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
 - `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
 - `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
@@ -162,8 +170,11 @@ thực tế TFT, âm thanh, touch, reboot/NTP và chuyển pha trên robot.
 
 Dashboard có thẻ **Cảm xúc & màn hình đôi mắt**: bật/tắt đôi mắt, hoạt ảnh
 mắt/miệng, theo cảm xúc hội thoại và chọn biểu cảm khi nghỉ. Bấm **Lưu & áp dụng**
-để ghi cấu hình vào NVS `face_config/record` (bản ghi phiên bản 1). Khi khởi động,
-board đọc lại cấu hình này; mặc định chuyển động tự động tắt, cường độ 60%.
+để ghi cấu hình vào NVS `face_config/record` (bản ghi phiên bản 2). Khi nâng cấp,
+bản ghi phiên bản 1 được chuyển sang Neutral mới làm mặt idle mặc định một lần;
+ở sự kiện Boot Ready, mặt cũng được đặt lại về Neutral để không giữ biểu cảm boot.
+Các tùy chọn khác được giữ nguyên. Sau đó, lựa chọn lưu trong dashboard hoặc bằng
+touch tiếp tục được giữ sau reboot. Mặc định chuyển động tự động tắt, cường độ 60%.
 
 Khi bật chuyển động, trạng thái speaking của màn hình kích hoạt một chuỗi nhịp
 lắc lư. Emotion mới từ hội thoại chọn mẫu tương ứng; cùng cảm xúc không lặp
@@ -185,6 +196,10 @@ Không có cảm biến chống rơi; kê bánh xe khỏi mặt bàn khi thử. 
 là vector LVGL, được thiết kế lại theo 8 mẫu QGIF tại `docs/emoji sample`.
 Các mẫu này là ảnh đơn sắc 128×64 kèm thời lượng frame, không phải GIF tiêu chuẩn.
 Firmware tái hiện ngôn ngữ biểu cảm bằng nét vẽ thay vì nhúng toàn bộ animation.
+Riêng **bình thường (Neutral)** không vẽ miệng: đôi mắt liếc chéo lên,
+nhìn sâu xuống sàn rồi đảo sang bên với nhịp chuyển nhanh và dừng quan sát.
+Độ lệch nhẹ giữa hai mắt cùng chớp đơn/chớp kép tạo vẻ tò mò, tinh nghịch;
+chu kỳ khoảng 14 giây khi bật hoạt ảnh. Khẩu hình khi nói vẫn theo âm thanh.
 
 Bộ mặt có 16 lựa chọn: bình thường, vui, buồn, giận, ngạc nhiên, buồn ngủ,
 suy nghĩ, lắng nghe, cười lớn, yêu thích, chóng mặt, lơ đãng, tinh nghịch,
@@ -210,8 +225,19 @@ HTTP adapter: `GET/POST /api/face_config` với `eyes`, `animation`,
 display với `RobotDrive`; timer chỉ hoạt động trong chuỗi chuyển động,
 không tạo task mới và không chờ hoàn tất motor trong HTTP/audio/main loop.
 
-## Xem console log qua webserver
+## Màn hình chính động (Dynamic Main Screen)
 
+Dashboard có thẻ Màn hình chính động để bật luân phiên, chọn thẻ khuôn mặt/lịch tiếp theo/thời
+tiết, chọn thứ tự ngẫu nhiên hoặc tuần tự và đặt chu kỳ 5-120 giây. Thẻ khuôn mặt giữ nguyên
+giao diện robot gốc; lịch và thời tiết mở thành trang toàn màn hình có màu nhấn riêng.
+Cấu hình qua GET/POST /api/info_shuttle được lưu trong NVS. Radio, nhạc, TV, đồng hồ/đếm giờ,
+hội thoại và các overlay TFT ưu tiên sẽ ẩn giao diện này và tạm dừng timer đến khi kết thúc hoặc
+bị hủy. Lịch lấy từ bộ hẹn giờ nội bộ. Backend có thể gửi tóm tắt thời tiết qua WSS Device Bridge
+bằng lệnh display.weather (trường summary, tối đa 192 byte UTF-8); provider thời tiết ở backend
+chưa được nối. Điều khiển bằng giọng nói dùng các MCP tool `self.robot.dynamic_main_screen.*`.
+Xem [workflow chi tiết](docs/features/info-shuttle/README.md).
+
+## Xem console log qua webserver
 
 Trình duyệt gửi lệnh `start` sau khi WebSocket mở; firmware chỉ bật thu log
 khi nhận lệnh này và trả `{"type":"log_ready"}`. Giao diện chỉ báo đang đồng bộ
@@ -385,7 +411,7 @@ các module; các tính năng không đọc ngược vào board qua biến globa
 | `robot_qr_code.*` | Mã hóa text/URL thành QR động bằng Nayuki có sẵn trong LVGL, kiểm tra UTF-8, giữ ma trận module 1-bit; không tải ảnh hoặc tạo thông tin ngân hàng. |
 | `robot_drive.*` | Điều khiển motor, timeout và routine; nhận cấu hình từ controller thay vì tự đọc NVS. |
 | `sd_storage.*` | Sở hữu SPI2/thẻ/FatFs, worker mount và đo dung lượng; kiểm tra đường dẫn, tuần tự hóa file I/O, upload tạm và tháo thẻ. |
-| `sd_web_server.*`, `web/ui/sd_web_ui.h` | Trang `/storage`, API file và worker async HTTP có giới hạn; không đưa truyền file vào task audio/LVGL hoặc HTTP điều khiển. |
+| `sd_web_server.*`, `web/ui/sd_web_ui.h` | Trang `/storage`; một worker async có stack 8 KB được tạo khi đăng ký route và tái sử dụng cho trạng thái, danh sách, thư viện, upload/download và thao tác ghi. Khi cấu hình hỗ trợ, stack worker nằm trong PSRAM để chừa SRAM nội bộ cho task phát audio; không tạo task mới cho từng request hoặc chạy SD I/O trên HTTP/audio/LVGL task. API trạng thái trả thêm SRAM nội bộ, block lớn nhất và stack còn trống để chẩn đoán. |
 
 ### Phát nhạc từ microSD bằng MCP
 
@@ -437,7 +463,6 @@ tra RAM. Lưu từ web cập nhật catalog hiện tại ngay và ghi sidecar qu
 đồng bộ rồi đổi tên có backup. Nút **Khôi phục** xóa override của bài và dựng lại
 metadata từ ID3/tên file. Xóa một bài khỏi thư viện cũng xóa override tương ứng.
 
-
 `sd_search(query?, artist?, album?, genre?, limit=5)` tìm hoàn toàn trên snapshot
 RAM, không lấy mutex SD và không đọc metadata lại. Tìm không phân biệt hoa/thường,
 có dấu/không dấu tiếng Việt (kể cả dạng combining), chuẩn hóa dấu câu/khoảng trắng.
@@ -488,7 +513,6 @@ Nếu catalog bị giới hạn 512 bài, phát album bị từ chối để tr�
   **Khôi phục** cho từng bài.
 
 
-
 - HTTP status và MCP `sd_status` có thêm `music_root`, `music_index_state`
   (`unavailable/dirty/indexing/ready/error`), `music_index_message`, `music_tracks`,
   `music_truncated`, `music_generation`. Generation tăng sau mỗi lần index thành
@@ -509,6 +533,11 @@ thời gian hiện tại/thời lượng và thanh tiến trình. Index ưu tiê
 đó dùng số frame Xing/Info, bitrate CBR hoặc mẫu bitrate rải trên file VBR để
 tính thời lượng mà không giải mã toàn bộ audio. Nút **Bài tiếp theo** chọn path kế tiếp theo thứ tự từ điển,
 quay về bài đầu sau bài cuối; không tự phát bài kế tiếp khi track kết thúc.
+
+Khi phát file cục bộ từ SD, worker `NotifyPlayer` dùng stack 8 KiB trong PSRAM nếu
+cấu hình hỗ trợ, tránh yêu cầu một block SRAM nội liền 8 KiB. Nếu không cấp được
+stack PSRAM, firmware thử lại bằng SRAM nội; lỗi tạo task ghi heap nội lớn nhất và
+PSRAM còn trống. Reader SD chỉ mở/đọc/đóng file, không ghi flash/NVS.
 
 Callback WSS chỉ sao chép frame vào queue có giới hạn; tìm catalog chạy trên task
 `device_bridge`, còn đọc metadata chạy ở worker SD. Việc index không chạy khi
@@ -702,7 +731,10 @@ card kênh, trạng thái phát thật và hỗ trợ tiếng Việt. Catalog kh
 đổi container vẫn giữ danh sách qua Docker volume. Khi chat: `tv_search` tìm
 tên/bí danh → `tv_play(channel_id)` → WSS `tv.start` → `RobotTvController` →
 `RobotLiveTv`. `tv_status` đọc trạng thái thật, `tv_stop` hoặc **chạm đôi** dừng
-cả hình/tiếng. Nút Stop tại web hoạt động ngay cả khi VPS không kết nối.
+cả hình/tiếng. Lúc bắt đầu TV, robot dừng nhạc SD/HTTP và hủy playlist SD đang
+chờ; lệnh audio TV được thử lại sau khi worker cũ thoát. Nếu audio chưa khởi động
+sau 15 giây, phiên TV dừng và báo lỗi thay vì giữ loading. Nút Stop tại web hoạt
+động ngay cả khi VPS không kết nối.
 
 Server chuyển HLS thành MJPEG 240×240/12 fps và Opus; audio dùng player chung,
 không tạo pipeline riêng. Frame tối đa 128 KiB, một frame chờ mới nhất; worker
@@ -710,6 +742,8 @@ video/HTTP dùng stack PSRAM. Board N16R8 giữ RX 6/24, BA 6, TCP window 17.280
 byte, 16 socket tổng và tối đa 4 kết nối web để dành chỗ cho WSS/audio/video.
 Tên kênh ở góc trên phải TFT dùng font Unicode của theme. Báo thức/QR giữ ưu
 tiên; ảnh hoặc nhạc/radio mới kết thúc quyền hiển thị TV tương ứng.
+
+Khi nhạc SD được yêu cầu trong lúc TV chạy, firmware báo dừng worker TV và gỡ lớp hiển thị TV ngay; audio radio được hủy, còn nhạc SD chờ worker HTTP audio thoát trước khi phát. Timeout đọc audio hiện là 15 giây, nên lần chuyển này có thể chờ worker trả về từ lần đọc đang chạy.
 
 Workflow kỹ thuật, đăng ký MCP, RPC hai chiều, API, vòng đời streaming và giới
 hạn nằm tại [Live TV](docs/features/live-tv/README.md). Kế hoạch đã chốt và bằng
@@ -743,3 +777,8 @@ hết hạn trong lúc nhạc/boot vẫn chạy.
 ngân hàng trong module này. Mượn khả năng QR động và caption, nhưng giữ
 renderer gọn/overlay priority/thời gian quét của robot thay vì nhập canvas
 RGB565 toàn màn hình, singleton và static callback context của họ.
+
+## KINH NGHIỆM CHO LẮP RẮP LINH KIỆN:
+- OLED phụ: SDA GPIO1, SCL GPIO2 theo sơ đồ ngày 15/11/2026.
+- Bluetooth D1 dùng nguồn 3,3 V theo sơ đồ; không suy ra pad VCC/5V là pad 3V3.
+- LED Edison nối nhánh GPIO19 trong sơ đồ, chưa được firmware khởi tạo/điều khiển. Với LED công suất cần driver phù hợp, không lấy dòng tải trực tiếp từ GPIO; GPIO19 không còn dành cho native USB.

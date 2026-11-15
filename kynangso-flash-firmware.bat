@@ -10,6 +10,8 @@ cd /d "%~dp0"
 
 :: 2. Nap moi truong ESP-IDF 6.1 (theo dung duong dan tren may cua ban)
 set "IDF_EXPORT=C:\esp\v6.1\esp-idf\export.bat"
+set "IDF_TOOLS_PATH=C:\Espressif"
+set "PYTHONUTF8=1"
 
 if not exist "%IDF_EXPORT%" (
     echo [LOI] Khong tim thay file export tai: %IDF_EXPORT%
@@ -20,11 +22,13 @@ if not exist "%IDF_EXPORT%" (
 
 call "%IDF_EXPORT%"
 
-:: 3. Cau hinh Cong COM (Serial Port)
-:: De trong de tu dong tim port; hoac set co dinh: set "TARGET_PORT=COM3"
-set "TARGET_PORT=COM6"
+:: 3. Chon cong COM: tham so dau tien > bien TARGET_PORT > mac dinh COM6
+:: Vi du: kynangso-flash-firmware.bat COM13
+:: Tu dong tim cong: kynangso-flash-firmware.bat AUTO
+if not "%~1"=="" set "TARGET_PORT=%~1"
+if not defined TARGET_PORT set "TARGET_PORT=COM6"
 
-if "%TARGET_PORT%"=="" (
+if /I "%TARGET_PORT%"=="AUTO" (
     echo [INFO] Che do: Tu dong nhan dien cong COM [Auto-detect]...
     set "PORT_PARAM="
 ) else (

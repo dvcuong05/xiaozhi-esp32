@@ -16,6 +16,9 @@
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "driver/gpio.h"
+#include "driver/i2s_std.h"
+#include "driver/uart.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -27,7 +30,12 @@
 #define TONE_FRAMES (6U * SAMPLE_RATE)
 #define NAME_SIZE 65
 #define PEER_COUNT 16
+#define PCM_RING_FRAMES 4096U
+#define PCM_RING_MASK (PCM_RING_FRAMES - 1U)
+#define ROBOT_I2S_RATE 24000U
 #define AP_SSID "KyNangSo-Robot BT"
+#define AUTO_RECONNECT_RETRY_US (INT64_C(30) * 1000000)
+#define ROBOT_CONTROL_LEASE_US (INT64_C(45) * 1000000)
 static const char* TAG = "ESP32_D1_BT";
 
 typedef enum {
@@ -42,7 +50,8 @@ typedef enum {
     EV_COMMAND,
     EV_WEB_SCAN,
     EV_WEB_CONNECT,
-    EV_WEB_DISCONNECT
+    EV_WEB_DISCONNECT,
+    EV_UART_COMMAND
 } event_kind_t;
 typedef struct {
     event_kind_t kind;
@@ -60,6 +69,12 @@ typedef struct {
 } peer_t;
 
 static QueueHandle_t events;
+static bool control_uart_ready;
+static const uart_port_t control_uart = UART_NUM_2;
+// Keep UART on opposing header rails for a short, parallel stacked-board harness.
+// GPIO4 replaces strapping pin GPIO2; GPIO23 is the paired receiver input.
+static const gpio_num_t control_uart_tx = GPIO_NUM_4;
+static const gpio_num_t control_uart_rx = GPIO_NUM_23;
 static char target[NAME_SIZE] = "";
 static char active_target[NAME_SIZE] = "";
 static char state_message[128] = "Đang khởi động.";
@@ -76,6 +91,14 @@ static int64_t switch_deadline;
 static int64_t scan_disconnect_deadline;
 static bool codec_ready;
 static bool auto_tone_played, tone_report_pending;
+static bool manual_selection;
+static bool robot_controlled;
+static esp_bd_addr_t remembered_peer;
+static char remembered_name[NAME_SIZE] = "";
+static bool remembered_peer_valid;
+static bool auto_connect_enabled, auto_connect_in_flight;
+static bool auto_connected_event_pending;
+static int64_t next_auto_connect, last_robot_keepalive;
 static int64_t next_action;
 static peer_t peers[PEER_COUNT];
 static portMUX_TYPE peers_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -83,6 +106,9 @@ static portMUX_TYPE audio_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t tone_cursor = TONE_FRAMES;
 static uint32_t pcm_frames;
 static int16_t sine_table[256];
+static int16_t pcm_ring[PCM_RING_FRAMES * 2];
+static uint32_t pcm_write_index, pcm_read_index;
+static i2s_chan_handle_t robot_i2s_rx;
 static const char PAGE[] =
     "<!doctype html><html lang='vi'><meta name='viewport' "
     "content='width=device-width,initial-scale=1'>"
@@ -139,6 +165,96 @@ static void set_tone(bool enabled) {
              enabled ? "TEST_TONE: 440 Hz, 6 seconds, peak -26 dBFS" : "TEST_TONE: muted");
 }
 
+static void reset_pcm_ring(void) {
+    const uint32_t write = __atomic_load_n(&pcm_write_index, __ATOMIC_ACQUIRE);
+    __atomic_store_n(&pcm_read_index, write, __ATOMIC_RELEASE);
+}
+
+static void pcm_push(int16_t sample) {
+    uint32_t write = __atomic_load_n(&pcm_write_index, __ATOMIC_RELAXED);
+    uint32_t read = __atomic_load_n(&pcm_read_index, __ATOMIC_ACQUIRE);
+    if (write - read >= PCM_RING_FRAMES)
+        return;
+    const uint32_t slot = (write & PCM_RING_MASK) * 2U;
+    pcm_ring[slot] = sample;
+    pcm_ring[slot + 1U] = sample;
+    __atomic_store_n(&pcm_write_index, write + 1U, __ATOMIC_RELEASE);
+}
+
+static int16_t pcm_pop(void) {
+    uint32_t read = __atomic_load_n(&pcm_read_index, __ATOMIC_RELAXED);
+    uint32_t write = __atomic_load_n(&pcm_write_index, __ATOMIC_ACQUIRE);
+    if (read == write)
+        return 0;
+    const uint32_t slot = (read & PCM_RING_MASK) * 2U;
+    int16_t sample = pcm_ring[slot];
+    __atomic_store_n(&pcm_read_index, read + 1U, __ATOMIC_RELEASE);
+    return sample;
+}
+
+static bool init_robot_i2s_input(void) {
+    const i2s_chan_config_t channel_config =
+        I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_SLAVE);
+    esp_err_t err = i2s_new_channel(&channel_config, NULL, &robot_i2s_rx);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2S RX channel creation failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    i2s_std_config_t standard_config = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(ROBOT_I2S_RATE),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
+                                                        I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = GPIO_NUM_33,
+            .ws = GPIO_NUM_34,
+            .dout = I2S_GPIO_UNUSED,
+            .din = GPIO_NUM_35,
+            .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
+        },
+    };
+    standard_config.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    err = i2s_channel_init_std_mode(robot_i2s_rx, &standard_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2S RX init failed: %s", esp_err_to_name(err));
+        i2s_del_channel(robot_i2s_rx);
+        robot_i2s_rx = NULL;
+        return false;
+    }
+    err = i2s_channel_enable(robot_i2s_rx);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2S RX enable failed: %s", esp_err_to_name(err));
+        i2s_del_channel(robot_i2s_rx);
+        robot_i2s_rx = NULL;
+        return false;
+    }
+    ESP_LOGI(TAG, "I2S_RX: slave, 24000 Hz, 32-bit Philips, left slot, GPIO33/34/35");
+    return true;
+}
+
+static void robot_i2s_task(void* arg) {
+    int32_t input[240];
+    uint32_t phase = 0;
+    while (true) {
+        size_t bytes_read = 0;
+        esp_err_t err = i2s_channel_read(robot_i2s_rx, input, sizeof(input), &bytes_read,
+                                         100);
+        if (err != ESP_OK || bytes_read < sizeof(int32_t)) {
+            vTaskDelay(1);
+            continue;
+        }
+        const size_t samples = bytes_read / sizeof(int32_t);
+        for (size_t i = 0; i < samples; ++i) {
+            const int16_t sample = (int16_t)(input[i] >> 16);
+            phase += 44100U;
+            while (phase >= ROBOT_I2S_RATE) {
+                phase -= ROBOT_I2S_RATE;
+                pcm_push(sample);
+            }
+        }
+    }
+}
+
 static void copy_bt_name(char* out, size_t cap, const uint8_t* name, size_t len) {
     size_t used = 0;
     for (size_t i = 0; i < len && used + 1 < cap; ++i) {
@@ -160,6 +276,83 @@ static void json_escape(char* out, size_t cap, size_t* used, const char* in) {
         }
     }
     out[*used] = 0;
+}
+
+static void uart_send_frame(const char* frame) {
+    if (control_uart_ready && frame)
+        uart_write_bytes(control_uart, frame, strlen(frame));
+}
+
+static void uart_send_state(void) {
+    char body[768];
+    int n = snprintf(body, sizeof(body),
+                     "{\"type\":\"state\",\"connected\":%s,\"streaming\":%s,"
+                     "\"scanning\":%s,\"switching\":%s,\"auto_connected\":%s,"
+                     "\"current\":\"",
+                     connected ? "true" : "false", streaming ? "true" : "false",
+                     (discovering || scan_after_disconnect) ? "true" : "false",
+                     switch_pending ? "true" : "false",
+                     auto_connected_event_pending ? "true" : "false");
+    if (n < 0 || (size_t)n >= sizeof(body))
+        return;
+    size_t used = (size_t)n;
+    json_escape(body, sizeof(body), &used, active_target);
+    n = snprintf(body + used, sizeof(body) - used, "\",\"target\":\"");
+    if (n < 0 || (size_t)n >= sizeof(body) - used)
+        return;
+    used += (size_t)n;
+    json_escape(body, sizeof(body), &used, target);
+    n = snprintf(body + used, sizeof(body) - used, "\",\"message\":\"");
+    if (n < 0 || (size_t)n >= sizeof(body) - used)
+        return;
+    used += (size_t)n;
+    json_escape(body, sizeof(body), &used, state_message);
+    n = snprintf(body + used, sizeof(body) - used, "\"}\n");
+    if (n < 0 || (size_t)n >= sizeof(body) - used)
+        return;
+    uart_send_frame(body);
+    auto_connected_event_pending = false;
+}
+
+static void uart_send_device(const event_t* e) {
+    char body[256];
+    int n = snprintf(body, sizeof(body),
+                     "{\"type\":\"device\",\"address\":\"%02x:%02x:%02x:%02x:%02x:%02x\","
+                     "\"name\":\"",
+                     e->address[0], e->address[1], e->address[2], e->address[3], e->address[4],
+                     e->address[5]);
+    if (n < 0 || (size_t)n >= sizeof(body))
+        return;
+    size_t used = (size_t)n;
+    json_escape(body, sizeof(body), &used, e->text);
+    n = snprintf(body + used, sizeof(body) - used, "\",\"rssi\":%d}\n", e->value);
+    if (n >= 0 && (size_t)n < sizeof(body) - used)
+        uart_send_frame(body);
+}
+
+static void uart_control_task(void* arg) {
+    char line[96];
+    size_t used = 0;
+    uint8_t bytes[32];
+    while (true) {
+        int count = uart_read_bytes(control_uart, bytes, sizeof(bytes), pdMS_TO_TICKS(100));
+        for (int i = 0; i < count; ++i) {
+            char ch = (char)bytes[i];
+            if (ch == '\r' || ch == '\n') {
+                if (used) {
+                    event_t e = {.kind = EV_UART_COMMAND};
+                    line[used] = 0;
+                    strlcpy(e.text, line, sizeof(e.text));
+                    post(&e);
+                    used = 0;
+                }
+            } else if (ch >= 32 && ch <= 126 && used + 1 < sizeof(line)) {
+                line[used++] = ch;
+            } else {
+                used = 0;
+            }
+        }
+    }
 }
 
 static esp_err_t root_handler(httpd_req_t* req) {
@@ -346,6 +539,11 @@ static int32_t audio_data(uint8_t* data, int32_t length) {
         memcpy(data + i * 4, &sample, 2);
         memcpy(data + i * 4 + 2, &sample, 2);
     }
+    for (uint32_t i = active; i < frames; ++i) {
+        int16_t sample = pcm_pop();
+        memcpy(data + i * 4, &sample, 2);
+        memcpy(data + i * 4 + 2, &sample, 2);
+    }
     return length;
 }
 
@@ -471,6 +669,9 @@ static void disconnect_for_scan(void) {
 }
 
 static void request_scan(void) {
+    auto_connect_enabled = false;
+    auto_connect_in_flight = false;
+    manual_selection = true;
     if (discovering) {
         strlcpy(state_message, "Đang quét thiết bị Bluetooth.", sizeof(state_message));
         return;
@@ -538,6 +739,59 @@ static void start_pending_connection(void) {
     ESP_LOGI(TAG, "SWITCH_CONNECT: %s", target);
 }
 
+static bool save_remembered_speaker(const esp_bd_addr_t address, const char* name) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("bt_test", NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        err = nvs_set_blob(handle, "last_speaker", address, ESP_BD_ADDR_LEN);
+        if (err == ESP_OK)
+            err = nvs_set_str(handle, "last_name", name && name[0] ? name : "Bluetooth speaker");
+        if (err == ESP_OK)
+            err = nvs_commit(handle);
+        nvs_close(handle);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LAST_SPEAKER: save failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    memcpy(remembered_peer, address, sizeof(remembered_peer));
+    strlcpy(remembered_name, name && name[0] ? name : "Bluetooth speaker",
+            sizeof(remembered_name));
+    remembered_peer_valid = true;
+    ESP_LOGI(TAG, "LAST_SPEAKER: remembered \"%s\"", remembered_name);
+    return true;
+}
+
+static void try_remembered_speaker(void) {
+    if (!auto_connect_enabled || !remembered_peer_valid || !ready || connected || connecting ||
+        discovering || switch_pending || esp_timer_get_time() < next_auto_connect) {
+        return;
+    }
+
+    memcpy(peer, remembered_peer, sizeof(peer));
+    strlcpy(target, remembered_name[0] ? remembered_name : "Bluetooth speaker", sizeof(target));
+    auto_connect_in_flight = true;
+    connecting = true;
+    const int64_t now = esp_timer_get_time();
+    next_auto_connect = now + AUTO_RECONNECT_RETRY_US;
+    next_action = now + 20000000;
+
+    esp_err_t err = esp_a2d_source_connect(peer);
+    if (err != ESP_OK) {
+        connecting = false;
+        auto_connect_in_flight = false;
+        snprintf(state_message, sizeof(state_message),
+                 "Loa da nho chua san sang (%s); se thu lai sau 30 giay.",
+                 esp_err_to_name(err));
+        ESP_LOGW(TAG, "AUTO_CONNECT: %s, retry in 30 seconds", esp_err_to_name(err));
+        return;
+    }
+
+    ESP_LOGI(TAG, "AUTO_CONNECT: trying remembered speaker \"%s\"", target);
+    snprintf(state_message, sizeof(state_message), "Dang tu ket noi lai loa %.64s.", target);
+}
+
 static void disconnect_current_for_switch(void) {
     if (!switch_pending || switch_connecting || switch_disconnect_requested)
         return;
@@ -563,6 +817,7 @@ static void disconnect_current_for_switch(void) {
 }
 
 static void begin_switch(const esp_bd_addr_t address, const char* name) {
+    reset_pcm_ring();
     if (switch_pending && switch_connecting) {
         if (same_peer(address, pending_peer)) {
             snprintf(state_message, sizeof(state_message), "Đang kết nối tới loa %.64s.",
@@ -731,7 +986,8 @@ static void process(const event_t* e) {
             ready = e->value == ESP_A2D_INIT_SUCCESS;
             ESP_LOGI(TAG, "PROFILE: ready=%d", ready);
             if (ready)
-                scan();
+                strlcpy(state_message, "Bluetooth san sang; hay quet va chon loa.",
+                        sizeof(state_message));
             break;
         case EV_FOUND:
             ESP_LOGI(TAG, "FOUND: %02x:%02x:%02x:%02x:%02x:%02x rssi=%d name=\"%s\"", e->address[0],
@@ -759,12 +1015,14 @@ static void process(const event_t* e) {
             peers[slot].rssi = e->value;
             peers[slot].last_seen = esp_timer_get_time();
             portEXIT_CRITICAL(&peers_lock);
+            uart_send_device(e);
             break;
         case EV_DISCOVERY:
             discovering = e->value == ESP_BT_GAP_DISCOVERY_STARTED;
             if (!discovering && switch_pending) {
                 start_pending_connection();
-            } else if (!discovering && found && !connected && !connecting) {
+            } else if (!discovering && found && !connected && !connecting && !manual_selection &&
+                       !auto_connect_enabled && !robot_controlled) {
                 esp_err_t err = esp_a2d_source_connect(peer);
                 connecting = err == ESP_OK;
                 next_action = esp_timer_get_time() + 20000000;
@@ -798,6 +1056,8 @@ static void process(const event_t* e) {
                     disconnect_current_for_switch();
                     break;
                 }
+                const bool was_auto_connected = auto_connect_in_flight;
+                auto_connect_in_flight = false;
                 connecting = false;
                 connected = true;
                 memcpy(peer, e->address, sizeof(peer));
@@ -811,10 +1071,22 @@ static void process(const event_t* e) {
                     strlcpy(state_message, "Đã kết nối đúng loa đã chọn.", sizeof(state_message));
                 } else {
                     strlcpy(active_target, target, sizeof(active_target));
-                    strlcpy(state_message, "A2DP đã kết nối; đang thương lượng codec.",
-                            sizeof(state_message));
+                    if (was_auto_connected)
+                        snprintf(state_message, sizeof(state_message),
+                                 "Đã tự kết nối loa %.64s.", target);
+                    else
+                        strlcpy(state_message, "A2DP đã kết nối; đang thương lượng codec.",
+                                sizeof(state_message));
                 }
                 strlcpy(active_target, target, sizeof(active_target));
+                next_auto_connect = 0;
+                manual_selection = false;
+                if (robot_controlled)
+                    auto_connect_enabled = true;
+                auto_connected_event_pending = was_auto_connected;
+                if (!save_remembered_speaker(e->address, active_target))
+                    strlcpy(state_message, "Da ket noi, nhung khong the luu loa da chon.",
+                            sizeof(state_message));
                 auto_tone_played = false;
                 next_action = esp_timer_get_time() + 1000000;
                 ESP_LOGI(TAG, "CONNECTED: %s", target);
@@ -823,6 +1095,8 @@ static void process(const event_t* e) {
                     ESP_LOGW(TAG, "Ignoring stale DISCONNECTED event for another peer");
                     break;
                 }
+                bool auto_connect_failed = auto_connect_in_flight;
+                auto_connect_in_flight = false;
                 bool pending_connect_failed = switch_connecting;
                 connected = connecting = streaming = false;
                 codec_ready = false;
@@ -848,6 +1122,12 @@ static void process(const event_t* e) {
                     snprintf(state_message, sizeof(state_message), "Kết nối tới %.48s bị ngắt.",
                              target);
                     next_action = esp_timer_get_time() + 5000000;
+                } else if (auto_connect_failed && auto_connect_enabled) {
+                    next_auto_connect = esp_timer_get_time() + AUTO_RECONNECT_RETRY_US;
+                    strlcpy(state_message,
+                            "Loa da nho chua san sang; se thu ket noi lai sau 30 giay.",
+                            sizeof(state_message));
+                    ESP_LOGW(TAG, "AUTO_CONNECT: speaker unavailable; retry in 30 seconds");
                 } else {
                     strlcpy(state_message, "Loa Bluetooth đã ngắt kết nối.", sizeof(state_message));
                     next_action = esp_timer_get_time() + 5000000;
@@ -859,7 +1139,7 @@ static void process(const event_t* e) {
             ESP_LOGI(TAG, "AUDIO: %s (state=%d)", streaming ? "STARTED" : "STOPPED", e->value);
             if (streaming && !auto_tone_played && !scan_after_disconnect) {
                 auto_tone_played = true;
-                set_tone(true);
+                set_tone(!robot_controlled);
             }
             break;
         case EV_ACK:
@@ -881,6 +1161,7 @@ static void process(const event_t* e) {
             command(e->text);
             break;
         case EV_WEB_SCAN:
+            manual_selection = true;
             request_scan();
             break;
         case EV_WEB_CONNECT: {
@@ -920,6 +1201,9 @@ static void process(const event_t* e) {
             break;
         }
         case EV_WEB_DISCONNECT:
+            auto_connect_enabled = false;
+            auto_connect_in_flight = false;
+            manual_selection = true;
             if (discovering)
                 esp_bt_gap_cancel_discovery();
             scan_after_disconnect = false;
@@ -938,10 +1222,67 @@ static void process(const event_t* e) {
                 strlcpy(state_message, "Không có loa đang kết nối.", sizeof(state_message));
             }
             break;
+        case EV_UART_COMMAND:
+            robot_controlled = true;
+            last_robot_keepalive = esp_timer_get_time();
+            if (strcmp(e->text, "KEEPALIVE") == 0) {
+                // Refresh the S3 lease; recover startup AUTO_CONNECT if UART boot timing lost it.
+                if (!manual_selection && !auto_connect_enabled) {
+                    auto_connect_enabled = true;
+                    next_auto_connect = last_robot_keepalive;
+                    ESP_LOGI(TAG, "AUTO_CONNECT: session enabled by S3 keepalive");
+                }
+            } else if (strcmp(e->text, "AUTO_CONNECT") == 0) {
+                auto_connect_enabled = true;
+                manual_selection = false;
+                next_auto_connect = esp_timer_get_time();
+                strlcpy(state_message,
+                        remembered_peer_valid ? "Dang thu ket noi loa da luu."
+                                              : "Chua co loa da luu; hay quet va ket noi lan dau.",
+                        sizeof(state_message));
+                if (remembered_peer_valid)
+                    ESP_LOGI(TAG,
+                             "AUTO_CONNECT: session enabled for %02x:%02x:%02x:%02x:%02x:%02x",
+                             remembered_peer[0], remembered_peer[1], remembered_peer[2],
+                             remembered_peer[3], remembered_peer[4], remembered_peer[5]);
+                else
+                    ESP_LOGI(TAG, "AUTO_CONNECT: session enabled, no saved speaker");
+                if (remembered_peer_valid && (connected || connecting) &&
+                    !same_peer(peer, remembered_peer)) {
+                    auto_connect_in_flight = true;
+                    begin_switch(remembered_peer, remembered_name);
+                }
+            } else if (strcmp(e->text, "STATUS") == 0) {
+                status();
+            } else if (strcmp(e->text, "SCAN") == 0) {
+                request_scan();
+            } else if (strcmp(e->text, "DISCONNECT") == 0) {
+                event_t disconnect_event = {.kind = EV_WEB_DISCONNECT};
+                process(&disconnect_event);
+            } else if (strncmp(e->text, "CONNECT ", 8) == 0) {
+                unsigned int b[ESP_BD_ADDR_LEN];
+                int parsed = 0;
+                if (sscanf(e->text + 8, "%2x:%2x:%2x:%2x:%2x:%2x%n", &b[0], &b[1], &b[2],
+                           &b[3], &b[4], &b[5], &parsed) == ESP_BD_ADDR_LEN && parsed == 17 &&
+                    e->text[8 + parsed] == '\0') {
+                    event_t connect_event = {.kind = EV_WEB_CONNECT};
+                    for (int i = 0; i < ESP_BD_ADDR_LEN; ++i)
+                        connect_event.address[i] = (uint8_t)b[i];
+                    process(&connect_event);
+                } else {
+                    strlcpy(state_message, "Lenh UART CONNECT co dia chi khong hop le.",
+                            sizeof(state_message));
+                }
+            } else {
+                strlcpy(state_message, "Lenh UART khong duoc ho tro.", sizeof(state_message));
+            }
+            break;
     }
+    uart_send_state();
 }
 
 void app_main(void) {
+    ESP_LOGI(TAG, "BOOT: starting Wi-Fi, Bluetooth and robot interfaces");
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         // A full flash backup is taken before initial installation.
@@ -953,6 +1294,18 @@ void app_main(void) {
     if (nvs_open("bt_test", NVS_READONLY, &handle) == ESP_OK) {
         size_t n = sizeof(legacy_pin);
         nvs_get_str(handle, "pin", legacy_pin, &n);
+        size_t peer_size = sizeof(remembered_peer);
+        if (nvs_get_blob(handle, "last_speaker", remembered_peer, &peer_size) == ESP_OK &&
+            peer_size == sizeof(remembered_peer)) {
+            remembered_peer_valid = true;
+            size_t name_size = sizeof(remembered_name);
+            if (nvs_get_str(handle, "last_name", remembered_name, &name_size) != ESP_OK)
+                remembered_name[0] = '\0';
+            ESP_LOGI(TAG,
+                     "LAST_SPEAKER: loaded \"%s\" (%02x:%02x:%02x:%02x:%02x:%02x)",
+                     remembered_name, remembered_peer[0], remembered_peer[1], remembered_peer[2],
+                     remembered_peer[3], remembered_peer[4], remembered_peer[5]);
+        }
         nvs_close(handle);
     }
     for (int i = 0; i < 256; ++i)
@@ -960,6 +1313,22 @@ void app_main(void) {
     events = xQueueCreate(24, sizeof(event_t));
     configASSERT(events);
     start_wifi_and_web();
+    ESP_LOGI(TAG, "BOOT: initializing robot UART");
+    uart_config_t uart_cfg = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    ESP_ERROR_CHECK(uart_driver_install(control_uart, 1024, 512, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_param_config(control_uart, &uart_cfg));
+    ESP_ERROR_CHECK(uart_set_pin(control_uart, control_uart_tx, control_uart_rx,
+                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    control_uart_ready = true;
+    configASSERT(xTaskCreate(uart_control_task, "uart_control", 3072, NULL, 4, NULL) == pdPASS);
+    ESP_LOGI(TAG, "BOOT: initializing Bluetooth Classic and A2DP");
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
     esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_bt_controller_init(&cfg));
@@ -976,14 +1345,44 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_a2d_register_callback(a2dp_callback));
     ESP_ERROR_CHECK(esp_a2d_source_register_data_callback(audio_data));
     ESP_ERROR_CHECK(esp_a2d_source_init());
+    ESP_LOGI(TAG, "BOOT: initializing robot I2S input");
+    if (init_robot_i2s_input())
+        configASSERT(xTaskCreate(robot_i2s_task, "robot_i2s_rx", 4096, NULL, 5, NULL) == pdPASS);
     configASSERT(xTaskCreate(console_task, "console", 3072, NULL, 3, NULL) == pdPASS);
     ESP_LOGI(TAG, "BOOT: ESP32-D1-Bluetooth A2DP Source; choose a speaker at http://192.168.4.1/");
+    uart_send_state();
+    int64_t next_uart_state = esp_timer_get_time() + 1000000;
     command("help");
     while (true) {
         event_t e;
         if (xQueueReceive(events, &e, pdMS_TO_TICKS(500)) == pdTRUE)
             process(&e);
         int64_t now = esp_timer_get_time();
+        if (control_uart_ready && now >= next_uart_state) {
+            uart_send_state();
+            next_uart_state = now + 1000000;
+        }
+        if (robot_controlled && last_robot_keepalive > 0 &&
+            now - last_robot_keepalive >= ROBOT_CONTROL_LEASE_US) {
+            auto_connect_enabled = false;
+            auto_connect_in_flight = false;
+            manual_selection = true;
+            last_robot_keepalive = 0;
+            if (connecting || connected) {
+                set_tone(false);
+                if (streaming)
+                    esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND);
+                esp_a2d_source_disconnect(peer);
+                connecting = false;
+            }
+            strlcpy(state_message, "S3 control lease expired; Bluetooth auto-connect stopped.",
+                    sizeof(state_message));
+            ESP_LOGI(TAG, "AUTO_CONNECT: S3 control lease expired; stopping reconnects");
+        }
+        if (ready && auto_connect_enabled && remembered_peer_valid && !connected && !connecting &&
+            !discovering && !switch_pending && now >= next_auto_connect) {
+            try_remembered_speaker();
+        }
         if (ready && scan_after_disconnect && now >= scan_disconnect_deadline) {
             if (scan_disconnect_attempts >= 3) {
                 scan_after_disconnect = false;
@@ -1027,14 +1426,23 @@ void app_main(void) {
 
         if (ready && !switch_pending && now >= next_action) {
             if (connecting) {
+                const bool auto_connect_timed_out = auto_connect_in_flight;
+                auto_connect_in_flight = false;
                 ESP_LOGW(TAG, "Connection timeout; cancel and rescan");
                 esp_a2d_source_disconnect(peer);
                 connecting = false;
                 next_action = now + 5000000;
+                if (auto_connect_timed_out && auto_connect_enabled) {
+                    next_auto_connect = now + AUTO_RECONNECT_RETRY_US;
+                    strlcpy(state_message,
+                            "Loa da nho chua phan hoi; se thu lai sau 30 giay.",
+                            sizeof(state_message));
+                    ESP_LOGW(TAG, "AUTO_CONNECT: timed out; retry in 30 seconds");
+                }
             } else if (connected && codec_ready && !streaming && !scan_after_disconnect) {
                 esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
                 next_action = now + 5000000;
-            } else if (!connected && !discovering) {
+            } else if (!connected && !discovering && !auto_connect_enabled) {
                 scan();
             }
         }

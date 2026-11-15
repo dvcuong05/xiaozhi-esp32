@@ -24,7 +24,7 @@ struct NotifySubtitle {
 // sources (radio, music, and future media providers).
 struct StreamPlaybackOptions {
     bool continuous = false;
-    // Opt in only for HTTP readers whose callbacks never write flash/NVS.
+    // Opt in only for readers that do not write flash/NVS or disable flash cache.
     bool external_task_stack = false;
     uint32_t reconnect_delay_ms = 1000;
     uint32_t http_timeout_ms = 5000;

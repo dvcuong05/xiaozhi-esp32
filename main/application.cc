@@ -616,10 +616,15 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // A cancelled HTTP worker may take up to its read timeout to exit.
-            // Retry a pending media command without blocking the main loop.
+            // A cancelled playback worker may need time to unwind. Retry pending
+            // media/radio handoffs without blocking the main loop.
             if (pending_media_local_ || !pending_media_url_.empty()) {
                 TryStartPendingMedia();
+            }
+            // A cancelled stream worker may still be unwinding after the
+            // state returns to idle. Retry a queued radio once it has exited.
+            if (!pending_radio_url_.empty()) {
+                TryStartPendingRadio();
             }
 
             // Print debug info every 10 seconds
@@ -1651,6 +1656,12 @@ void Application::StartFiniteAudio(std::string audio_url, std::vector<NotifySubt
 
     StreamPlaybackOptions options;
     options.source = source;
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    // Local SD readers are read-only and can use PSRAM task stacks. Keep the
+    // internal heap available for DMA/network allocations during TV handoff.
+    options.external_task_stack = source == AudioPlaybackSource::Media &&
+                                  static_cast<bool>(input_factory);
+#endif
 
     bool started = notify_player_.Start(
         std::move(audio_url), std::move(subtitles), playback_id,
@@ -1900,6 +1911,7 @@ void Application::QueueMedia(std::string audio_url, MediaPlaybackMetadata metada
     pending_media_local_ = static_cast<bool>(input_factory);
     pending_media_input_ = std::move(input_factory);
     pending_media_finished_callback_ = std::move(finished_callback);
+    Board::GetInstance().OnMediaPlaybackRequested();
 
     if (GetDeviceState() == kDeviceStateRadio) {
         ESP_LOGI(TAG, "Replacing radio playback with requested media");
@@ -1926,7 +1938,7 @@ void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata meta
         pending_media_input_ = {};
         pending_media_finished_callback_ = {};
         pending_media_local_ = false;
-        if (GetDeviceState() == kDeviceStateRadio || continuous_stream_player_.IsBusy()) {
+        if (GetDeviceState() == kDeviceStateRadio) {
             ESP_LOGI(TAG, "Ignoring duplicate radio start; radio is already active");
             return;
         }
@@ -1936,6 +1948,11 @@ void Application::RequestRadio(std::string audio_url, MediaPlaybackMetadata meta
         pending_radio_options_ = options;
         ESP_LOGI(TAG, "Radio start queued while device is in %s",
                  DeviceStateMachine::GetStateName(GetDeviceState()));
+        if (GetDeviceState() == kDeviceStateNotifying &&
+            finite_audio_source_ == AudioPlaybackSource::Media) {
+            ESP_LOGI(TAG, "Stopping current media to hand audio output to radio");
+            StopNotification();
+        }
         TryStartPendingRadio();
     });
 }
@@ -2041,6 +2058,9 @@ void Application::TryStartPendingRadio() {
     }
 
     if (GetDeviceState() != kDeviceStateIdle) {
+        return;
+    }
+    if (notify_player_.IsBusy() || continuous_stream_player_.IsBusy()) {
         return;
     }
 

@@ -46,6 +46,7 @@ private:
     static esp_err_t ApiStopHandler(httpd_req_t* req);
     static esp_err_t ApiRoutineHandler(httpd_req_t* req);
     static esp_err_t ApiMotionStatusHandler(httpd_req_t* req);
+    static esp_err_t ApiExtensionsHandler(httpd_req_t* req);
     static esp_err_t ApiConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledConfigHandler(httpd_req_t* req);
     static esp_err_t ApiOledTestHandler(httpd_req_t* req);
@@ -54,12 +55,18 @@ private:
     static esp_err_t ApiStatusHandler(httpd_req_t* req);
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
     static esp_err_t ApiFaceConfigHandler(httpd_req_t* req);
+    static esp_err_t ApiInfoShuttleHandler(httpd_req_t* req);
     static esp_err_t ApiFacePreviewHandler(httpd_req_t* req);
     static esp_err_t ApiEmotionPreviewHandler(httpd_req_t* req);
     static esp_err_t ApiBootConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrShowHandler(httpd_req_t* req);
     static esp_err_t ApiVolumeHandler(httpd_req_t* req);
+    static esp_err_t BluetoothPageHandler(httpd_req_t* req);
+    static esp_err_t ApiBluetoothStatusHandler(httpd_req_t* req);
+    static esp_err_t ApiBluetoothScanHandler(httpd_req_t* req);
+    static esp_err_t ApiBluetoothConnectHandler(httpd_req_t* req);
+    static esp_err_t ApiBluetoothDisconnectHandler(httpd_req_t* req);
     static esp_err_t LogWebSocketHandler(httpd_req_t* req);
 
     httpd_handle_t server_;

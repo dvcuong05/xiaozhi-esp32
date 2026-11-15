@@ -78,6 +78,8 @@ public:
     virtual Display* GetDisplay();
     // Optional hook after the display/audio stack is ready and before networking starts.
     virtual void OnApplicationReady() {}
+    // Let a board stop local UI/workers when a media request takes over playback.
+    virtual void OnMediaPlaybackRequested() {}
     // Optional board-local consumer for the shared boot event stream.
     virtual void OnBootEvent(const BootEvent& event) { (void)event; }
     virtual BootAudioConfig GetBootAudioConfig() { return {}; }

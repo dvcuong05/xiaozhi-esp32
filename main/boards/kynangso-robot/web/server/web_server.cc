@@ -2,10 +2,13 @@
 #include "core/robot_controller.h"
 #include "core/robot_settings.h"
 #include "features/motion/robot_drive.h"
+#include "features/bluetooth/bluetooth_service.h"
 #include "web/server/sd_web_server.h"
 #include "web/server/tv_web_server.h"
 #include "web/ui/robot_time_web_ui.h"
 #include "web/ui/web_ui.h"
+#include "web/ui/bluetooth_web_ui.h"
+#include "sdkconfig.h"
 
 #include <algorithm>
 #include <atomic>
@@ -511,6 +514,12 @@ bool WebServer::Start(int port) {
     }
 
     httpd_uri_t uris[] = {
+        {"/bluetooth", HTTP_GET, BluetoothPageHandler, this},
+        {"/api/bluetooth/status", HTTP_GET, ApiBluetoothStatusHandler, this},
+        {"/api/bluetooth/devices", HTTP_GET, ApiBluetoothStatusHandler, this},
+        {"/api/bluetooth/scan", HTTP_POST, ApiBluetoothScanHandler, this},
+        {"/api/bluetooth/connect", HTTP_POST, ApiBluetoothConnectHandler, this},
+        {"/api/bluetooth/disconnect", HTTP_POST, ApiBluetoothDisconnectHandler, this},
         {"/time", HTTP_GET, TimePageHandler, this},
         {"/api/time", HTTP_GET, TimeApiHandler, this},
         {"/api/time", HTTP_POST, TimeApiHandler, this},
@@ -529,6 +538,8 @@ bool WebServer::Start(int port) {
         {"/api/stop", HTTP_POST, ApiStopHandler, this},
         {"/api/routine", HTTP_POST, ApiRoutineHandler, this},
         {"/api/motion_status", HTTP_GET, ApiMotionStatusHandler, this},
+        {"/api/extensions", HTTP_GET, ApiExtensionsHandler, this},
+        {"/api/extensions", HTTP_POST, ApiExtensionsHandler, this},
         {"/api/config", HTTP_POST, ApiConfigHandler, this},
         {"/api/config", HTTP_GET, ApiConfigHandler, this},
         {"/api/oled_config", HTTP_POST, ApiOledConfigHandler, this},
@@ -541,6 +552,8 @@ bool WebServer::Start(int port) {
         {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
         {"/api/face_config", HTTP_GET, ApiFaceConfigHandler, this},
         {"/api/face_config", HTTP_POST, ApiFaceConfigHandler, this},
+        {"/api/info_shuttle", HTTP_GET, ApiInfoShuttleHandler, this},
+        {"/api/info_shuttle", HTTP_POST, ApiInfoShuttleHandler, this},
         {"/api/face/preview", HTTP_POST, ApiFacePreviewHandler, this},
         {"/api/emotion/preview", HTTP_POST, ApiEmotionPreviewHandler, this},
         {"/api/boot_config", HTTP_GET, ApiBootConfigHandler, this},
@@ -626,6 +639,113 @@ esp_err_t WebServer::ApiVolumeHandler(httpd_req_t* req) {
     cJSON* response = cJSON_CreateObject();
     if (response)
         cJSON_AddNumberToObject(response, "volume", volume);
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::BluetoothPageHandler(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, kynangso::web_ui::kBluetoothHtml, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::ApiBluetoothStatusHandler(httpd_req_t* req) {
+    const auto status = GetServer(req)->controller_.Bluetooth().GetStatus();
+    cJSON* response = cJSON_CreateObject();
+    if (response == nullptr)
+        return SendJson(req, response);
+    cJSON_AddBoolToObject(response, "enabled", status.enabled);
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+    cJSON_AddBoolToObject(response, "bluetooth_supported", true);
+#else
+    cJSON_AddBoolToObject(response, "bluetooth_supported", false);
+#endif
+    cJSON_AddBoolToObject(response, "online", status.online);
+    cJSON_AddBoolToObject(response, "connected", status.connected);
+    cJSON_AddBoolToObject(response, "streaming", status.streaming);
+    cJSON_AddBoolToObject(response, "scanning", status.scanning);
+    cJSON_AddBoolToObject(response, "switching", status.switching);
+    cJSON_AddStringToObject(response, "current", status.current.c_str());
+    cJSON_AddStringToObject(response, "target", status.target.c_str());
+    cJSON_AddStringToObject(response, "message", status.message.c_str());
+    cJSON* devices = cJSON_AddArrayToObject(response, "devices");
+    if (devices != nullptr) {
+        for (const auto& device : status.devices) {
+            cJSON* item = cJSON_CreateObject();
+            if (item == nullptr)
+                continue;
+            cJSON_AddStringToObject(item, "name", device.name.c_str());
+            cJSON_AddStringToObject(item, "address", device.address.c_str());
+            cJSON_AddNumberToObject(item, "rssi", device.rssi);
+            if (!cJSON_AddItemToArray(devices, item))
+                cJSON_Delete(item);
+        }
+    }
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiBluetoothScanHandler(httpd_req_t* req) {
+    std::string error;
+    if (!GetServer(req)->controller_.Bluetooth().Scan(&error)) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        auto* response = cJSON_CreateObject();
+        if (response == nullptr)
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+        cJSON_AddBoolToObject(response, "ok", false);
+        cJSON_AddStringToObject(response, "error", error.c_str());
+        return SendJson(req, response);
+    }
+    auto* response = cJSON_CreateObject();
+    if (response == nullptr)
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+    cJSON_AddBoolToObject(response, "ok", true);
+    cJSON_AddStringToObject(response, "message", "Đã gửi lệnh quét loa Bluetooth.");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiBluetoothConnectHandler(httpd_req_t* req) {
+    cJSON* root = ParseBody(req);
+    if (root == nullptr)
+        return ESP_FAIL;
+    char address[18] = {};
+    const bool valid = GetString(root, "address", address, sizeof(address)) &&
+                       std::strlen(address) == 17;
+    cJSON_Delete(root);
+    if (!valid)
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Vui lòng chọn địa chỉ loa hợp lệ.");
+    std::string error;
+    if (!GetServer(req)->controller_.Bluetooth().ConnectByAddress(address, &error)) {
+        httpd_resp_set_status(req, "409 Conflict");
+        auto* response = cJSON_CreateObject();
+        if (response == nullptr)
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+        cJSON_AddBoolToObject(response, "ok", false);
+        cJSON_AddStringToObject(response, "error", error.c_str());
+        return SendJson(req, response);
+    }
+    auto* response = cJSON_CreateObject();
+    if (response == nullptr)
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+    cJSON_AddBoolToObject(response, "ok", true);
+    cJSON_AddStringToObject(response, "message", "Đã gửi lệnh chuyển loa.");
+    return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiBluetoothDisconnectHandler(httpd_req_t* req) {
+    std::string error;
+    if (!GetServer(req)->controller_.Bluetooth().Disconnect(&error)) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        auto* response = cJSON_CreateObject();
+        if (response == nullptr)
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+        cJSON_AddBoolToObject(response, "ok", false);
+        cJSON_AddStringToObject(response, "error", error.c_str());
+        return SendJson(req, response);
+    }
+    auto* response = cJSON_CreateObject();
+    if (response == nullptr)
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Robot không đủ bộ nhớ để xử lý yêu cầu.");
+    cJSON_AddBoolToObject(response, "ok", true);
+    cJSON_AddStringToObject(response, "message", "Đã gửi lệnh ngắt loa.");
     return SendJson(req, response);
 }
 
@@ -1034,6 +1154,59 @@ esp_err_t WebServer::ApiMotionStatusHandler(httpd_req_t* req) {
     return SendJson(req, response);
 }
 
+esp_err_t WebServer::ApiExtensionsHandler(httpd_req_t* req) {
+    kynangso::RobotSettings settings;
+    auto config = settings.LoadExtensions();
+#if !CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+    config.bluetooth = false;
+#endif
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (!root)
+            return ESP_FAIL;
+        auto bluetooth = cJSON_GetObjectItemCaseSensitive(root, "bluetooth");
+        auto oled = cJSON_GetObjectItemCaseSensitive(root, "oled");
+        auto touch = cJSON_GetObjectItemCaseSensitive(root, "touch");
+        bool valid = cJSON_IsBool(bluetooth) && cJSON_IsBool(oled) && cJSON_IsBool(touch);
+        if (valid)
+            config = {cJSON_IsTrue(bluetooth) != 0, cJSON_IsTrue(oled) != 0,
+                      cJSON_IsTrue(touch) != 0};
+        cJSON_Delete(root);
+        if (!valid) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Expected three boolean fields");
+            return ESP_FAIL;
+        }
+#if !CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+        if (cJSON_IsTrue(bluetooth)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "Bluetooth D1 Mini chưa được bật trong cấu hình firmware.");
+            return ESP_FAIL;
+        }
+#endif
+        if (settings.SaveExtensions(config) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save NVS");
+            return ESP_FAIL;
+        }
+    }
+    if (req->method == HTTP_POST)
+        GetServer(req)->controller_.ApplyOledExtension();
+    auto response = cJSON_CreateObject();
+    if (response) {
+        cJSON_AddBoolToObject(response, "bluetooth", config.bluetooth);
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+        cJSON_AddBoolToObject(response, "bluetooth_supported", true);
+#else
+        cJSON_AddBoolToObject(response, "bluetooth_supported", false);
+#endif
+        cJSON_AddBoolToObject(response, "oled", config.oled);
+        cJSON_AddBoolToObject(response, "touch", config.touch);
+        cJSON_AddBoolToObject(response, "apply_on_restart", true);
+        cJSON_AddBoolToObject(response, "oled_apply_immediately", true);
+    }
+    return SendJson(req, response);
+}
+
 esp_err_t WebServer::ApiConfigHandler(httpd_req_t* req) {
     auto& controller = GetServer(req)->controller_;
     auto config = controller.GetMotorConfig();
@@ -1095,6 +1268,10 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
         const auto config = controller.GetOledConfig();
         cJSON* response = cJSON_CreateObject();
         if (response != nullptr) {
+            cJSON_AddBoolToObject(response, "enabled", controller.IsOledEnabled());
+            cJSON_AddBoolToObject(response, "available", controller.IsOledAvailable());
+            cJSON_AddStringToObject(response, "last_error",
+                                    esp_err_to_name(controller.OledLastError()));
             cJSON_AddStringToObject(response, "addr", config.address);
             cJSON_AddNumberToObject(response, "sda", config.sda);
             cJSON_AddNumberToObject(response, "scl", config.scl);
@@ -1166,7 +1343,7 @@ esp_err_t WebServer::ApiOledConfigHandler(httpd_req_t* req) {
 
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "result", "OLED configuration saved and applying");
+        cJSON_AddStringToObject(response, "result", "Đã lưu cấu hình OLED; đang áp dụng. Xem trạng thái kết nối để xác nhận.");
     }
     return SendJson(req, response);
 }
@@ -1175,8 +1352,8 @@ esp_err_t WebServer::ApiOledTestHandler(httpd_req_t* req) {
     GetServer(req)->controller_.ReinitializeOled();
     cJSON* response = cJSON_CreateObject();
     if (response != nullptr) {
-        cJSON_AddStringToObject(response, "result", "Display reinitialization scheduled");
-        cJSON_AddStringToObject(response, "note", "Check if the clock is visible on display");
+        cJSON_AddStringToObject(response, "result", "Đã yêu cầu kiểm tra và khởi tạo lại OLED.");
+        cJSON_AddStringToObject(response, "note", "Kết quả sẽ xuất hiện trong trạng thái OLED; lệnh này không tự bật ngoại vi đang tắt.");
     }
     return SendJson(req, response);
 }
@@ -1339,6 +1516,65 @@ esp_err_t WebServer::ApiFaceConfigHandler(httpd_req_t* req) {
     return SendJson(req, response);
 }
 
+esp_err_t WebServer::ApiInfoShuttleHandler(httpd_req_t* req) {
+    auto& controller = GetServer(req)->controller_;
+    auto config = controller.GetInfoShuttleConfig();
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (root == nullptr)
+            return ESP_FAIL;
+        const auto* enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+        const auto* random = cJSON_GetObjectItemCaseSensitive(root, "random");
+        const auto* show_face = cJSON_GetObjectItemCaseSensitive(root, "show_face");
+        const auto* show_schedule = cJSON_GetObjectItemCaseSensitive(root, "show_schedule");
+        const auto* show_weather = cJSON_GetObjectItemCaseSensitive(root, "show_weather");
+        char weather_location[97] = {};
+        std::snprintf(weather_location, sizeof(weather_location), "%s",
+                      config.weather_location.c_str());
+        const bool valid =
+            cJSON_IsBool(enabled) && cJSON_IsBool(random) && cJSON_IsBool(show_face) &&
+            cJSON_IsBool(show_schedule) && cJSON_IsBool(show_weather) &&
+            GetInteger(root, "interval_seconds", 5, 120, &config.interval_seconds) &&
+            GetInteger(root, "color_theme", 0, 3, &config.color_theme, false) &&
+            GetInteger(root, "calendar_theme", 0, 3, &config.calendar_theme, false) &&
+            GetString(root, "weather_location", weather_location, sizeof(weather_location), false);
+        if (valid) {
+            config.enabled = cJSON_IsTrue(enabled);
+            config.random = cJSON_IsTrue(random);
+            config.show_face = cJSON_IsTrue(show_face);
+            config.show_schedule = cJSON_IsTrue(show_schedule);
+            config.show_weather = cJSON_IsTrue(show_weather);
+            config.weather_location = weather_location;
+        }
+        cJSON_Delete(root);
+        if (!valid || !kynangso::RobotSettings::ValidateInfoShuttle(config)) {
+            httpd_resp_send_err(
+                req, HTTPD_400_BAD_REQUEST,
+                "Cấu hình màn hình chính động không hợp lệ (5-120 giây; cần chọn ít nhất một thẻ)");
+            return ESP_FAIL;
+        }
+        if (!controller.ConfigureInfoShuttle(config)) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                "Không lưu được cấu hình màn hình chính động");
+            return ESP_FAIL;
+        }
+    }
+
+    cJSON* response = cJSON_CreateObject();
+    if (response != nullptr) {
+        cJSON_AddBoolToObject(response, "enabled", config.enabled);
+        cJSON_AddBoolToObject(response, "random", config.random);
+        cJSON_AddBoolToObject(response, "show_face", config.show_face);
+        cJSON_AddBoolToObject(response, "show_schedule", config.show_schedule);
+        cJSON_AddBoolToObject(response, "show_weather", config.show_weather);
+        cJSON_AddNumberToObject(response, "interval_seconds", config.interval_seconds);
+        cJSON_AddNumberToObject(response, "color_theme", config.color_theme);
+        cJSON_AddNumberToObject(response, "calendar_theme", config.calendar_theme);
+        cJSON_AddStringToObject(response, "weather_location", config.weather_location.c_str());
+    }
+    return SendJson(req, response);
+}
 esp_err_t WebServer::ApiFacePreviewHandler(httpd_req_t* req) {
     cJSON* root = ParseBody(req);
     if (root == nullptr)

@@ -305,6 +305,34 @@ std::string RobotTimeService::Status(const char* error, const char* scope) const
     return Print(j);
 }
 
+std::string RobotTimeService::UpcomingSummary() {
+    std::lock_guard lock(mutex_);
+    const int64_t now = ClockNow();
+    if (now < kValidTime) {
+        return "Lịch tiếp theo: đang đồng bộ giờ";
+    }
+
+    const Entry* next = nullptr;
+    int64_t next_due = 0;
+    for (const auto& entry : entries_) {
+        if (!entry.id || !entry.enabled)
+            continue;
+        const int64_t due = entry.days != 0 && entry.due <= now ? NextAlarm(entry, now) : entry.due;
+        if (due <= now || (next != nullptr && due >= next_due))
+            continue;
+        next = &entry;
+        next_due = due;
+    }
+    if (next == nullptr)
+        return "Lịch tiếp theo: chưa có lịch";
+
+    const std::string local = LocalTime(next_due);
+    if (local.size() < 16)
+        return "Lịch tiếp theo: " + next->title;
+    return "Lịch tiếp theo: " + local.substr(8, 2) + "/" + local.substr(5, 2) + " " +
+           local.substr(11, 5) + " · " + next->title;
+}
+
 std::string RobotTimeService::Command(const cJSON* j) {
     std::lock_guard lock(mutex_);
     const auto op = Text(j, "op");

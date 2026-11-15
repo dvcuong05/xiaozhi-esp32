@@ -26,6 +26,7 @@ public:
     bool StartDisplayBenchmark(std::string* error);
     bool Stop();
     void StopVideoOnly();
+    void StopForMediaHandoff();
     bool IsActive() const { return active_.load(); }
 
 private:

@@ -977,7 +977,7 @@ void SdStorage::Mount() {
         bus_initialized_ = false;
         SetState("error", std::string("Không đọc được thẻ: ") + esp_err_to_name(err) +
                               ". Kiểm tra thẻ FAT32, dây nối và nguồn cấp.");
-        ESP_LOGW(kTag, "SD mount failed: %s (CS42/SCK41/MOSI40/MISO39)", esp_err_to_name(err));
+        ESP_LOGW(kTag, "SD mount failed: %s (CS48/SCK39/MOSI38/MISO40)", esp_err_to_name(err));
         return;
     }
     card_ = card;

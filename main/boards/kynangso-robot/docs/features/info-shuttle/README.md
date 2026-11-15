@@ -1,0 +1,70 @@
+# Màn hình chính động (Dynamic Main Screen)
+
+Khi robot rảnh, Màn hình chính động luân phiên ba nội dung trên TFT: khuôn mặt robot giữ nguyên
+giao diện gốc, thẻ lịch tiếp theo có giờ và tiêu đề nổi bật, cùng thẻ thời tiết có biểu tượng và
+khu vực nhiệt độ/điều kiện. Lịch và thời tiết có màu nhấn, nền riêng; thẻ khuôn mặt không chèn
+header, footer hay thành phần trang trí.
+
+## Cấu hình
+
+Thẻ Màn hình chính động trên trang webserver cho phép bật/tắt, chọn thẻ, chọn thứ tự ngẫu nhiên
+hoặc tuần tự và đặt chu kỳ 5-120 giây. Webserver cho phép đặt địa điểm thời tiết và chọn riêng một trong bốn tông màu cho thẻ lịch và thẻ thời tiết; trang khuôn mặt luôn giữ nguyên giao diện gốc. Cấu hình đọc/ghi
+qua GET/POST `/api/info_shuttle`. NVS đọc được record phiên bản 1/2 cũ và lưu phiên bản 3; địa điểm
+được lưu riêng trong namespace `info_shuttle` để không làm mất thiết lập hiện có.
+
+Luồng hội thoại, radio, nhạc, live TV, đồng hồ/đếm giờ, ảnh, Bluetooth, QR, boot console, xem
+trước khuôn mặt, phụ đề và thông báo có quyền ưu tiên TFT. Khi một trạng thái như vậy bắt đầu,
+Màn hình chính động ẩn ngay và timer luân phiên tạm dừng. Tính năng chỉ tiếp tục sau khi trạng
+thái chiếm màn hình kết thúc hoặc bị hủy; khi ẩn phụ đề, tính năng cũng dừng.
+
+## Điều khiển qua hội thoại giọng nói
+
+Robot đăng ký các MCP device tools self.robot.dynamic_main_screen.*, để người dùng điều khiển
+Màn hình chính động (Dynamic Main Screen) qua giọng nói trong chat:
+
+- `self.robot.dynamic_main_screen.status`: đọc cấu hình hiện tại.
+- `self.robot.dynamic_main_screen.set_enabled`: bật/tắt, giữ nguyên danh sách thẻ và chu kỳ.
+- `self.robot.dynamic_main_screen.configure`: chọn ngẫu nhiên/tuần tự, chu kỳ 5-120 giây và các thẻ
+  khuôn mặt/lịch/thời tiết. Khi chỉ đổi một tùy chọn, đọc status trước và giữ nguyên các giá trị
+  còn lại; luôn bật ít nhất một thẻ.
+- `self.robot.dynamic_main_screen.next`: chuyển sang thẻ kế tiếp ngay khi TFT rảnh. Nội dung TFT
+  có quyền ưu tiên vẫn được giữ nguyên.
+
+Các lệnh thay đổi cấu hình dùng chung `RobotController` và NVS với trang webserver; cập nhật màn
+hình được đưa vào hàng đợi chính của ứng dụng. MCP server/agent cần có các tool thiết bị này trong
+phiên chat để mô hình gọi chúng theo yêu cầu của người dùng.
+
+## Màu sắc, chữ và icon thời tiết
+
+Webserver lưu tông màu Calendar và Thời tiết riêng. Tiêu đề và địa điểm dùng font Noto Sans 16 px có đủ glyph tiếng Việt; địa điểm
+được xuống dòng khi dài. Font được tạo bằng `scripts/generate_time_font.py --size 16`. Khuôn mặt robot không dùng các tuỳ chỉnh này và giữ nguyên giao diện gốc.
+
+Backend trả `icon_kind` cùng bản tin thời tiết theo từng địa điểm: `0` nắng, `1` nhiều mây,
+`2` mưa, `3` dông, `4` gió mạnh, `5` tuyết, `6` sương mù. TFT vẽ icon bằng các hình LVGL;
+giọt mưa chuyển động và tia chớp nhấp nháy chỉ khi thẻ thời tiết đang hiện. Khi thẻ bị ẩn,
+đổi màu hoặc nhường TFT cho radio/nhạc/TV/đồng hồ/hội thoại, các animation dừng.
+
+## Dữ liệu lịch và thời tiết
+
+Thẻ lịch đọc lịch sắp tới từ `RobotTimeService` trên robot và dùng giờ `Asia/Ho_Chi_Minh` (UTC+7).
+Nếu chưa đồng bộ giờ, thẻ báo đang đồng bộ; nếu chưa có lịch bật, thẻ báo chưa có lịch.
+
+Firmware nhận tóm tắt thời tiết qua WSS Device Bridge bằng lệnh JSON:
+{"type":"display.weather","summary":"Đông Hưng Thuận 28°C, nhiều mây"}
+
+`summary` là chuỗi UTF-8 tối đa 192 byte; dữ liệu chỉ giữ trong RAM và sẽ mất khi robot khởi động
+lại. Thẻ tách nhiệt độ °C/°F nếu có, rồi hiển thị địa điểm và điều kiện trong bố cục riêng.
+
+## Cập nhật thời tiết theo từng robot
+
+Robot gửi `weather.current` kèm địa điểm NVS qua WSS đã xác thực. Server trả kết quả trên
+chính RPC của robot đó, không dùng địa điểm mặc định chung cho fleet. Thay địa điểm sẽ bỏ
+kết quả đang tải của địa điểm cũ. Dữ liệu Open-Meteo được cache theo tên địa điểm 15 phút,
+tối đa 256 địa điểm. Robot làm mới mỗi 15–16 phút với jitter; lỗi thử lại sau 2–2,5 phút.
+Tắt màn hình chính động hoặc thẻ thời tiết sẽ dừng các lần lấy mới. Worker riêng dùng chung
+WSS, không chặn vòng lặp TFT hoặc âm thanh. Dữ liệu cuối được giữ khi lỗi kết nối.
+
+Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ “theo thành phố”.
+Tên địa điểm mơ hồ trả lỗi để người dùng bổ sung tỉnh/thành, không chọn ngẫu nhiên kết quả.
+Nguồn: https://open-meteo.com/en/docs ; cần tuân thủ gói sử dụng của Open-Meteo khi triển khai.
+Cần cập nhật cả backend và firmware để RPC này hoạt động.

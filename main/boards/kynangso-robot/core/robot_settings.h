@@ -19,6 +19,12 @@ inline constexpr const char* kFaceEmotions[] = {
     "laugh",   "love",  "dizzy", "distracted", "devil",     "confident", "yawn",     "playful"};
 inline constexpr int kFaceEmotionCount = sizeof(kFaceEmotions) / sizeof(kFaceEmotions[0]);
 
+struct ExtensionConfig {
+    bool bluetooth = false;
+    bool oled = false;
+    bool touch = false;
+};
+
 struct MotorConfig {
     int32_t steps = 512;
     int32_t delay_ms = 1;
@@ -33,6 +39,18 @@ struct FaceConfig {
     bool motion = false;
     int intensity = 60;
     int idle_emotion = 0;
+};
+
+struct InfoShuttleConfig {
+    bool enabled = true;
+    bool random = true;
+    bool show_face = true;
+    bool show_schedule = true;
+    bool show_weather = true;
+    int interval_seconds = 30;
+    int color_theme = 0;
+    int calendar_theme = 0;
+    std::string weather_location = "Phường Đông Hưng Thuận, Hồ Chí Minh";
 };
 
 struct OledConfig {
@@ -54,6 +72,8 @@ struct OledConfig {
 // and hardware drivers must not read/write these namespaces independently.
 class RobotSettings {
 public:
+    ExtensionConfig LoadExtensions() const;
+    esp_err_t SaveExtensions(const ExtensionConfig& config);
     MotorConfig LoadMotor() const;
     esp_err_t SaveMotor(const MotorConfig& config);
     OledConfig LoadOled() const;
@@ -68,10 +88,13 @@ public:
     esp_err_t SaveQr(const QrConfig& config);
     FaceConfig LoadFace() const;
     esp_err_t SaveFace(const FaceConfig& config);
+    InfoShuttleConfig LoadInfoShuttle() const;
+    esp_err_t SaveInfoShuttle(const InfoShuttleConfig& config);
 
     static OledConfig DefaultOled();
     static bool ValidateMotor(const MotorConfig& config);
     static bool ValidateOled(const OledConfig& config);
+    static bool ValidateInfoShuttle(const InfoShuttleConfig& config);
     static bool ValidOledPins(int sda, int scl);
     static bool IsValidTftRotation(int rotation);
 

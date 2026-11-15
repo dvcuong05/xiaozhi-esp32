@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace kynangso {
@@ -483,6 +484,58 @@ bool OledDisplayController::RenderBoot(const char* title, const char* network_li
 
     Clear();
     DrawBoot(title, network_line);
+    return true;
+}
+
+bool OledDisplayController::RenderBluetooth(const char* text, int phase) {
+    if (!framebuffer_ || width_ <= 0 || height_ <= 0)
+        return false;
+    Clear();
+    // Draw icons as pixels so no extra font or bitmap asset is required.
+    const auto line = [this](int x0, int y0, int x1, int y1) {
+        const int dx = std::abs(x1 - x0), dy = std::abs(y1 - y0);
+        const int steps = std::max(dx, dy);
+        for (int i = 0; i <= steps; ++i)
+            SetPixel(x0 + (x1 - x0) * i / std::max(steps, 1),
+                     y0 + (y1 - y0) * i / std::max(steps, 1));
+    };
+    line(2, 2, 12, 12);
+    line(12, 12, 7, 16);
+    line(7, 16, 7, 0);
+    line(7, 0, 12, 4);
+    line(12, 4, 2, 14);
+    DrawText("Bluetooth", 19, 2, 1);
+    if (phase == 2) {
+        line(width_ - 13, 7, width_ - 9, 11);
+        line(width_ - 9, 11, width_ - 2, 3);
+    } else if (phase == 3) {
+        line(width_ - 12, 3, width_ - 3, 12);
+        line(width_ - 3, 3, width_ - 12, 12);
+    } else if (phase == 1) {
+        line(width_ - 13, 4, width_ - 8, 4);
+        line(width_ - 13, 4, width_ - 13, 9);
+        line(width_ - 13, 9, width_ - 6, 9);
+        line(width_ - 8, 6, width_ - 2, 6);
+        line(width_ - 2, 6, width_ - 2, 12);
+        line(width_ - 7, 12, width_ - 2, 12);
+    } else {
+        line(width_ - 13, 3, width_ - 6, 3);
+        line(width_ - 6, 3, width_ - 6, 10);
+        line(width_ - 6, 10, width_ - 13, 10);
+        line(width_ - 13, 10, width_ - 13, 3);
+        line(width_ - 6, 10, width_ - 2, 14);
+        SetPixel(width_ - 10, 5 + marquee_offset_ / 3 % 4);
+    }
+    if (std::strcmp(last_text_, text) != 0) {
+        std::snprintf(last_text_, sizeof(last_text_), "%s", text);
+        marquee_offset_ = 0;
+    }
+    const int text_width = TextWidth(text, 1);
+    const int cycle = text_width + width_;
+    const int x = text_width <= width_ ? (width_ - text_width) / 2
+                                       : width_ - marquee_offset_ % std::max(cycle, 1);
+    DrawText(text, x, height_ - TextHeight(text, 1), 1);
+    marquee_offset_ += 2;
     return true;
 }
 

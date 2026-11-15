@@ -1,4 +1,5 @@
 #include "integration/robot_mcp_tools.h"
+#include "sdkconfig.h"
 #include "application.h"
 #include "core/robot_controller.h"
 #include "features/motion/robot_drive.h"
@@ -182,6 +183,118 @@ static ToolResult GetRobotStatus(kynangso::RobotController& controller, const Pr
     cJSON_free(json);
     return result;
 }
+
+static ToolResult GetInfoShuttleStatus(kynangso::RobotController& controller) {
+    const auto config = controller.GetInfoShuttleConfig();
+    cJSON* status = cJSON_CreateObject();
+    if (status == nullptr)
+        return std::unexpected("Không cấp phát được phản hồi trạng thái màn hình chính động");
+
+    cJSON_AddBoolToObject(status, "enabled", config.enabled);
+    cJSON_AddStringToObject(status, "order", config.random ? "random" : "sequence");
+    cJSON_AddNumberToObject(status, "interval_seconds", config.interval_seconds);
+    cJSON_AddBoolToObject(status, "show_face", config.show_face);
+    cJSON_AddBoolToObject(status, "show_schedule", config.show_schedule);
+    cJSON_AddBoolToObject(status, "show_weather", config.show_weather);
+
+    char* json = cJSON_PrintUnformatted(status);
+    cJSON_Delete(status);
+    if (json == nullptr)
+        return std::unexpected("Không mã hóa được trạng thái màn hình chính động");
+    std::string result(json);
+    cJSON_free(json);
+    return result;
+}
+
+static ToolResult SetInfoShuttleEnabled(kynangso::RobotController& controller,
+                                        const PropertyList& properties) {
+    auto config = controller.GetInfoShuttleConfig();
+    config.enabled = properties["enabled"].value<bool>();
+    if (!controller.ConfigureInfoShuttle(config))
+        return std::unexpected("Không lưu được cấu hình màn hình chính động");
+    return GetInfoShuttleStatus(controller);
+}
+
+static ToolResult ConfigureInfoShuttle(kynangso::RobotController& controller,
+                                       const PropertyList& properties) {
+    auto config = controller.GetInfoShuttleConfig();
+    config.random = properties["random"].value<bool>();
+    config.interval_seconds = properties["interval_seconds"].value<int>();
+    config.show_face = properties["show_face"].value<bool>();
+    config.show_schedule = properties["show_schedule"].value<bool>();
+    config.show_weather = properties["show_weather"].value<bool>();
+    if (!controller.ConfigureInfoShuttle(config))
+        return std::unexpected(
+            "Cấu hình màn hình chính động không hợp lệ; cần bật ít nhất một thẻ");
+    return GetInfoShuttleStatus(controller);
+}
+
+static ToolResult AdvanceInfoShuttle(kynangso::RobotController& controller) {
+    if (!controller.AdvanceInfoShuttle())
+        return std::unexpected("Màn hình chính động đang tắt; hãy bật trước khi chuyển thẻ");
+    return "Đã gửi yêu cầu chuyển thẻ. Nội dung TFT được ưu tiên vẫn giữ nguyên.";
+}
+
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+static ToolResult BluetoothStatusTool(kynangso::RobotController& controller,
+                                      const PropertyList&) {
+    const auto status = controller.Bluetooth().GetStatus();
+    cJSON* root = cJSON_CreateObject();
+    if (!root)
+        return std::unexpected("Could not allocate Bluetooth status response");
+    cJSON_AddBoolToObject(root, "enabled", status.enabled);
+    cJSON_AddBoolToObject(root, "online", status.online);
+    cJSON_AddBoolToObject(root, "connected", status.connected);
+    cJSON_AddBoolToObject(root, "streaming", status.streaming);
+    cJSON_AddBoolToObject(root, "scanning", status.scanning);
+    cJSON_AddBoolToObject(root, "switching", status.switching);
+    cJSON_AddStringToObject(root, "current", status.current.c_str());
+    cJSON_AddStringToObject(root, "target", status.target.c_str());
+    cJSON_AddStringToObject(root, "message", status.message.c_str());
+    cJSON* devices = cJSON_AddArrayToObject(root, "devices");
+    for (const auto& device : status.devices) {
+        cJSON* item = cJSON_CreateObject();
+        if (!item)
+            continue;
+        cJSON_AddStringToObject(item, "name", device.name.c_str());
+        cJSON_AddStringToObject(item, "address", device.address.c_str());
+        cJSON_AddNumberToObject(item, "rssi", device.rssi);
+        cJSON_AddItemToArray(devices, item);
+    }
+    char* encoded = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!encoded)
+        return std::unexpected("Could not encode Bluetooth status");
+    std::string result(encoded);
+    cJSON_free(encoded);
+    return result;
+}
+
+static ToolResult BluetoothScanTool(kynangso::RobotController& controller, const PropertyList&) {
+    std::string error;
+    if (!controller.Bluetooth().Scan(&error))
+        return std::unexpected(error);
+    return "Đã bắt đầu quét; danh sách loa sẽ hiện trên TFT. Chạm đơn chọn loa tiếp, chạm đôi kết nối nếu touch đã bật; hoặc dùng VOL/BOOT; gọi self.robot.bluetooth.status để đọc kết quả.";
+}
+
+static ToolResult BluetoothConnectTool(kynangso::RobotController& controller,
+                                       const PropertyList& properties) {
+    const auto name = properties["name"].value<std::string>();
+    std::string error;
+    if (!controller.Bluetooth().ConnectByName(name, &error))
+        return std::unexpected(error);
+    return "Đang kết nối loa đã chọn; theo dõi trạng thái trên TFT và OLED nếu có.";
+}
+
+static ToolResult BluetoothDisconnectTool(kynangso::RobotController& controller,
+                                          const PropertyList&) {
+    std::string error;
+    if (!controller.Bluetooth().Disconnect(&error))
+        return std::unexpected(error);
+    return "Đã yêu cầu ngắt loa; trạng thái được hiển thị trên robot.";
+}
+
+#endif
 
 // MCP Tool: Toggle chat state
 static ToolResult ToggleChat(const PropertyList&) {
@@ -422,6 +535,46 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
         });
 
     mcp.AddTool(
+        "self.robot.dynamic_main_screen.status",
+        "Chỉ gọi khi người dùng hỏi về Màn hình chính động (Dynamic Main Screen) trên TFT. "
+        "Trả cấu hình bật/tắt, thứ tự ngẫu nhiên hay tuần tự, chu kỳ và các thẻ đang được chọn.",
+        PropertyList(),
+        [&controller](const PropertyList&) { return GetInfoShuttleStatus(controller); });
+    mcp.AddTool("self.robot.dynamic_main_screen.set_enabled",
+                "Bật hoặc tắt Màn hình chính động (Dynamic Main Screen) khi người dùng yêu cầu. "
+                "enabled=true để bật, false để tắt; giữ nguyên các thẻ và chu kỳ đã cấu hình.",
+                PropertyList({Property("enabled", kPropertyTypeBoolean)}),
+                [&controller](const PropertyList& properties) {
+                    return SetInfoShuttleEnabled(controller, properties);
+                });
+    mcp.AddTool(
+        "self.robot.dynamic_main_screen.configure",
+        "Cấu hình các thẻ và chu kỳ của Màn hình chính động (Dynamic Main Screen) khi người dùng "
+        "nói rõ muốn chọn thẻ nào, đổi ngẫu nhiên/tuần tự hoặc đổi khoảng thời gian. random=true "
+        "là "
+        "ngẫu nhiên; false là khuôn mặt -> lịch -> thời tiết. interval_seconds từ 5 đến 120. Bật "
+        "ít "
+        "nhất một trong show_face/show_schedule/show_weather. Khi chỉ đổi một tùy chọn, hãy đọc "
+        "status trước và giữ nguyên các giá trị còn lại. Trạng thái bật/tắt hiện tại được giữ "
+        "nguyên.",
+        PropertyList({Property("random", kPropertyTypeBoolean),
+                      Property("interval_seconds", kPropertyTypeInteger, 5, 120),
+                      Property("show_face", kPropertyTypeBoolean),
+                      Property("show_schedule", kPropertyTypeBoolean),
+                      Property("show_weather", kPropertyTypeBoolean)}),
+        [&controller](const PropertyList& properties) {
+            return ConfigureInfoShuttle(controller, properties);
+        });
+    mcp.AddTool(
+        "self.robot.dynamic_main_screen.next",
+        "Chuyển ngay sang thẻ tiếp theo trong các thẻ đã bật của Màn hình chính động. Chỉ gọi khi "
+        "người dùng yêu cầu đổi/bỏ qua thẻ; không dùng để che radio, nhạc, TV, đồng hồ hoặc màn "
+        "hình "
+        "ưu tiên khác. Nếu tính năng đang tắt, yêu cầu bật trước.",
+        PropertyList(),
+        [&controller](const PropertyList&) { return AdvanceInfoShuttle(controller); });
+
+    mcp.AddTool(
         "self.network.ip2qrcode",
         "Hiển thị QR tạm thời để mở webserver nội bộ hiện tại của robot. Dùng khi người dùng "
         "yêu cầu QR truy cập robot/webserver; cần Wi-Fi và không làm thay đổi QR ngân hàng đã lưu.",
@@ -449,6 +602,45 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
                 return std::unexpected("Invalid QR payload or caption (max 256/96 UTF-8 bytes)");
             return "Temporary QR display scheduled";
         });
+
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+    if (controller.Bluetooth().GetStatus().enabled) {
+        mcp.AddTool(
+            "self.robot.bluetooth.status",
+            "Chỉ dùng khi người dùng hỏi rõ trạng thái Bluetooth; không gọi để phát nhạc, radio, TV hoặc SD. "
+            "Lấy trạng thái kết nối loa Bluetooth và danh sách thiết bị vừa quét trên robot. Dùng trước "
+            "khi yêu cầu kết nối theo tên để xác nhận loa duy nhất.",
+            PropertyList(), [&controller](const PropertyList& properties) {
+                return BluetoothStatusTool(controller, properties);
+            });
+        mcp.AddTool(
+            "self.robot.bluetooth.scan",
+            "Chỉ quét khi người dùng yêu cầu tìm, chọn hoặc đổi loa Bluetooth; không quét để bắt đầu phát media. "
+            "Quét loa Bluetooth xung quanh bằng mạch D1 mở rộng. Quét mới sẽ ngắt loa đang kết nối; "
+            "gọi self.robot.bluetooth.status để xem danh sách sau khi quét xong.",
+            PropertyList(), [&controller](const PropertyList& properties) {
+                return BluetoothScanTool(controller, properties);
+            });
+        Property bluetooth_name("name", kPropertyTypeString);
+        bluetooth_name.SetMaxLength(64);
+        mcp.AddTool(
+            "self.robot.bluetooth.connect",
+            "Chỉ kết nối khi người dùng yêu cầu rõ kết nối/chọn/đổi loa Bluetooth; không hỏi chọn loa khi phát media. "
+            "Kết nối loa Bluetooth có tên khớp với name từ kết quả quét gần nhất. Tên phải khớp duy "
+            "nhất; nếu có nhiều loa trùng tên, dùng status để phân biệt và không tự chọn ngẫu nhiên. "
+            "D1 sẽ dừng luồng, ngắt loa cũ rồi mới kết nối loa mới.",
+            PropertyList({bluetooth_name}), [&controller](const PropertyList& properties) {
+                return BluetoothConnectTool(controller, properties);
+            });
+        mcp.AddTool(
+            "self.robot.bluetooth.disconnect",
+            "Chỉ ngắt khi người dùng yêu cầu rõ. Không ngắt hoặc đổi loa khi phát media. "
+            "Ngắt kết nối loa Bluetooth hiện tại qua D1 Mini.",
+            PropertyList(), [&controller](const PropertyList& properties) {
+                return BluetoothDisconnectTool(controller, properties);
+            });
+    }
+#endif
 
     ESP_LOGI(TAG, "Robot MCP tools registered");
 }

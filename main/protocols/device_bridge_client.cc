@@ -24,7 +24,8 @@ namespace {
 
 constexpr size_t kBridgeReceiveBufferSize = 12288;
 constexpr size_t kBridgeQueueDepth = 2;
-constexpr TickType_t kReconnectDelay = pdMS_TO_TICKS(5000);
+constexpr TickType_t kReconnectDelayInitial = pdMS_TO_TICKS(5000);
+constexpr TickType_t kReconnectDelayMax = pdMS_TO_TICKS(30000);
 constexpr TickType_t kPingInterval = pdMS_TO_TICKS(20000);
 constexpr TickType_t kPongTimeout = pdMS_TO_TICKS(50000);
 // TLS handshakes use a deep esp-tls/mbedTLS call chain; 4 KB overflows before
@@ -328,19 +329,29 @@ void DeviceBridgeClient::TaskEntry(void* context) {
 
 void DeviceBridgeClient::Run() {
     const std::string authorization = std::string("Bearer ") + config_.token;
+    TickType_t reconnect_delay = kReconnectDelayInitial;
+    auto wait_before_retry = [&reconnect_delay]() {
+        vTaskDelay(reconnect_delay);
+        if (reconnect_delay < kReconnectDelayMax) {
+            reconnect_delay =
+                reconnect_delay > kReconnectDelayMax / 2 ? kReconnectDelayMax : reconnect_delay * 2;
+        }
+    };
     while (true) {
         auto* network = Board::GetInstance().GetNetwork();
         auto socket = network == nullptr ? nullptr : network->CreateWebSocket(2);
         if (socket == nullptr) {
-            ESP_LOGW(TAG, "Network is not ready for the WSS bridge; retrying shortly");
-            vTaskDelay(kReconnectDelay);
+            ESP_LOGW(TAG, "Network is not ready for the WSS bridge; retrying in %lu seconds",
+                     static_cast<unsigned long>(pdTICKS_TO_MS(reconnect_delay) / 1000U));
+            wait_before_retry();
             continue;
         }
 
         auto inbox = std::make_shared<BridgeInbox>();
         if (inbox->queue == nullptr) {
-            ESP_LOGE(TAG, "Failed to allocate WSS command queue");
-            vTaskDelay(kReconnectDelay);
+            ESP_LOGE(TAG, "Failed to allocate WSS command queue; retrying in %lu seconds",
+                     static_cast<unsigned long>(pdTICKS_TO_MS(reconnect_delay) / 1000U));
+            wait_before_retry();
             continue;
         }
 
@@ -370,6 +381,7 @@ void DeviceBridgeClient::Run() {
         if (!connected) {
             ESP_LOGW(TAG, "WSS connect failed: %s", connected.error().ToString().c_str());
         } else {
+            reconnect_delay = kReconnectDelayInitial;
             connected_.store(
                 socket->IsConnected() && !disconnected->load() && !inbox->failed.load(),
                 std::memory_order_release);
@@ -412,8 +424,9 @@ void DeviceBridgeClient::Run() {
         socket->Close();
         socket.reset();
         inbox.reset();
-        ESP_LOGI(TAG, "WSS bridge disconnected; retrying in 5 seconds");
-        vTaskDelay(kReconnectDelay);
+        ESP_LOGI(TAG, "WSS bridge disconnected; retrying in %lu seconds",
+                 static_cast<unsigned long>(pdTICKS_TO_MS(reconnect_delay) / 1000U));
+        wait_before_retry();
     }
 }
 

@@ -7,9 +7,13 @@
 #include "display/lvgl_display/jpg/jpeg_to_image.h"
 #include "display/lvgl_display/lvgl_image.h"
 
+#include <sdkconfig.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <cJSON.h>
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#include <freertos/idf_additions.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -22,6 +26,8 @@ namespace {
 using Result = SdStorage::Result;
 using Code = SdStorage::Code;
 constexpr char kTag[] = "RobotSD";
+constexpr uint32_t kWorkerJobNotification = 1;
+constexpr uint32_t kWorkerStopNotification = UINT32_MAX;
 std::atomic<bool> g_sd_image_decode_busy{false};
 std::atomic<uint32_t> g_sd_image_request_id{0};
 
@@ -181,18 +187,28 @@ std::string Attachment(const std::string& path) {
     }
     return value;
 }
+
 }  // namespace
 
 SdWebServer::SdWebServer(SdStorage& storage)
     : storage_(storage),
       idle_(xSemaphoreCreateBinary()),
+      worker_stopped_(xSemaphoreCreateBinary()),
       slideshow_done_(xSemaphoreCreateBinary()) {}
 
 SdWebServer::~SdWebServer() {
     StopSlideshow();
     StopTransfers();
+    if (worker_ != nullptr) {
+        xTaskNotify(worker_, kWorkerStopNotification, eSetValueWithOverwrite);
+        if (worker_stopped_)
+            xSemaphoreTake(worker_stopped_, portMAX_DELAY);
+        worker_ = nullptr;
+    }
     if (idle_)
         vSemaphoreDelete(idle_);
+    if (worker_stopped_)
+        vSemaphoreDelete(worker_stopped_);
     if (slideshow_done_)
         vSemaphoreDelete(slideshow_done_);
 }
@@ -383,6 +399,29 @@ void SdWebServer::StopSlideshow() {
 
 esp_err_t SdWebServer::Register(httpd_handle_t server) {
     closing_.store(false);
+    if (!idle_ || !worker_stopped_)
+        return ESP_ERR_NO_MEM;
+    if (worker_ == nullptr) {
+        BaseType_t created = pdFAIL;
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+        created = xTaskCreateWithCaps(RunJob, "sd_http", 8192, this, 2, &worker_,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        worker_external_stack_ = created == pdPASS;
+#else
+        created = xTaskCreate(RunJob, "sd_http", 8192, this, 2, &worker_);
+#endif
+        if (created != pdPASS) {
+            worker_ = nullptr;
+            ESP_LOGE(kTag,
+                     "SD HTTP worker creation failed at server start (internal_free=%u "
+                     "internal_largest=%u)",
+                     unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                     unsigned(
+                         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+            closing_.store(true);
+            return ESP_ERR_NO_MEM;
+        }
+    }
     httpd_uri_t routes[] = {
         {"/storage", HTTP_GET, Page, this},
         {"/api/storage", HTTP_GET, Handler, this},
@@ -418,28 +457,47 @@ esp_err_t SdWebServer::Page(httpd_req_t* req) {
 
 esp_err_t SdWebServer::Handler(httpd_req_t* req) {
     auto& self = *static_cast<SdWebServer*>(req->user_ctx);
-    // A single short-lived file worker keeps uploads/downloads and slow SD I/O
-    // off the HTTP control task, leaving /api/stop and the dashboard responsive.
+    // One worker is created when routes register and reused for every request.
     std::lock_guard<std::mutex> lock(self.job_mutex_);
     if (self.closing_.load() || self.busy_) {
         auto result = Reply(req, {Code::Busy, "Đang truyền file. Hãy thử lại sau."});
         return req->content_len ? ESP_FAIL : result;
     }
-    if (!self.idle_)
+    if (!self.idle_ || self.worker_ == nullptr)
         return Reply(req, {Code::Unavailable, "Không đủ bộ nhớ."});
     httpd_req_t* copy = nullptr;
     if (httpd_req_async_handler_begin(req, &copy) != ESP_OK)
         return ESP_FAIL;
-    auto* job = new (std::nothrow) Job{&self, copy};
-    self.busy_ = true;
-    xSemaphoreTake(self.idle_, 0);
-    if (!job || xTaskCreate(RunJob, "sd_http", 8192, job, 2, nullptr) != pdPASS) {
-        delete job;
-        self.busy_ = false;
+    auto* job = new (std::nothrow) Job{copy};
+    if (job == nullptr) {
+        const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const size_t internal_largest =
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        ESP_LOGW(kTag, "SD HTTP job allocation failed (internal_free=%u internal_largest=%u)",
+                 unsigned(internal_free), unsigned(internal_largest));
         const bool close = copy->content_len != 0;
         const auto server = copy->handle;
         const int socket = httpd_req_to_sockfd(copy);
-        Reply(copy, {Code::Unavailable, "Không đủ bộ nhớ để truyền file."});
+        Reply(copy, {Code::Unavailable, "Không đủ SRAM nội bộ để xử lý yêu cầu thẻ nhớ."});
+        httpd_req_async_handler_complete(copy);
+        if (close)
+            httpd_sess_trigger_close(server, socket);
+        return ESP_OK;
+    }
+
+    xSemaphoreTake(self.idle_, 0);
+    self.pending_job_ = job;
+    self.busy_ = true;
+    if (xTaskNotify(self.worker_, kWorkerJobNotification, eSetValueWithOverwrite) != pdPASS) {
+        self.pending_job_ = nullptr;
+        self.busy_ = false;
+        xSemaphoreGive(self.idle_);
+        const bool close = copy->content_len != 0;
+        const auto server = copy->handle;
+        const int socket = httpd_req_to_sockfd(copy);
+        delete job;
+        ESP_LOGE(kTag, "Failed to notify persistent SD HTTP worker");
+        Reply(copy, {Code::Unavailable, "Không gửi được yêu cầu tới worker thẻ nhớ."});
         httpd_req_async_handler_complete(copy);
         if (close)
             httpd_sess_trigger_close(server, socket);
@@ -448,22 +506,53 @@ esp_err_t SdWebServer::Handler(httpd_req_t* req) {
 }
 
 void SdWebServer::RunJob(void* context) {
-    std::unique_ptr<Job> job(static_cast<Job*>(context));
-    auto& self = *job->owner;
-    bool body_consumed = job->request->content_len == 0;
-    auto result = self.HandleRequest(job->request, body_consumed);
-    auto handle = job->request->handle;
-    int socket = httpd_req_to_sockfd(job->request);
-    httpd_req_async_handler_complete(job->request);
-    if (result != ESP_OK || !body_consumed)
-        httpd_sess_trigger_close(handle, socket);
-    {
-        std::lock_guard<std::mutex> lock(self.job_mutex_);
-        self.busy_ = false;
-        xSemaphoreGive(self.idle_);
+    auto& self = *static_cast<SdWebServer*>(context);
+    while (true) {
+        uint32_t notification = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
+        if (notification == kWorkerStopNotification) {
+            if (self.worker_stopped_)
+                xSemaphoreGive(self.worker_stopped_);
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+            if (self.worker_external_stack_)
+                vTaskDeleteWithCaps(nullptr);
+            else
+#endif
+            vTaskDelete(nullptr);
+            return;
+        }
+        if (notification != kWorkerJobNotification)
+            continue;
+
+        std::unique_ptr<Job> job;
+        {
+            std::lock_guard<std::mutex> lock(self.job_mutex_);
+            job.reset(self.pending_job_);
+            self.pending_job_ = nullptr;
+        }
+        if (!job)
+            continue;
+
+        bool body_consumed = job->request->content_len == 0;
+        auto result = self.HandleRequest(job->request, body_consumed);
+        auto handle = job->request->handle;
+        int socket = httpd_req_to_sockfd(job->request);
+        httpd_req_async_handler_complete(job->request);
+        static uint32_t lowest_stack_free = UINT32_MAX;
+        const uint32_t stack_free = uxTaskGetStackHighWaterMark(nullptr);
+        if (stack_free < lowest_stack_free) {
+            lowest_stack_free = stack_free;
+            ESP_LOGI(kTag, "SD HTTP worker stack low-water mark: %u bytes", unsigned(stack_free));
+        }
+        if (result != ESP_OK || !body_consumed)
+            httpd_sess_trigger_close(handle, socket);
+        job.reset();
+        {
+            std::lock_guard<std::mutex> lock(self.job_mutex_);
+            self.busy_ = false;
+            xSemaphoreGive(self.idle_);
+        }
     }
-    job.reset();
-    vTaskDelete(nullptr);
 }
 
 esp_err_t SdWebServer::HandleRequest(httpd_req_t* req, bool& body_consumed) {
@@ -511,6 +600,13 @@ esp_err_t SdWebServer::HandleRequest(httpd_req_t* req, bool& body_consumed) {
             cJSON_AddNumberToObject(root, "music_tracks", status.music_tracks);
             cJSON_AddBoolToObject(root, "music_truncated", status.music_truncated);
             cJSON_AddNumberToObject(root, "music_generation", status.music_generation);
+            cJSON_AddNumberToObject(root, "internal_free_bytes",
+                                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            cJSON_AddNumberToObject(
+                root, "internal_largest_block_bytes",
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            cJSON_AddNumberToObject(root, "sd_worker_stack_free_bytes",
+                                    uxTaskGetStackHighWaterMark(nullptr));
         }
         return Json(req, root);
     }

@@ -2,13 +2,21 @@
 #define KYNANGSO_ROBOT_CONTROLLER_H_
 
 #include "core/robot_settings.h"
+#include "features/bluetooth/bluetooth_service.h"
 #include "features/motion/robot_drive.h"
 #include "features/time/robot_time_service.h"
 #include "integration/web_chat_bridge.h"
+#include "sdkconfig.h"
 
 #include <functional>
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+#include <atomic>
+#include <esp_timer.h>
+#endif
 #include <mutex>
 #include <string>
+#include <thread>
+#include <atomic>
 
 class KyNangSoRobotDisplay;
 
@@ -25,8 +33,14 @@ public:
                     SdStorage& storage);
     ~RobotController();
     RobotTimeService& TimeService() { return *time_service_; }
+    BluetoothService& Bluetooth() { return bluetooth_; }
+    bool HandleBluetoothButton(int action);  // -1 previous, 1 next, 0 connect, 2 close
     FaceConfig GetFaceConfig() const;
     bool ConfigureFace(const FaceConfig& config);
+    InfoShuttleConfig GetInfoShuttleConfig() const;
+    bool ConfigureInfoShuttle(const InfoShuttleConfig& config);
+    bool AdvanceInfoShuttle();
+    bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
     bool PreviewEmotion(int preset);
     bool PreviewFace(int emotion);
     SdStorage& Storage() { return storage_; }
@@ -42,6 +56,10 @@ public:
     bool IsRoutineRunning() const;
     void SetDurationUnit(int delay_ms);
 
+    bool IsOledEnabled() const;
+    bool IsOledAvailable() const;
+    esp_err_t OledLastError() const;
+    void ApplyOledExtension();
     OledConfig GetOledConfig() const;
     bool ConfigureOled(const OledConfig& config);
     bool SetOledMode(int mode);
@@ -66,6 +84,8 @@ public:
     std::expected<std::string, std::string> ConsumeWebPrompt();
 
 private:
+    std::atomic<bool> weather_stop_{false};
+    std::thread weather_worker_;
     RobotSettings& settings_;
     RobotDrive& drive_;
     SecondaryDisplay& secondary_;
@@ -74,6 +94,24 @@ private:
     std::function<void(int)> apply_tft_rotation_;
     WebChatBridge web_chat_;
     std::shared_ptr<RobotTimeService> time_service_;
+    BluetoothService bluetooth_;
+#if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
+    struct BluetoothUiLifetime { std::atomic<bool> alive{true}; std::atomic<bool> pending{false}; };
+    std::shared_ptr<BluetoothUiLifetime> bluetooth_ui_lifetime_ = std::make_shared<BluetoothUiLifetime>();
+    esp_timer_handle_t bluetooth_ui_timer_ = nullptr;
+    std::atomic<bool> bluetooth_ui_active_{false};
+    uint32_t bluetooth_operation_id_ = 0;
+    int64_t bluetooth_started_us_ = 0;
+    int64_t bluetooth_deadline_us_ = 0;
+    int64_t bluetooth_finished_us_ = 0;
+    size_t bluetooth_selected_ = 0;
+    std::string bluetooth_error_;
+    int64_t bluetooth_error_until_us_ = 0;
+    std::string bluetooth_view_key_;
+    std::string bluetooth_oled_key_;
+    void UpdateBluetoothUi();
+    void CloseBluetoothUi();
+#endif
     std::mutex config_mutex_;
 };
 

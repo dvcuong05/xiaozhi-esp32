@@ -125,7 +125,10 @@ boot sound và notification không bật media visualizer; hội thoại và med
 - `AudioInputTask` reads codec input and feeds the selected engine.
 - `AudioOutputTask` drains decoded PCM to the codec output.
 - `OpusCodecTask` encodes uplink PCM and decodes downlink packets.
-- `AfeAudioEngine` has its own AFE fetch task on S3/P4/S31.
+- `AfeAudioEngine` has its own AFE fetch task on S3/P4/S31. Its priority is
+  configurable with `XIAOZHI_AFE_FETCH_TASK_PRIORITY` (default 3); the KyNangSo
+  robot variant uses priority 6 so AFE can keep draining input while lower
+  priority network bridge work is reconnecting.
 
 The audio power timer still enables and disables codec ADC/DAC channels based on
 activity; the engine refactor does not change that policy.

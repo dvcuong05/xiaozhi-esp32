@@ -73,20 +73,49 @@ bool NotifyPlayer::Start(std::string audio_url, std::vector<NotifySubtitle> subt
         completion_reported_ = false;
     }
 
+    const bool requested_external_stack = options.external_task_stack;
     BaseType_t created = pdFAIL;
-#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
     if (options.external_task_stack) {
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
         created = xTaskCreateWithCaps(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
                                       kNotifyTaskPriority, &task_handle_,
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else
 #endif
-        if (!options.external_task_stack) {
+        if (created != pdPASS) {
+            ESP_LOGW(TAG,
+                     "Could not allocate playback task stack in PSRAM; retrying internal RAM");
+            options.external_task_stack = false;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                options_.external_task_stack = false;
+                task_handle_ = nullptr;
+            }
+            created = xTaskCreate(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
+                                  kNotifyTaskPriority, &task_handle_);
+        }
+    } else {
         created = xTaskCreate(WorkerEntry, "notify_http", kNotifyTaskStackSize, this,
                               kNotifyTaskPriority, &task_handle_);
     }
     if (created != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create notification HTTP task");
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+        const auto internal_free =
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const auto internal_largest =
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const auto psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        ESP_LOGE(TAG,
+                 "Failed to create notification HTTP task (stack=%lu B, requested=%s, "
+                 "internal_free=%lu, internal_largest=%lu, psram_free=%lu)",
+                 static_cast<unsigned long>(kNotifyTaskStackSize),
+                 requested_external_stack ? "PSRAM" : "internal",
+                 static_cast<unsigned long>(internal_free),
+                 static_cast<unsigned long>(internal_largest),
+                 static_cast<unsigned long>(psram_free));
+#else
+        ESP_LOGE(TAG, "Failed to create notification HTTP task (stack=%lu B, internal RAM)",
+                 static_cast<unsigned long>(kNotifyTaskStackSize));
+#endif
         std::lock_guard<std::mutex> lock(mutex_);
         active_ = false;
         worker_running_ = false;

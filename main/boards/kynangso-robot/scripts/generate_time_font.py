@@ -1,4 +1,4 @@
-"""Rebuild the board-local Noto Sans 14 px Vietnamese font (not part of firmware builds)."""
+"""Rebuild board-local Noto Sans Vietnamese fonts (not part of firmware builds)."""
 
 import argparse
 import hashlib
@@ -22,6 +22,8 @@ RANGES = (
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--font", type=Path, help="Existing source TTF; otherwise download it")
+    parser.add_argument("--size", type=int, choices=(14, 16), default=14,
+                        help="Font size in pixels (default: 14)")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="kynangso-time-font-") as temporary:
         font = args.font
@@ -33,12 +35,14 @@ def main():
         npx = shutil.which("npx.cmd" if os.name == "nt" else "npx")
         if not npx:
             raise SystemExit("Node.js/npx is required only when regenerating this font")
-        output = BOARD / "display/tft/robot_time_font.c"
+        font_name = "robot_time_font_14" if args.size == 14 else "robot_info_font_16"
+        output_name = "robot_time_font.c" if args.size == 14 else "robot_info_font.c"
+        output = BOARD / "display/tft" / output_name
         subprocess.run([
-            npx, "--yes", "lv_font_conv@1.5.3", "--size", "14", "--bpp", "1",
+            npx, "--yes", "lv_font_conv@1.5.3", "--size", str(args.size), "--bpp", "1",
             "--no-compress", "--no-kerning", "--font", str(font.resolve()),
             "-r", RANGES, "--format", "lvgl", "--lv-include", "lvgl.h",
-            "--lv-font-name", "robot_time_font_14", "-o", str(output),
+            "--lv-font-name", font_name, "-o", str(output),
         ], check=True)
         # Avoid embedding the generator machine's filesystem paths in source.
         content = output.read_text(encoding="utf-8")

@@ -80,6 +80,7 @@ public:
     esp_err_t SaveOled(const OledConfig& config);
     esp_err_t SetOledMode(int mode);
     esp_err_t SaveMarquee(const std::string& text, int speed, int font_size);
+    esp_err_t SaveOledSpeed(int speed);
     int LoadTftRotation() const;
     esp_err_t SaveTftRotation(int rotation);
     BootAudioConfig LoadBootAudio() const;

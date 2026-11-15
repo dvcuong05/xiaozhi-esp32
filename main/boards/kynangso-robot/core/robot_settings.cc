@@ -263,6 +263,16 @@ esp_err_t RobotSettings::SaveMarquee(const std::string& text, int speed, int fon
     });
 }
 
+esp_err_t RobotSettings::SaveOledSpeed(int speed) {
+    if (!OledDisplayController::IsValidSpeed(speed)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("oled_config", [speed](nvs_handle_t handle) {
+        return nvs_set_i32(handle, "speed", speed);
+    });
+}
+
 bool RobotSettings::IsValidTftRotation(int rotation) {
     return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
 }

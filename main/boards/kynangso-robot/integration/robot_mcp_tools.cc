@@ -126,6 +126,17 @@ static ToolResult SetRobotOledMode(kynangso::RobotController& controller,
     return "Secondary OLED mode set to " + mode;
 }
 
+static ToolResult SetRobotOledMarqueeSpeed(kynangso::RobotController& controller,
+                                           const PropertyList& properties) {
+    const int speed = properties["speed"].value<int>();
+    if (!controller.SetOledMarqueeSpeed(speed)) {
+        return std::unexpected("Could not save the secondary OLED marquee speed");
+    }
+    static constexpr const char* kSpeedNames[] = {"", "slow", "medium", "fast", "very fast",
+                                                  "maximum"};
+    return std::string("Secondary OLED marquee speed set to ") + kSpeedNames[speed];
+}
+
 static ToolResult ShowRobotIp(kynangso::RobotController& controller, const PropertyList&) {
     const std::string ip = controller.ShowIp();
     if (ip.empty()) {
@@ -138,10 +149,11 @@ static ToolResult ShowRobotOledText(kynangso::RobotController& controller,
                                     const PropertyList& properties) {
     const std::string text = properties["text"].value<std::string>();
     const int duration_ms = properties["duration_ms"].value<int>();
+    const int speed = properties["speed"].value<int>();
     if (text.empty()) {
         return std::unexpected("OLED text must not be empty");
     }
-    if (!controller.ShowOledText(text, duration_ms)) {
+    if (!controller.ShowOledText(text, duration_ms, speed)) {
         return std::unexpected("Could not display text on the secondary OLED");
     }
     return "Custom OLED text display started";
@@ -497,6 +509,14 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
         PropertyList({oled_mode}), [&controller](const PropertyList& properties) {
             return SetRobotOledMode(controller, properties);
         });
+    mcp.AddTool(
+        "self.robot.set_oled_marquee_speed",
+        "Đặt và lưu tốc độ chữ chạy OLED phụ: 1 chậm, 2 vừa, 3 nhanh, 4 rất nhanh, 5 cực nhanh. "
+        "Áp dụng ngay nếu OLED đang ở chế độ chữ chạy.",
+        PropertyList({Property("speed", kPropertyTypeInteger, 2, 1, 5)}),
+        [&controller](const PropertyList& properties) {
+            return SetRobotOledMarqueeSpeed(controller, properties);
+        });
     mcp.AddTool("self.robot.show_ip",
                 "Hiển thị địa chỉ IP Wi-Fi nội bộ của robot và trả IP để thông báo cho người dùng. "
                 "Dùng khi người dùng hỏi IP/địa chỉ webserver; cần robot đã kết nối Wi-Fi.",
@@ -507,11 +527,12 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
     oled_text.SetMaxLength(240);
     mcp.AddTool(
         "self.robot.show_oled_text",
-        "Hiển thị câu chữ do người dùng yêu cầu trên OLED phụ dưới dạng chữ chạy tạm thời; "
-        "không thay đổi nội dung OLED đã lưu. Truyền nguyên văn nội dung vào text và thời lượng "
-        "hiển thị vào duration_ms (1.000–30.000 ms).",
+        "Hiển thị câu chữ do người dùng yêu cầu trên OLED phụ dưới dạng marquee tạm thời; "
+        "không thay đổi nội dung đã lưu. duration_ms từ 1.000 đến 30.000 ms; speed từ 1 "
+        "(chậm) đến 5 (cực nhanh), mặc định 2.",
         PropertyList(
-            {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000)}),
+            {oled_text, Property("duration_ms", kPropertyTypeInteger, 10000, 1000, 30000),
+             Property("speed", kPropertyTypeInteger, 2, 1, 5)}),
         [&controller](const PropertyList& properties) {
             return ShowRobotOledText(controller, properties);
         });

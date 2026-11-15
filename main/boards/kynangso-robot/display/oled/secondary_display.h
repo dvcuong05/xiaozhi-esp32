@@ -35,7 +35,7 @@ public:
     void ApplySettings();
     bool IsAvailable() const { return available_.load(); }
     void ShowIp(const std::string& address);
-    void ShowText(const std::string& text, int duration_ms);
+    void ShowText(const std::string& text, int duration_ms, int speed);
     void SetBluetoothStatus(const std::string& text, int phase);
     void OnBootEvent(const BootEvent& event);
 
@@ -66,6 +66,7 @@ private:
     char oled_ip_address_[16] = {};
     bool oled_text_display_active_ = false;
     int64_t oled_text_display_until_us_ = 0;
+    int oled_text_display_speed_ = 2;
     char oled_text_display_[sizeof(kynangso::OledDisplaySettings::text)] = {};
     BootStage boot_stage_ = BootStage::SystemInitializing;
     char boot_stage_detail_[kBootEventDetailSize] = {};

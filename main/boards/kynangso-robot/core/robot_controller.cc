@@ -315,6 +315,14 @@ bool RobotController::SetOledMode(int mode) {
     return true;
 }
 
+bool RobotController::SetOledMarqueeSpeed(int speed) {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    if (settings_.SaveOledSpeed(speed) != ESP_OK)
+        return false;
+    Application::GetInstance().Schedule([this]() { secondary_.ApplySettings(); });
+    return true;
+}
+
 bool RobotController::SaveOledMessage(const std::string& text, int speed, int font_size) {
     std::lock_guard<std::mutex> lock(config_mutex_);
     if (settings_.SaveMarquee(text, speed, font_size) != ESP_OK)
@@ -340,13 +348,15 @@ std::string RobotController::ShowIp() {
     return address;
 }
 
-bool RobotController::ShowOledText(std::string text, int duration_ms) {
+bool RobotController::ShowOledText(std::string text, int duration_ms, int speed) {
     if (text.empty() || text.size() > OledDisplayController::kMaxTextLength ||
         text.find('\0') != std::string::npos || duration_ms < 1000 || duration_ms > 30000 ||
-        !secondary_.IsAvailable())
+        !OledDisplayController::IsValidSpeed(speed) || !secondary_.IsAvailable())
         return false;
     Application::GetInstance().Schedule(
-        [this, text = std::move(text), duration_ms]() { secondary_.ShowText(text, duration_ms); });
+        [this, text = std::move(text), duration_ms, speed]() {
+            secondary_.ShowText(text, duration_ms, speed);
+        });
     return true;
 }
 

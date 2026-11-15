@@ -63,10 +63,11 @@ public:
     OledConfig GetOledConfig() const;
     bool ConfigureOled(const OledConfig& config);
     bool SetOledMode(int mode);
+    bool SetOledMarqueeSpeed(int speed);
     bool SaveOledMessage(const std::string& text, int speed, int font_size);
     void ReinitializeOled();
     std::string ShowIp();
-    bool ShowOledText(std::string text, int duration_ms);
+    bool ShowOledText(std::string text, int duration_ms, int speed = 2);
     bool ShowPaymentQr(int duration_ms);
     QrConfig GetQrConfig() const;
     bool ConfigureQr(const QrConfig& config);

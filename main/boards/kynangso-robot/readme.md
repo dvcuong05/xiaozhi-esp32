@@ -82,7 +82,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `POST /api/move`: `{ "direction": "forward", "steps": 200, "delay_ms": 1 }`; direction là `forward`, `backward`, `left` hoặc `right`. API cũ `{ "steps": -200 }` vẫn chạy lùi, giá trị dương chạy tiến.
 - `POST /api/stop`: dừng cả hai motor.
 - `GET/POST /api/config`: cấu hình `steps`, `delay_ms`, `left_inverted`, `right_inverted`; lưu NVS namespace `motor_config`. Các client cũ không gửi hai cờ đảo chiều sẽ giữ giá trị đã lưu.
-- `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height, `rotation` (0 hoặc 180 độ), `mode` (`0=clock`, `1=marquee`, `2=status`, `3=off`), `text`, `speed`, `font_size`, `contrast` và `invert`; lưu NVS và khởi tạo lại OLED sau khi lưu. `POST /api/oled_message` đổi sang mode chữ chạy và cập nhật nội dung mà không reset I2C; `POST /api/oled_clear` tắt nội dung; `POST /api/oled_test` khởi tạo lại OLED.
+- `GET/POST /api/oled_config`: địa chỉ, SDA/SCL, width/height, `rotation` (0 hoặc 180 độ), `mode` (`0=clock`, `1=marquee`, `2=status`, `3=off`), `text`, `speed` (1–5), `font_size`, `contrast` và `invert`; lưu NVS và khởi tạo lại OLED sau khi lưu. Mode marquee bắt đầu với chữ nhìn thấy ngay và task render được đánh thức sau khi áp dụng cấu hình. `POST /api/oled_message` đổi sang mode chữ chạy và cập nhật nội dung mà không reset I2C; `POST /api/oled_clear` tắt nội dung; `POST /api/oled_test` khởi tạo lại OLED.
 - `GET /api/status`: trạng thái Wi-Fi, IP, trạng thái hội thoại và free heap để dashboard cập nhật.
 - `GET/POST /api/volume`: đọc mức loa hiện tại hoặc gửi `{ "volume": 0..100 }`; cập nhật codec qua `Application::Schedule()`. Dashboard có thanh âm lượng và nút ±10; nút âm lượng vật lý không dùng, GPIO38 dành cho SD MOSI.
 - `GET /storage`: trang quản lý microSD; có liên kết từ dashboard chính. Dùng thẻ FAT32 để bring-up. Không có thẻ hoặc lỗi nguồn/dây sẽ báo lỗi trong trang này và log `RobotSD`, không làm firmware dừng boot. Firmware không tự format hay tự lặp mount liên tục.
@@ -661,8 +661,9 @@ Firmware custom cung cap cac tool MCP de XiaoZhi co the thuc hien truc tiep cac 
 - `self.robot.be_lively` chay lap vo han chuoi tien/lui/quay trong task rieng cho den khi goi `self.robot.stop` hoac gui lenh di chuyen moi; `self.robot.dance` chay routine ngan co gioi han.
 - `self.robot.set_emotion`: doi mat TFT sang cac emotion custom nhu `happy`, `sad`, `surprised`, `sleepy` hoac `confused`.
 - `self.robot.set_oled_mode`: chon `clock`, `marquee`, `status` hoac `off` va luu mode vao NVS.
+- `self.robot.set_oled_marquee_speed`: đặt tốc độ chữ chạy đã lưu theo cấp 1 chậm, 2 vừa, 3 nhanh, 4 rất nhanh, 5 cực nhanh; áp dụng ngay nếu OLED đang ở mode chữ chạy.
 - `self.robot.show_ip` và `self.robot.get_status`: hiển thị IP local và kiểm tra Wi-Fi, IP, routine, kết nối WSS bridge tới MCP server cùng trạng thái microSD đã mount. `sd_card_mounted=true` nghĩa là thẻ SD sẵn sàng; board không có chân card-detect nên trạng thái chưa mount không xác nhận được thẻ vật lý có đang cắm hay không.
-- `self.robot.show_oled_text`: hien mot cau tuy chon bang marquee tren OLED trong thoi gian tam thoi, khong ghi de noi dung da luu. Vi du: "Hien tren OLED: Xin chao moi nguoi".
+- `self.robot.show_oled_text`: hiện câu tùy chọn bằng marquee tạm thời trong 1–30 giây, không ghi đè nội dung đã lưu; hỗ trợ tham số `speed` cấp 1–5. Ví dụ: “Hiện trên OLED câu Xin chào với tốc độ chậm”.
 - `self.robot.show_payment_qr`: hien ma QR tai khoan ngan hang tren TFT trong thoi gian tam thoi. Vi du: "Hien ma QR thanh toan".
 - `self.network.ip2qrcode`: hiện QR mở webserver theo IP Wi-Fi hiện tại, không thay QR ngân hàng.
 - `self.robot.show_qr`: hiện QR URL/text tạm thời, nhận `payload`, `caption` và `duration_ms`; không lưu. Yêu cầu thanh toán phải dùng `show_payment_qr`, không suy đoán tài khoản từ chatbot. Cấu hình QR ngân hàng chỉ đổi qua web của chủ robot.

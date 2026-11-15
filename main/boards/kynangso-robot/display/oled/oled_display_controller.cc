@@ -435,13 +435,10 @@ void OledDisplayController::DrawMarquee(const OledDisplaySettings& settings) {
     }
     const int text_width = TextWidth(normalized, scale);
     const int gap = width_ / 3;
-    if (last_mode_ != OledDisplayMode::Marquee || std::strcmp(last_text_, normalized) != 0) {
-        marquee_offset_ = 0;
-    }
     const int x = width_ - marquee_offset_;
     DrawText(normalized, x, (height_ - text_height) / 2, scale);
     marquee_offset_ += std::clamp<int>(settings.speed, 1, 5);
-    if (marquee_offset_ > text_width + gap) {
+    if (marquee_offset_ > width_ + text_width + gap) {
         marquee_offset_ = 0;
     }
 }
@@ -455,7 +452,7 @@ bool OledDisplayController::Render(const OledDisplaySettings& settings, const ch
     NormalizeText(settings.text, normalized_settings.text, sizeof(normalized_settings.text));
     if (last_mode_ != normalized_settings.mode ||
         std::strcmp(last_text_, normalized_settings.text) != 0) {
-        marquee_offset_ = 0;
+        marquee_offset_ = normalized_settings.mode == OledDisplayMode::Marquee ? width_ : 0;
     }
     last_mode_ = normalized_settings.mode;
     std::snprintf(last_text_, sizeof(last_text_), "%s", normalized_settings.text);

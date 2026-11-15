@@ -98,6 +98,9 @@ void SecondaryDisplay::StartRenderTask() {
         ESP_LOGE(TAG, "Khong the tao task hien thi OLED");
         time_display_task_handle_ = nullptr;
     }
+    if (time_display_task_handle_ != nullptr) {
+        xTaskNotifyGive(time_display_task_handle_);
+    }
 }
 
 void SecondaryDisplay::DestroySecondDisplayPanel() {
@@ -220,6 +223,7 @@ bool SecondaryDisplay::RenderSecondOledLocked() {
             display_settings.mode = kynangso::OledDisplayMode::Marquee;
             std::snprintf(display_settings.text, sizeof(display_settings.text), "%s",
                           oled_text_display_);
+            display_settings.speed = oled_text_display_speed_;
         }
         if (!oled_display_controller_.Render(display_settings, status_line_1, status_line_2,
                                              time(nullptr),
@@ -425,7 +429,10 @@ void SecondaryDisplay::TimeDisplayTask(void* pvParameters) {
                 delay_ms = 100;
             } else if (temporary_text_active ||
                        robot->second_display_settings_.mode == kynangso::OledDisplayMode::Marquee) {
-                int speed = std::clamp<int>(robot->second_display_settings_.speed, 1, 5);
+                int speed = std::clamp<int>(
+                    temporary_text_active ? robot->oled_text_display_speed_
+                                          : robot->second_display_settings_.speed,
+                    1, 5);
                 delay_ms = std::max(50, 260 / speed);
             } else if (robot->second_display_settings_.mode == kynangso::OledDisplayMode::Status) {
                 delay_ms = 500;
@@ -456,9 +463,9 @@ void SecondaryDisplay::ShowIp(const std::string& address) {
     ESP_LOGI(TAG, "Showing local IP on secondary OLED for 10 seconds: %s", address.c_str());
 }
 
-void SecondaryDisplay::ShowText(const std::string& text, int duration_ms) {
+void SecondaryDisplay::ShowText(const std::string& text, int duration_ms, int speed) {
     if (!enabled_ || second_display_mutex_ == nullptr || text.empty() || duration_ms < 1000 ||
-        duration_ms > 30000) {
+        duration_ms > 30000 || !OledDisplayController::IsValidSpeed(speed)) {
         return;
     }
     char normalized[sizeof(kynangso::OledDisplaySettings::text)] = {};
@@ -468,6 +475,7 @@ void SecondaryDisplay::ShowText(const std::string& text, int duration_ms) {
     }
     xSemaphoreTake(second_display_mutex_, portMAX_DELAY);
     std::snprintf(oled_text_display_, sizeof(oled_text_display_), "%s", normalized);
+    oled_text_display_speed_ = speed;
     oled_text_display_active_ = true;
     oled_text_display_until_us_ = esp_timer_get_time() + static_cast<int64_t>(duration_ms) * 1000;
     RenderSecondOledLocked();
@@ -497,6 +505,9 @@ void SecondaryDisplay::ApplySettings() {
         }
     }
     xSemaphoreGive(second_display_mutex_);
+    if (time_display_task_handle_ != nullptr) {
+        xTaskNotifyGive(time_display_task_handle_);
+    }
 }
 
 void SecondaryDisplay::Reinitialize() {

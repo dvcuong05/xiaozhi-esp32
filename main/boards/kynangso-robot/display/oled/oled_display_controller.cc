@@ -5,6 +5,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "lvgl.h"
+
+extern "C" {
+extern const lv_font_t robot_oled_font_10;
+extern const lv_font_t robot_time_font_14;
+}
+
 namespace kynangso {
 namespace {
 
@@ -43,6 +50,30 @@ uint32_t DecodeUtf8(const char* input, size_t remaining, size_t* consumed) {
 
 bool IsWhitespace(uint32_t codepoint) {
     return codepoint == ' ' || codepoint == '\t' || codepoint == '\r' || codepoint == '\n';
+}
+
+int MarqueeTextWidth(const char* text, const lv_font_t* font) {
+    if (text == nullptr || font == nullptr) {
+        return 0;
+    }
+
+    const int fallback_scale = font->line_height > 16 ? 2 : 1;
+    int width = 0;
+    const char* cursor = text;
+    while (*cursor != '\0') {
+        const size_t remaining = std::strlen(cursor);
+        size_t consumed = 1;
+        const uint32_t codepoint = DecodeUtf8(cursor, remaining, &consumed);
+        lv_font_glyph_dsc_t glyph = {};
+        if (lv_font_get_glyph_dsc(font, &glyph, codepoint, 0)) {
+            width += glyph.adv_w;
+        } else {
+            const oled_clock_font::Glyph fallback = oled_clock_font::GetGlyph(codepoint);
+            width += (fallback.width + kGlyphSpacing) * fallback_scale;
+        }
+        cursor += consumed;
+    }
+    return width;
 }
 
 }  // namespace
@@ -421,22 +452,80 @@ void OledDisplayController::DrawMarquee(const OledDisplaySettings& settings) {
         DrawClock(time(nullptr));
         return;
     }
-    int scale = settings.font_size == 2 ? 2 : 1;
-    if (settings.font_size == 0) {
-        scale = ChooseScale(normalized, 2);
+
+    const lv_font_t* font = &robot_time_font_14;
+    if (settings.font_size == 1 ||
+        (settings.font_size == 0 && MarqueeTextWidth(normalized, font) > width_)) {
+        font = &robot_oled_font_10;
     }
-    if (TextHeight(normalized, scale) > height_) {
-        scale = 1;
-    }
-    const int text_height = TextHeight(normalized, scale);
-    if (TextWidth(normalized, scale) <= width_) {
-        DrawCenteredText(normalized, (height_ - text_height) / 2, scale);
+
+    const int line_height = static_cast<int>(font->line_height);
+    const int base_line = static_cast<int>(font->base_line);
+    const int text_width = MarqueeTextWidth(normalized, font);
+    const int text_y = std::max(0, (height_ - line_height) / 2);
+    const int fallback_scale = line_height > 16 ? 2 : 1;
+    const auto draw_text = [this, font, fallback_scale, line_height, base_line, text_y](
+                               const char* text, int x) {
+        int cursor_x = x;
+        const char* cursor = text;
+        while (*cursor != '\0') {
+            const size_t remaining = std::strlen(cursor);
+            size_t consumed = 1;
+            const uint32_t codepoint = DecodeUtf8(cursor, remaining, &consumed);
+            lv_font_glyph_dsc_t glyph = {};
+            if (lv_font_get_glyph_dsc(font, &glyph, codepoint, 0)) {
+                if (glyph.box_w > 0 && glyph.box_h > 0 && glyph.format == LV_FONT_GLYPH_FORMAT_A1) {
+                    glyph.req_raw_bitmap = 1;
+                    const auto* bitmap = static_cast<const uint8_t*>(
+                        glyph.resolved_font->get_glyph_bitmap(&glyph, nullptr));
+                    if (bitmap != nullptr) {
+                        const int glyph_width = glyph.box_w;
+                        const int glyph_height = glyph.box_h;
+                        const int glyph_x = cursor_x + glyph.ofs_x;
+                        const int glyph_y =
+                            text_y + line_height - base_line - glyph_height - glyph.ofs_y;
+                        for (int row = 0; row < glyph_height; ++row) {
+                            for (int column = 0; column < glyph_width; ++column) {
+                                const size_t pixel_index =
+                                    static_cast<size_t>(row) * glyph_width + column;
+                                const size_t byte_offset =
+                                    glyph.stride > 0 ? static_cast<size_t>(row) * glyph.stride +
+                                                           static_cast<size_t>(column / 8)
+                                                     : pixel_index / 8;
+                                const int bit_offset = glyph.stride > 0
+                                                           ? column % 8
+                                                           : static_cast<int>(pixel_index % 8);
+                                if ((bitmap[byte_offset] & (0x80U >> bit_offset)) != 0) {
+                                    SetPixel(glyph_x + column, glyph_y + row);
+                                }
+                            }
+                        }
+                    }
+                }
+                cursor_x += glyph.adv_w;
+                lv_font_glyph_release_draw_data(&glyph);
+            } else {
+                const oled_clock_font::Glyph fallback = oled_clock_font::GetGlyph(codepoint);
+                const int glyph_height = fallback.width > oled_clock_font::kGlyphWidth
+                                             ? fallback.height
+                                             : oled_clock_font::kGlyphHeight;
+                const int fallback_y =
+                    text_y + std::max(0, (line_height - glyph_height * fallback_scale) / 2);
+                DrawGlyph(fallback, cursor_x, fallback_y, fallback_scale);
+                cursor_x += (fallback.width + kGlyphSpacing) * fallback_scale;
+            }
+            cursor += consumed;
+        }
+    };
+
+    if (text_width <= width_) {
+        draw_text(normalized, (width_ - text_width) / 2);
         return;
     }
-    const int text_width = TextWidth(normalized, scale);
+
     const int gap = width_ / 3;
     const int x = width_ - marquee_offset_;
-    DrawText(normalized, x, (height_ - text_height) / 2, scale);
+    draw_text(normalized, x);
     marquee_offset_ += std::clamp<int>(settings.speed, 1, 5);
     if (marquee_offset_ > width_ + text_width + gap) {
         marquee_offset_ = 0;

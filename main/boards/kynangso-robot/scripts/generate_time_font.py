@@ -26,13 +26,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--font", type=Path, help="Existing source TTF; otherwise download it")
     parser.add_argument("--weight", choices=("regular", "bold"), default="regular")
-    parser.add_argument("--size", type=int, choices=(14, 16, 20, 36), default=14,
+    parser.add_argument("--size", type=int, choices=(10, 14, 16, 20, 36), default=14,
                         help="Font size in pixels (default: 14)")
     args = parser.parse_args()
     if (args.weight, args.size) not in {
-        ("regular", 14), ("regular", 16), ("bold", 20), ("bold", 36)
+        ("regular", 10), ("regular", 14), ("regular", 16), ("bold", 20), ("bold", 36)
     }:
-        parser.error("regular fonts support 14/16 px; bold fonts support 20/36 px")
+        parser.error("regular fonts support 10/14/16 px; bold fonts support 20/36 px")
     with tempfile.TemporaryDirectory(prefix="kynangso-time-font-") as temporary:
         font = args.font
         if font is None:
@@ -46,13 +46,14 @@ def main():
         if not npx:
             raise SystemExit("Node.js/npx is required only when regenerating this font")
         outputs = {
-            ("regular", 14): ("robot_time_font_14", "robot_time_font.c"),
-            ("regular", 16): ("robot_info_font_16", "robot_info_font.c"),
-            ("bold", 20): ("robot_info_bold_20", "robot_info_bold_20.c"),
-            ("bold", 36): ("robot_info_bold_36", "robot_info_bold_36.c"),
+            ("regular", 10): ("robot_oled_font_10", "display/oled/robot_oled_font_10.c"),
+            ("regular", 14): ("robot_time_font_14", "display/tft/robot_time_font.c"),
+            ("regular", 16): ("robot_info_font_16", "display/tft/robot_info_font.c"),
+            ("bold", 20): ("robot_info_bold_20", "display/tft/robot_info_bold_20.c"),
+            ("bold", 36): ("robot_info_bold_36", "display/tft/robot_info_bold_36.c"),
         }
-        font_name, output_name = outputs[(args.weight, args.size)]
-        output = BOARD / "display/tft" / output_name
+        font_name, output_path = outputs[(args.weight, args.size)]
+        output = BOARD / output_path
         glyph_ranges = BASIC_RANGES if args.size == 36 else RANGES
         subprocess.run([
             npx, "--yes", "lv_font_conv@1.5.3", "--size", str(args.size), "--bpp", "1",

@@ -6,6 +6,7 @@ set(KYNANGSO_BOARD_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/core/robot_controller.cc"
     "${CMAKE_CURRENT_LIST_DIR}/core/robot_settings.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/oled/oled_display_controller.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/display/oled/robot_oled_font_10.c"
     "${CMAKE_CURRENT_LIST_DIR}/display/oled/secondary_display.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/kynangso_robot_display.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_eyes.cc"

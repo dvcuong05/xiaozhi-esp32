@@ -16,6 +16,5 @@ private:
     lv_obj_t *root_, *heading_, *title_, *footer_, *ring_, *digits_;
     std::string number_;
     uint32_t accent_ = 0xA78BFA;
-    static void DrawDigits(lv_event_t* event);
 };
 }  // namespace kynangso

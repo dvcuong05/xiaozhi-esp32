@@ -68,3 +68,7 @@ Nếu không tìm được phường/xã, server thử thành phố sau dấu ph
 Tên địa điểm mơ hồ trả lỗi để người dùng bổ sung tỉnh/thành, không chọn ngẫu nhiên kết quả.
 Nguồn: https://open-meteo.com/en/docs ; cần tuân thủ gói sử dụng của Open-Meteo khi triển khai.
 Cần cập nhật cả backend và firmware để RPC này hoạt động.
+
+Nền hai thẻ dùng màu phẳng tối kiểu iOS, bỏ gradient và quầng sáng. Nhiệt độ Noto Sans Bold 36 px, thành phố Bold 20 px. Dưới 30°C xanh lá, từ 30 đến dưới 34°C cam, từ 34°C đỏ.
+
+Các nhãn và tiêu đề trên TFT dùng Noto Sans có glyph tiếng Việt. Đồng hồ TFT dùng Noto Sans Bold 36 px cho thời gian ngắn và 20 px khi chuỗi dài; đây là font vector đã raster hóa cho LVGL, không ảnh hưởng font bitmap cỡ nhỏ của OLED. Tạo lại font bằng `scripts/generate_time_font.py` với `--weight regular --size 14|16` hoặc `--weight bold --size 20|36`.

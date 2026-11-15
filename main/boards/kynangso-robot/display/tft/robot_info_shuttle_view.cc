@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <string_view>
 
 LV_FONT_DECLARE(robot_time_font_14);
 LV_FONT_DECLARE(robot_info_font_16);
+LV_FONT_DECLARE(robot_info_bold_20);
+LV_FONT_DECLARE(robot_info_bold_36);
 
 namespace kynangso {
 namespace {
@@ -88,9 +91,9 @@ void StylePage(lv_obj_t* page, int width, int height, uint32_t start, uint32_t e
     lv_obj_remove_style_all(page);
     lv_obj_set_pos(page, 0, 0);
     lv_obj_set_size(page, width, height);
-    lv_obj_set_style_bg_color(page, lv_color_hex(start), 0);
+    lv_obj_set_style_bg_color(page, lv_color_hex(0x1C1C1E), 0);
     lv_obj_set_style_bg_grad_color(page, lv_color_hex(end), 0);
-    lv_obj_set_style_bg_grad_dir(page, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_grad_dir(page, LV_GRAD_DIR_NONE, 0);
     lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
     lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(page, LV_OBJ_FLAG_CLICKABLE);
@@ -155,10 +158,6 @@ RobotInfoShuttleView::~RobotInfoShuttleView() {
 
 void RobotInfoShuttleView::BuildSchedulePage() {
     const auto& palette = Palette(calendar_theme_);
-    Shape(schedule_page_, width_ - 66, 16, 80, 80, palette.schedule_glow, LV_RADIUS_CIRCLE,
-          LV_OPA_20);
-    Shape(schedule_page_, 12, height_ - 66, 56, 56, palette.schedule_glow_secondary,
-          LV_RADIUS_CIRCLE, LV_OPA_20);
 
     Label(schedule_page_, 17, 12, width_ - 34, 22, "Calendar", palette.schedule_header,
           &title_font_);
@@ -191,19 +190,15 @@ void RobotInfoShuttleView::BuildSchedulePage() {
 
 void RobotInfoShuttleView::BuildWeatherPage() {
     const auto& palette = Palette(weather_theme_);
-    Shape(weather_page_, width_ - 87, 34, 91, 91, palette.weather_glow, LV_RADIUS_CIRCLE,
-          LV_OPA_20);
-    Shape(weather_page_, 0, height_ - 72, 100, 100, palette.weather_glow_secondary,
-          LV_RADIUS_CIRCLE, LV_OPA_10);
     Label(weather_page_, 17, 12, width_ - 34, 22, "Weather", palette.weather_header, &title_font_);
 
     weather_temperature_ =
-        Label(weather_page_, 17, 52, width_ - 102, 36, "--°", 0xF8FAFC, large_font_);
+        Label(weather_page_, 17, 52, width_ - 102, 46, "--°", 0xF8FAFC, large_font_);
     weather_location_ =
-        Label(weather_page_, 17, 91, width_ - 102, 38, "Đang chờ dữ liệu..", palette.weather_accent,
+        Label(weather_page_, 17, 106, width_ - 34, 52, "Đang chờ dữ liệu..", palette.weather_accent,
               &title_font_, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
     weather_condition_ =
-        Label(weather_page_, 17, 132, width_ - 34, height_ - 181, "Thời tiết sẽ hiện tại đây",
+        Label(weather_page_, 17, 160, width_ - 34, height_ - 205, "Thời tiết sẽ hiện tại đây",
               0xE2E8F0, &text_font_, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
 
     Shape(weather_page_, width_ - 81, 50, 63, 63, palette.weather_icon_bg, LV_RADIUS_CIRCLE,
@@ -401,6 +396,17 @@ void RobotInfoShuttleView::ShowWeather(const std::string& summary,
     lv_label_set_text(weather_condition_,
                       condition.empty() ? "Chưa nhận dữ liệu thời tiết" : condition.c_str());
     lv_label_set_text(weather_footer_, summary.empty() ? "Đang chờ data" : "Latest update");
+    lv_obj_set_style_text_font(weather_location_, &robot_info_bold_20, 0);
+    lv_obj_set_style_text_font(weather_temperature_, &robot_info_bold_36, 0);
+    float degrees = std::strtof(temperature.c_str(), nullptr);
+    if (temperature.find("°F") != std::string::npos)
+        degrees = (degrees - 32) * 5 / 9;
+    lv_obj_set_style_text_color(weather_temperature_,
+                                lv_color_hex(temperature.empty() ? 0xFFFFFF
+                                             : degrees < 30      ? 0x30D158
+                                             : degrees < 34      ? 0xFF9F0A
+                                                                 : 0xFF453A),
+                                0);
     SetWeatherIcon(icon_kind);
     SelectPage(weather_page_);
 }

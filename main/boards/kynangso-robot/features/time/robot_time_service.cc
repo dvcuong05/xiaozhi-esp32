@@ -305,32 +305,43 @@ std::string RobotTimeService::Status(const char* error, const char* scope) const
     return Print(j);
 }
 
-std::string RobotTimeService::UpcomingSummary() {
+UpcomingScheduleList RobotTimeService::UpcomingSchedules() {
     std::lock_guard lock(mutex_);
+    UpcomingScheduleList result;
     const int64_t now = ClockNow();
-    if (now < kValidTime) {
-        return "Lịch tiếp theo: đang đồng bộ giờ";
-    }
+    if (now < kValidTime)
+        return result;
 
-    const Entry* next = nullptr;
-    int64_t next_due = 0;
+    result.clock_ready = true;
+    std::array<std::pair<int64_t, const Entry*>, 8> upcoming{};
+    size_t count = 0;
     for (const auto& entry : entries_) {
         if (!entry.id || !entry.enabled)
             continue;
         const int64_t due = entry.days != 0 && entry.due <= now ? NextAlarm(entry, now) : entry.due;
-        if (due <= now || (next != nullptr && due >= next_due))
+        if (due <= now)
             continue;
-        next = &entry;
-        next_due = due;
+        upcoming[count++] = {due, &entry};
     }
-    if (next == nullptr)
-        return "Lịch tiếp theo: chưa có lịch";
-
-    const std::string local = LocalTime(next_due);
-    if (local.size() < 16)
-        return "Lịch tiếp theo: " + next->title;
-    return "Lịch tiếp theo: " + local.substr(8, 2) + "/" + local.substr(5, 2) + " " +
-           local.substr(11, 5) + " · " + next->title;
+    for (size_t index = 1; index < count; ++index) {
+        const auto event = upcoming[index];
+        size_t position = index;
+        while (position > 0 && upcoming[position - 1].first > event.first) {
+            upcoming[position] = upcoming[position - 1];
+            --position;
+        }
+        upcoming[position] = event;
+    }
+    result.events.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        const auto& [due, entry] = upcoming[index];
+        const std::string local = LocalTime(due);
+        if (local.size() < 16)
+            continue;
+        result.events.push_back(
+            {local.substr(8, 2) + "/" + local.substr(5, 2), local.substr(11, 5), entry->title});
+    }
+    return result;
 }
 
 std::string RobotTimeService::Command(const cJSON* j) {

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <string_view>
 
 LV_FONT_DECLARE(robot_time_font_14);
 LV_FONT_DECLARE(robot_info_font_16);
@@ -151,6 +150,7 @@ RobotInfoShuttleView::RobotInfoShuttleView(int width, int height, const lv_font_
 }
 
 RobotInfoShuttleView::~RobotInfoShuttleView() {
+    StopScheduleScroll();
     StopWeatherAnimation();
     if (root_ != nullptr)
         lv_obj_delete(root_);
@@ -158,34 +158,38 @@ RobotInfoShuttleView::~RobotInfoShuttleView() {
 
 void RobotInfoShuttleView::BuildSchedulePage() {
     const auto& palette = Palette(calendar_theme_);
-
-    Label(schedule_page_, 17, 12, width_ - 34, 22, "Calendar", palette.schedule_header,
-          &title_font_);
-    schedule_heading_ =
-        Label(schedule_page_, 17, 39, width_ - 84, 22, "What's next", 0xF1F5F9, &text_font_);
-
-    Shape(schedule_page_, width_ - 62, 30, 44, 44, palette.schedule_icon_bg, LV_RADIUS_CIRCLE,
-          LV_OPA_90);
-    Shape(schedule_page_, width_ - 50, 41, 20, 24, 0xEFF6FF, 4);
-    Shape(schedule_page_, width_ - 50, 41, 20, 7, palette.schedule_icon_top, 4);
-    Shape(schedule_page_, width_ - 47, 38, 4, 8, 0xE0F2FE, 2);
-    Shape(schedule_page_, width_ - 37, 38, 4, 8, 0xE0F2FE, 2);
+    const int icon_x = 16;
+    const int icon_y = 13;
+    Shape(schedule_page_, icon_x, icon_y, 22, 22, 0xEAF4FF, 4);
+    Shape(schedule_page_, icon_x, icon_y, 22, 7, palette.schedule_icon_top, 3);
+    Shape(schedule_page_, icon_x + 4, icon_y - 3, 4, 8, 0xE0F2FE, 2);
+    Shape(schedule_page_, icon_x + 14, icon_y - 3, 4, 8, 0xE0F2FE, 2);
     for (int row = 0; row < 2; ++row) {
         for (int column = 0; column < 3; ++column) {
-            Shape(schedule_page_, width_ - 46 + column * 6, 52 + row * 6, 3, 3,
+            Shape(schedule_page_, icon_x + 4 + column * 6, icon_y + 11 + row * 6, 3, 3,
                   palette.schedule_icon_dots, LV_RADIUS_CIRCLE);
         }
     }
 
-    schedule_when_ = Label(schedule_page_, 17, 86, width_ - 34, 31, "--:--",
-                           palette.schedule_accent, large_font_);
-    schedule_event_ = Label(schedule_page_, 17, 123, width_ - 34, height_ - 170, "Đang tải lịch",
-                            0xE2E8F0, &text_font_, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
-    auto* footer = Shape(schedule_page_, 16, height_ - 40, 137, 24, palette.schedule_footer_bg, 12);
-    schedule_footer_ =
-        Label(footer, 8, 4, 121, 16, "Sắp diễn ra", palette.schedule_footer_text, &text_font_);
-    Shape(schedule_page_, width_ - 40, height_ - 29, 5, 5, 0x38BDF8, LV_RADIUS_CIRCLE);
-    Shape(schedule_page_, width_ - 30, height_ - 29, 5, 5, 0x40526A, LV_RADIUS_CIRCLE);
+    schedule_title_ = Label(schedule_page_, 46, 8, 91, 28, "Calendar", palette.schedule_header,
+                            &robot_info_bold_20);
+    schedule_heading_ =
+        Label(schedule_page_, 140, 13, width_ - 151, 22, "- What's next", 0xF1F5F9, &text_font_);
+
+    schedule_list_ = lv_obj_create(schedule_page_);
+    lv_obj_remove_style_all(schedule_list_);
+    lv_obj_set_pos(schedule_list_, 16, 49);
+    lv_obj_set_size(schedule_list_, width_ - 32, height_ - 59);
+    lv_obj_set_style_bg_opa(schedule_list_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(schedule_list_, 0, 0);
+    lv_obj_set_style_pad_all(schedule_list_, 0, 0);
+    lv_obj_set_style_pad_row(schedule_list_, 8, 0);
+    lv_obj_set_flex_flow(schedule_list_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(schedule_list_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_add_flag(schedule_list_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(schedule_list_, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(schedule_list_, LV_SCROLLBAR_MODE_OFF);
 }
 
 void RobotInfoShuttleView::BuildWeatherPage() {
@@ -266,13 +270,13 @@ void RobotInfoShuttleView::SetFont(const lv_font_t* font) {
     title_font_.fallback = &text_font_;
     large_font_ = font != nullptr ? font : &text_font_;
 
-    for (auto* label : {schedule_heading_, schedule_event_, schedule_footer_, weather_location_,
-                        weather_condition_, weather_footer_}) {
+    for (auto* label :
+         {schedule_heading_, weather_location_, weather_condition_, weather_footer_}) {
         if (label != nullptr)
             lv_obj_set_style_text_font(label, &text_font_, 0);
     }
-    if (schedule_when_ != nullptr)
-        lv_obj_set_style_text_font(schedule_when_, large_font_, 0);
+    if (schedule_title_ != nullptr)
+        lv_obj_set_style_text_font(schedule_title_, &robot_info_bold_20, 0);
     if (schedule_heading_ != nullptr)
         lv_obj_set_style_text_font(schedule_heading_, &title_font_, 0);
     if (weather_location_ != nullptr)
@@ -290,6 +294,7 @@ void RobotInfoShuttleView::SetColorThemes(int calendar_theme, int weather_theme)
     calendar_theme_ = calendar_theme;
     weather_theme_ = weather_theme;
     StopWeatherAnimation();
+    StopScheduleScroll();
     if (schedule_page_ != nullptr)
         lv_obj_delete(schedule_page_);
     if (weather_page_ != nullptr)
@@ -309,6 +314,8 @@ void RobotInfoShuttleView::SetColorThemes(int calendar_theme, int weather_theme)
 void RobotInfoShuttleView::SelectPage(lv_obj_t* page) {
     if (page != weather_page_)
         StopWeatherAnimation();
+    if (page != schedule_page_)
+        StopScheduleScroll();
     for (auto* candidate : {face_page_, schedule_page_, weather_page_}) {
         if (candidate == nullptr)
             continue;
@@ -319,43 +326,108 @@ void RobotInfoShuttleView::SelectPage(lv_obj_t* page) {
     }
     if (page == weather_page_ && root_ != nullptr && !lv_obj_has_flag(root_, LV_OBJ_FLAG_HIDDEN))
         StartWeatherAnimation();
+    if (page == schedule_page_ && root_ != nullptr && !lv_obj_has_flag(root_, LV_OBJ_FLAG_HIDDEN))
+        StartScheduleScroll();
 }
 
 void RobotInfoShuttleView::ShowFace() { SelectPage(face_page_); }
 
-void RobotInfoShuttleView::ShowSchedule(const std::string& summary) {
-    std::string value = summary;
-    constexpr std::string_view prefix = "Lịch tiếp theo: ";
-    if (value.compare(0, prefix.size(), prefix) == 0)
-        value.erase(0, prefix.size());
+void RobotInfoShuttleView::ShowSchedule(const UpcomingScheduleList& schedules) {
+    StopScheduleScroll();
+    schedule_rows_.clear();
+    lv_obj_clean(schedule_list_);
+    lv_obj_scroll_to_y(schedule_list_, 0, LV_ANIM_OFF);
 
-    if (value.find("đang đồng bộ giờ") != std::string::npos) {
-        lv_label_set_text(schedule_when_, "--:--");
-        lv_label_set_text(schedule_event_, "Đang đồng bộ thời gian");
-        lv_label_set_text(schedule_footer_, "ĐANG CẬP NHẬT");
-    } else if (value.find("chưa có lịch") != std::string::npos) {
-        lv_label_set_text(schedule_when_, "--:--");
-        lv_label_set_text(schedule_event_, "Chưa có lịch sắp tới");
-        lv_label_set_text(schedule_footer_, "LỊCH TRỐNG");
-    } else {
-        const size_t separator = value.find(" - ");
-        constexpr size_t separator_size = 3;
-        if (separator != std::string::npos) {
-            std::string when = value.substr(0, separator);
-            std::string event = value.substr(separator + separator_size);
-            Trim(when);
-            Trim(event);
-            lv_label_set_text(schedule_when_, when.c_str());
-            lv_label_set_text(schedule_event_, event.empty() ? "Lịch đã được lên" : event.c_str());
+    const auto& palette = Palette(calendar_theme_);
+    const int row_width = width_ - 32;
+    auto add_row = [&](const std::string& when, const std::string& title, bool placeholder) {
+        const int title_width = row_width - 24;
+        const lv_font_t* title_font = placeholder ? &title_font_ : &robot_info_bold_20;
+        lv_point_t title_size{};
+        lv_text_get_size(&title_size, title.c_str(), title_font, 0, 2, title_width,
+                         LV_TEXT_FLAG_NONE);
+        const int title_height = std::max<int>(title_size.y, 24);
+        const int row_height = std::max(62, placeholder ? title_height + 24 : title_height + 35);
+
+        auto* row = lv_obj_create(schedule_list_);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, row_width, row_height);
+        lv_obj_set_style_bg_color(row, lv_color_hex(0x2C2C2E), 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(0x3A3A3C), 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_radius(row, 10, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        Shape(row, 0, 9, 3, row_height - 18, palette.schedule_accent, 2);
+
+        if (placeholder) {
+            Label(row, 14, (row_height - title_height) / 2, title_width, title_height + 4,
+                  title.c_str(), 0xD1D1D6, title_font, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
         } else {
-            lv_label_set_text(schedule_when_, "SẮP TỚI");
-            lv_label_set_text(schedule_event_,
-                              value.empty() ? "Chưa có thông tin lịch" : value.c_str());
+            Label(row, 14, 5, title_width, 18, when.c_str(), palette.schedule_accent, &text_font_);
+            Label(row, 14, 24, title_width, title_height + 4, title.c_str(), 0xF2F2F7, title_font,
+                  LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
         }
-        lv_label_set_text(schedule_footer_, "SẮP DIỄN RA");
+        schedule_rows_.push_back(row);
+    };
+
+    if (!schedules.clock_ready) {
+        add_row("", "Đang đồng bộ thời gian", true);
+    } else if (schedules.events.empty()) {
+        add_row("", "Chưa có lịch sắp tới", true);
+    } else {
+        for (const auto& event : schedules.events)
+            add_row(event.date + " · " + event.time, event.title, false);
     }
 
     SelectPage(schedule_page_);
+}
+
+void RobotInfoShuttleView::StartScheduleScroll() {
+    if (schedule_scroll_timer_ != nullptr || schedule_list_ == nullptr || schedule_rows_.size() < 2)
+        return;
+
+    lv_obj_update_layout(schedule_list_);
+    const int32_t viewport_height = lv_obj_get_height(schedule_list_);
+    schedule_first_scroll_index_ = 0;
+    for (auto* row : schedule_rows_) {
+        if (lv_obj_get_y(row) + lv_obj_get_height(row) > viewport_height)
+            break;
+        ++schedule_first_scroll_index_;
+    }
+    if (schedule_first_scroll_index_ >= schedule_rows_.size() ||
+        lv_obj_get_scroll_bottom(schedule_list_) <= 0)
+        return;
+
+    schedule_scroll_index_ = schedule_first_scroll_index_;
+    schedule_scroll_timer_ = lv_timer_create(OnScheduleScrollTimer, 3500, this);
+}
+
+void RobotInfoShuttleView::StopScheduleScroll() {
+    if (schedule_scroll_timer_ != nullptr) {
+        lv_timer_delete(schedule_scroll_timer_);
+        schedule_scroll_timer_ = nullptr;
+    }
+}
+
+void RobotInfoShuttleView::OnScheduleScrollTimer(lv_timer_t* timer) {
+    auto* self = static_cast<RobotInfoShuttleView*>(lv_timer_get_user_data(timer));
+    if (self == nullptr || self->root_ == nullptr || self->schedule_list_ == nullptr ||
+        self->schedule_page_ == nullptr || lv_obj_has_flag(self->root_, LV_OBJ_FLAG_HIDDEN) ||
+        lv_obj_has_flag(self->schedule_page_, LV_OBJ_FLAG_HIDDEN)) {
+        if (self != nullptr)
+            self->StopScheduleScroll();
+        return;
+    }
+
+    if (self->schedule_scroll_index_ >= self->schedule_rows_.size()) {
+        lv_obj_scroll_to_y(self->schedule_list_, 0, LV_ANIM_ON);
+        self->schedule_scroll_index_ = self->schedule_first_scroll_index_;
+        return;
+    }
+    lv_obj_scroll_to_view(self->schedule_rows_[self->schedule_scroll_index_++], LV_ANIM_ON);
 }
 
 void RobotInfoShuttleView::ShowWeather(const std::string& summary,
@@ -511,7 +583,10 @@ void RobotInfoShuttleView::SetVisible(bool visible) {
         lv_obj_move_foreground(root_);
         if (!lv_obj_has_flag(weather_page_, LV_OBJ_FLAG_HIDDEN))
             StartWeatherAnimation();
+        if (!lv_obj_has_flag(schedule_page_, LV_OBJ_FLAG_HIDDEN))
+            StartScheduleScroll();
     } else {
+        StopScheduleScroll();
         StopWeatherAnimation();
         lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
     }

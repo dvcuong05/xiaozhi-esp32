@@ -579,7 +579,8 @@ void KyNangSoRobotDisplay::ShowNextInfoShuttleCard() {
     AdvanceInfoShuttle();
 }
 
-void KyNangSoRobotDisplay::SetUpcomingScheduleProvider(std::function<std::string()> provider) {
+void KyNangSoRobotDisplay::SetUpcomingScheduleProvider(
+    std::function<kynangso::UpcomingScheduleList()> provider) {
     DisplayLockGuard lock(this);
     if (lock)
         upcoming_schedule_provider_ = std::move(provider);
@@ -650,10 +651,9 @@ void KyNangSoRobotDisplay::RenderInfoShuttleCard() {
             info_shuttle_view_->ShowFace();
             break;
         case InfoShuttleCard::Schedule: {
-            const std::string summary = upcoming_schedule_provider_
-                                            ? upcoming_schedule_provider_()
-                                            : "Lịch tiếp theo: chưa có dữ liệu";
-            info_shuttle_view_->ShowSchedule(summary);
+            const auto schedules = upcoming_schedule_provider_ ? upcoming_schedule_provider_()
+                                                               : kynangso::UpcomingScheduleList{};
+            info_shuttle_view_->ShowSchedule(schedules);
             break;
         }
         case InfoShuttleCard::Weather:

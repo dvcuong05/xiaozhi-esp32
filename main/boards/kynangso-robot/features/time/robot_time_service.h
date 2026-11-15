@@ -11,12 +11,24 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace kynangso {
 struct TimeView {
     bool visible = false, alert = false, paused = false;
     std::string mode, title, subtitle, digits;
     int progress = 0;
+};
+
+struct UpcomingScheduleEvent {
+    std::string date;
+    std::string time;
+    std::string title;
+};
+
+struct UpcomingScheduleList {
+    bool clock_ready = false;
+    std::vector<UpcomingScheduleEvent> events;
 };
 
 enum class TimeRingtone {
@@ -39,7 +51,7 @@ public:
     bool Start();
     void Stop();
     std::string Command(const cJSON* request);
-    std::string UpcomingSummary();
+    UpcomingScheduleList UpcomingSchedules();
     bool DismissAlert();
 
 private:

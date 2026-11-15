@@ -3,7 +3,11 @@
 
 #include <lvgl.h>
 
+#include <cstddef>
 #include <string>
+#include <vector>
+
+#include "features/time/robot_time_service.h"
 
 namespace kynangso {
 
@@ -19,7 +23,7 @@ public:
     void SetFont(const lv_font_t* font);
     void SetColorThemes(int calendar_theme, int weather_theme);
     void ShowFace();
-    void ShowSchedule(const std::string& summary);
+    void ShowSchedule(const UpcomingScheduleList& schedules);
     void ShowWeather(const std::string& summary, const std::string& configured_location,
                      int icon_kind = -1);
     void SetVisible(bool visible);
@@ -33,10 +37,13 @@ private:
     lv_obj_t* face_page_ = nullptr;
     lv_obj_t* schedule_page_ = nullptr;
     lv_obj_t* weather_page_ = nullptr;
+    lv_obj_t* schedule_title_ = nullptr;
     lv_obj_t* schedule_heading_ = nullptr;
-    lv_obj_t* schedule_when_ = nullptr;
-    lv_obj_t* schedule_event_ = nullptr;
-    lv_obj_t* schedule_footer_ = nullptr;
+    lv_obj_t* schedule_list_ = nullptr;
+    std::vector<lv_obj_t*> schedule_rows_;
+    lv_timer_t* schedule_scroll_timer_ = nullptr;
+    std::size_t schedule_scroll_index_ = 0;
+    std::size_t schedule_first_scroll_index_ = 0;
     lv_obj_t* weather_temperature_ = nullptr;
     lv_obj_t* weather_location_ = nullptr;
     lv_obj_t* weather_condition_ = nullptr;
@@ -63,6 +70,9 @@ private:
     void BuildSchedulePage();
     void BuildWeatherPage();
     void SelectPage(lv_obj_t* page);
+    void StartScheduleScroll();
+    void StopScheduleScroll();
+    static void OnScheduleScrollTimer(lv_timer_t* timer);
 };
 
 }  // namespace kynangso

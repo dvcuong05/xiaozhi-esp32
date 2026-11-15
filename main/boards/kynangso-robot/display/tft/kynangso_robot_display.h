@@ -4,6 +4,7 @@
 #include <functional>
 #include "features/bluetooth/bluetooth_service.h"
 #include "core/robot_settings.h"
+#include "features/time/robot_time_service.h"
 #include "display/lcd_display.h"
 #include "display/tft/robot_eyes.h"
 #include "display/tft/robot_info_shuttle_view.h"
@@ -43,7 +44,7 @@ public:
     void ConfigureFace(const kynangso::FaceConfig& config);
     void ConfigureInfoShuttle(const kynangso::InfoShuttleConfig& config);
     void ShowNextInfoShuttleCard();
-    void SetUpcomingScheduleProvider(std::function<std::string()> provider);
+    void SetUpcomingScheduleProvider(std::function<kynangso::UpcomingScheduleList()> provider);
     void SetInfoShuttleWeather(const std::string& summary, int icon_kind = -1);
     void PreviewFaceEmotion(const char* emotion, int duration_ms = 2000);
     void SetBehaviorCallbacks(std::function<void(bool)> speaking,
@@ -149,7 +150,7 @@ private:
     lv_timer_t* info_shuttle_timer_ = nullptr;
     lv_timer_t* info_shuttle_notification_timer_ = nullptr;
     std::unique_ptr<kynangso::RobotInfoShuttleView> info_shuttle_view_;
-    std::function<std::string()> upcoming_schedule_provider_;
+    std::function<kynangso::UpcomingScheduleList()> upcoming_schedule_provider_;
     std::string info_shuttle_weather_;
     int info_shuttle_weather_icon_ = -1;
     InfoShuttleCard info_shuttle_card_ = InfoShuttleCard::None;

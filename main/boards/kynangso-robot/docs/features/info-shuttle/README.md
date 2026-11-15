@@ -72,3 +72,5 @@ Cần cập nhật cả backend và firmware để RPC này hoạt động.
 Nền hai thẻ dùng màu phẳng tối kiểu iOS, bỏ gradient và quầng sáng. Nhiệt độ Noto Sans Bold 36 px, thành phố Bold 20 px. Dưới 30°C xanh lá, từ 30 đến dưới 34°C cam, từ 34°C đỏ.
 
 Các nhãn và tiêu đề trên TFT dùng Noto Sans có glyph tiếng Việt. Đồng hồ TFT dùng Noto Sans Bold 36 px cho thời gian ngắn và 20 px khi chuỗi dài; đây là font vector đã raster hóa cho LVGL, không ảnh hưởng font bitmap cỡ nhỏ của OLED. Tạo lại font bằng `scripts/generate_time_font.py` với `--weight regular --size 14|16` hoặc `--weight bold --size 20|36`.
+
+Biểu tượng lịch đặt trước tiêu đề Calendar - What's next. Thẻ bỏ footer và chấm trạng thái cũ; dữ liệu gồm tất cả lịch đang bật, sắp theo giờ đến hạn. Danh sách cuộn dọc từng sự kiện mỗi 3,5 giây, quay về đầu danh sách rồi lặp lại; timer chỉ chạy khi thẻ Calendar đang hiện trên TFT.

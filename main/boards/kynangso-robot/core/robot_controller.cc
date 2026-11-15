@@ -63,10 +63,10 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
         });
     time_service_->Start();
     std::weak_ptr<RobotTimeService> schedule_service = time_service_;
-    display_.SetUpcomingScheduleProvider([schedule_service]() {
+    display_.SetUpcomingScheduleProvider([schedule_service]() -> UpcomingScheduleList {
         if (const auto service = schedule_service.lock())
-            return service->UpcomingSummary();
-        return std::string("Lịch tiếp theo: chưa có dữ liệu");
+            return service->UpcomingSchedules();
+        return {};
     });
     display_.ConfigureInfoShuttle(settings_.LoadInfoShuttle());
     weather_worker_ = std::thread([this]() {

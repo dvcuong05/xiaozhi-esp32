@@ -199,10 +199,10 @@ void RobotInfoShuttleView::BuildWeatherPage() {
     weather_temperature_ =
         Label(weather_page_, 17, 52, width_ - 102, 46, "--°", 0xF8FAFC, large_font_);
     weather_location_ =
-        Label(weather_page_, 17, 106, width_ - 34, 52, "Đang chờ dữ liệu..", palette.weather_accent,
+        Label(weather_page_, 17, 106, width_ - 34, 40, "Đang chờ dữ liệu..", palette.weather_accent,
               &title_font_, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
     weather_condition_ =
-        Label(weather_page_, 17, 160, width_ - 34, height_ - 205, "Thời tiết sẽ hiện tại đây",
+        Label(weather_page_, 17, 148, width_ - 34, height_ - 196, "Thời tiết sẽ hiện tại đây",
               0xE2E8F0, &text_font_, LV_TEXT_ALIGN_LEFT, LV_LABEL_LONG_WRAP);
 
     Shape(weather_page_, width_ - 81, 50, 63, 63, palette.weather_icon_bg, LV_RADIUS_CIRCLE,

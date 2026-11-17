@@ -1,19 +1,34 @@
-# Hiển thị tin tức trên robot KyNangSo
+# 📰 Hiển thị tin tức trên robot KyNangSo
 
-## Luồng
+![WSS](https://img.shields.io/badge/WSS-Device_Bridge-2563EB?style=for-the-badge&logo=websocket&logoColor=white)
+![TFT](https://img.shields.io/badge/DISPLAY-TFT-06B6D4?style=for-the-badge&logo=esphome&logoColor=white)
+![OLED](https://img.shields.io/badge/OPTIONAL-OLED-8B5CF6?style=for-the-badge&logo=adafruit&logoColor=white)
 
-Backend KyNangSo gọi RSS khi người dùng hỏi và trả kết quả cho MCP client. Với
-lệnh `news_headlines` mặc định, server gửi một lệnh hiển thị ngắn qua WSS Device
-Bridge. Firmware không kết nối tới báo, không polling tin và không tải bài đầy đủ.
+> [!TIP]
+> Robot chỉ nhận một tiêu đề ngắn từ server khi người dùng hỏi tin. Robot không tự kết nối báo, tải RSS hay chạy vòng polling.
 
-```text
-MCP server -> WSS Device Bridge: display.news
-            -> RobotController::ShowNews
-            -> TFT notification hiện có
-            -> OLED marquee hiện có (nếu đã bật và sẵn sàng)
+## 🔄 Luồng hiển thị
+
+```mermaid
+sequenceDiagram
+    participant MCP as KyNangSo MCP
+    participant WSS as WSS Device Bridge
+    participant FW as Firmware
+    participant TFT as TFT
+    participant OLED as OLED phụ
+    MCP->>WSS: display.news (headline, source)
+    WSS->>FW: Lệnh đã xác thực theo robot
+    FW->>FW: Kiểm tra kiểu, độ dài, ký tự điều khiển
+    FW-->>WSS: queued + trạng thái OLED
+    FW->>TFT: Notification tối đa 12 giây
+    opt OLED đang bật và sẵn sàng
+        FW->>OLED: Marquee tối đa 12 giây
+    end
 ```
 
-## Lệnh WSS
+Server giữ RSS, cache, lọc nguồn và tạo kết quả MCP. Firmware chỉ xử lý hai chuỗi `headline` và `source`, rồi dùng các API hiển thị sẵn có.
+
+## 📡 Hợp đồng WSS
 
 ```json
 {
@@ -23,30 +38,39 @@ MCP server -> WSS Device Bridge: display.news
 }
 ```
 
-`headline` tối đa 160 byte UTF-8; `source` tối đa 48 byte. Lệnh hợp lệ được xếp
-qua `Application::Schedule()` để phần cập nhật UI chạy ở luồng ứng dụng, không
-chặn vòng lặp mạng hoặc audio. Khi UI nhận lệnh:
+| Trường | Giới hạn | Kiểm tra |
+| --- | ---: | --- |
+| `headline` | 1–160 byte UTF-8 | Không nhận ký tự điều khiển |
+| `source` | 1–48 byte UTF-8 | Không nhận ký tự điều khiển |
 
-- TFT dùng notification sẵn có, tối đa 12 giây.
-- Nếu OLED phụ đang bật và driver sẵn sàng, OLED dùng marquee sẵn có trong 12
-  giây; nếu không, firmware chỉ cập nhật TFT.
-- Hết hạn, hai màn hình tự trở về nội dung trước đó theo vòng đời notification
-  hiện có.
+Lệnh chỉ được chấp nhận qua Device Bridge đã xác thực. Server giới hạn mỗi robot tối đa một lần hiển thị trong 12 giây; robot không cần tự duy trì bộ đếm hoặc state mới.
 
-Không tạo task, timer polling, buffer bài báo, file trên microSD hay dữ liệu NVS
-mới. Chỉ chuỗi tiêu đề và tên nguồn đi tới robot. Màn TFT vẫn tuân theo cơ chế
-notification/UI hiện có; firmware không thay trạng thái kết nối, playback, TV,
-hoặc cấu hình Info Shuttle.
+## 🖥️ Hành vi màn hình
 
-## An toàn và giới hạn
+| Màn hình | Hành vi |
+| --- | --- |
+| **TFT** | Dùng notification sẵn có, hiển thị tiêu đề và nguồn tối đa 12 giây. |
+| **OLED phụ** | Nếu OLED đã bật và driver sẵn sàng, hiển thị cùng nội dung dạng marquee tối đa 12 giây. |
+| **Không có OLED** | Robot vẫn nhận lệnh và chỉ cập nhật TFT. |
+| **Hết thời gian** | Cơ chế notification hiện tại đưa màn hình về nội dung trước đó. |
 
-- Lệnh chỉ tới từ Device Bridge đã xác thực và giới hạn theo robot của Access
-  Point.
-- Firmware kiểm tra kiểu, độ dài và ký tự điều khiển trước khi xếp lệnh hiển thị.
-- Tin tức chỉ hiện sau yêu cầu MCP; không phát sinh lưu lượng mạng khi robot rảnh.
-- OLED là tùy chọn. Robot không có OLED vẫn nhận tin qua TFT.
-- Build firmware chưa đồng nghĩa đã nạp hay kiểm tra vật lý. Cần xác minh riêng
-  TFT, OLED tùy chọn và các màn hình đang phát khác trên robot thật.
+> [!IMPORTANT]
+> Việc gửi lệnh chỉ xác nhận firmware đã xếp cập nhật UI. Cần kiểm tra trên robot thật để xác nhận cách notification tương tác với màn hình đang hoạt động.
 
-Phần RSS, cache và quyền sử dụng được mô tả trong `docs/features/news/README.md`
-của repo server `xiaozhi-kynangso-services`.
+## ⚡ Giới hạn tài nguyên
+
+- ✅ Không thêm task, timer, polling hay kết nối mạng mới trên robot.
+- ✅ Không ghi NVS, microSD, flash hoặc lưu nội dung tin.
+- ✅ Dùng `Application::Schedule()` để cập nhật UI ngoài luồng nhận lệnh WSS.
+- ✅ Chỉ truyền tiêu đề và tên nguồn; không truyền toàn bài, ảnh hoặc nội dung dài.
+- ✅ OLED là phần cứng tùy chọn; kiểm tra trạng thái sẵn sàng trước khi dùng.
+
+## 🔐 An toàn và xác minh
+
+1. WSS kiểm tra credential và định tuyến lệnh theo đúng robot.
+2. Firmware kiểm tra kiểu dữ liệu, giới hạn byte và ký tự điều khiển trước khi hiển thị.
+3. Nguồn RSS và URL bài gốc được kiểm soát ở server; robot không nhận URL để tự tải.
+
+Build firmware chỉ xác nhận biên dịch thành công, chưa xác nhận hành vi màn hình trên thiết bị. Khi kiểm tra phần cứng, xác minh TFT, OLED tùy chọn và các trạng thái đang phát nhạc/TV.
+
+📚 **Tài liệu server:** `docs/features/news/README.md` trong repo `xiaozhi-kynangso-services` mô tả MCP, RSS, quyền nguồn, cache và giới hạn server.

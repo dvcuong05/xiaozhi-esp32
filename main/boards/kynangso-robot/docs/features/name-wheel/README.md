@@ -8,6 +8,16 @@ robot.
 Backend gửi danh sách cùng lựa chọn thắng tới đúng robot đã chọn qua Device Bridge WSS; ESP32 không
 tự chọn lại kết quả và không lưu danh sách vào NVS hay microSD.
 
+## Câu nói mẫu cho người dùng
+
+- “Chọn giúp tôi một món: phở, bún bò, cơm tấm hay bánh cuốn.”
+- “Bốc thăm người thuyết trình giữa An, Bình, Chi và Dũng.”
+- “Cuối tuần nên đi bộ, xem phim hay đọc sách? Chọn giúp tôi.”
+- “Quay ngẫu nhiên một màu trong xanh, vàng, đỏ và tím.”
+
+Nêu rõ từ 2 đến 16 lựa chọn khác nhau. Trợ lý gửi danh sách tới đúng robot; robot
+trình chiếu vòng quay trên TFT, còn kết quả được chọn ở backend.
+
 ## Luồng MCP và firmware
 
 1. MCP tool `random_choice(choices, device_id?)` nhận lựa chọn từ câu nói của người dùng, ví dụ

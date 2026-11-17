@@ -28,6 +28,14 @@ private:
     lv_obj_t* root_ = nullptr;
     kynangso::FaceTheme theme_;
     lv_obj_t* mouth_ = nullptr;
+#if CONFIG_LV_USE_GIF
+    lv_obj_t* gif_ = nullptr;
+    lv_image_dsc_t gif_idle_{};
+    lv_image_dsc_t gif_talking_{};
+    bool gif_loaded_ = false;
+    bool gif_talking_active_ = false;
+    void UpdateGif();
+#endif
     lv_obj_t* mouth_inside_ = nullptr;
     lv_timer_t* timer_ = nullptr;
     lv_coord_t width_ = 0;

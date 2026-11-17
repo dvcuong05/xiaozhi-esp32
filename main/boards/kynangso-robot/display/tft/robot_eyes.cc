@@ -293,6 +293,10 @@ RobotEyesView::~RobotEyesView() {
 
 void RobotEyesView::DrawFace(lv_event_t* event) {
     auto* view = static_cast<RobotEyesView*>(lv_event_get_user_data(event));
+#if CONFIG_LV_USE_GIF
+    if (view->gif_loaded_)
+        return;
+#endif
     lv_area_t bounds;
     lv_obj_get_coords(view->root_, &bounds);
     // Leave room for the independent audio mouth, including wide surprise eyes.
@@ -317,10 +321,45 @@ void RobotEyesView::OnTimer(lv_timer_t* timer) {
 }
 
 void RobotEyesView::SetTheme(const kynangso::FaceTheme& theme) {
+#if CONFIG_LV_USE_GIF
+    if (gif_ != nullptr) {
+        lv_obj_delete(gif_);
+        gif_ = nullptr;
+    }
+    gif_loaded_ = false;
+#endif
     theme_ = theme;
+#if CONFIG_LV_USE_GIF
+    if (theme_.gifs) {
+        auto setup = [](lv_image_dsc_t& descriptor, const kynangso::FaceGifData& data) {
+            descriptor = {};
+            descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+            descriptor.header.cf = LV_COLOR_FORMAT_RAW;
+            descriptor.data = data.bytes.get();
+            descriptor.data_size = data.size;
+        };
+        setup(gif_idle_, theme_.gifs->idle);
+        setup(gif_talking_, theme_.gifs->talking);
+        gif_ = lv_gif_create(root_);
+        if (gif_ != nullptr) {
+            lv_gif_set_auto_pause_invisible(gif_, true);
+            gif_talking_active_ = false;
+            lv_gif_set_src(gif_, &gif_idle_);
+            gif_loaded_ = lv_gif_is_loaded(gif_);
+            if (!gif_loaded_) {
+                lv_obj_delete(gif_);
+                gif_ = nullptr;
+            } else {
+                lv_obj_center(gif_);
+                UpdateGif();
+            }
+        }
+    }
+#endif
     lv_obj_set_style_bg_color(root_, lv_color_hex(theme_.background), 0);
     lv_obj_set_style_bg_color(mouth_, lv_color_hex(theme_.primary), 0);
     lv_obj_set_style_bg_color(mouth_inside_, lv_color_hex(theme_.background), 0);
+    SetAnimation(animation_enabled_);
     Render();
 }
 
@@ -336,11 +375,21 @@ void RobotEyesView::SetVisible(bool visible) {
 void RobotEyesView::SetAnimation(bool enabled) {
     animation_enabled_ = enabled;
     if (timer_ != nullptr) {
-        if (enabled && visible_)
+        if (enabled && visible_
+#if CONFIG_LV_USE_GIF
+            && !gif_loaded_
+#endif
+        )
             lv_timer_resume(timer_);
         else
             lv_timer_pause(timer_);
     }
+#if CONFIG_LV_USE_GIF
+    if (gif_loaded_) {
+        if (enabled && visible_) lv_gif_resume(gif_);
+        else lv_gif_pause(gif_);
+    }
+#endif
     Render();
 }
 
@@ -358,6 +407,10 @@ void RobotEyesView::SetSize(lv_coord_t width, lv_coord_t height) {
     height_ = height;
     lv_obj_set_size(root_, width_, height_);
     lv_obj_center(root_);
+#if CONFIG_LV_USE_GIF
+    if (gif_loaded_)
+        UpdateGif();
+#endif
     Render();
 }
 
@@ -365,6 +418,10 @@ void RobotEyesView::SetStatus(RobotEyesMode mode) {
     if (mode != RobotEyesMode::Speaking || status_mode_ != RobotEyesMode::Speaking)
         SetSpeechLevel(0);
     status_mode_ = mode;
+#if CONFIG_LV_USE_GIF
+    if (gif_loaded_)
+        UpdateGif();
+#endif
     SetMode(mode);
 }
 
@@ -375,7 +432,36 @@ void RobotEyesView::SetSpeechLevel(uint8_t level) {
         speech_level_ = 0;
 }
 
+#if CONFIG_LV_USE_GIF
+void RobotEyesView::UpdateGif() {
+    const bool talking = status_mode_ == RobotEyesMode::Speaking;
+    if (talking != gif_talking_active_) {
+        lv_gif_set_src(gif_, talking ? &gif_talking_ : &gif_idle_);
+        gif_talking_active_ = talking;
+        if (!lv_gif_is_loaded(gif_)) {
+            lv_obj_add_flag(gif_, LV_OBJ_FLAG_HIDDEN);
+            gif_loaded_ = false;
+            SetAnimation(animation_enabled_);
+            return;
+        }
+    }
+    const auto& data = talking ? theme_.gifs->talking : theme_.gifs->idle;
+    const int scale = std::min(256, std::min(static_cast<int>(width_) * 256 / data.width,
+                                             static_cast<int>(height_) * 256 / data.height));
+    lv_image_set_scale(gif_, std::max(1, scale));
+    lv_obj_center(gif_);
+    if (!animation_enabled_ || !visible_)
+        lv_gif_pause(gif_);
+}
+#endif
+
 void RobotEyesView::RenderMouth() {
+#if CONFIG_LV_USE_GIF
+    if (gif_loaded_) {
+        lv_obj_add_flag(mouth_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+#endif
     if (status_mode_ != RobotEyesMode::Speaking) {
         lv_obj_add_flag(mouth_, LV_OBJ_FLAG_HIDDEN);
         return;

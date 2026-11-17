@@ -1,6 +1,6 @@
 # Theme khuôn mặt robot
 
-Kho theme cho renderer LVGL thủ tục của KyNangSo. Mỗi theme dùng cùng bộ biểu cảm, chuyển động mắt và miệng TTS; theme chỉ thay bảng màu, hình khối và hiệu ứng ánh sáng.
+Kho theme cho renderer LVGL của KyNangSo. Các theme thủ tục dùng cùng bộ biểu cảm, chuyển động mắt và miệng TTS. Ngoài ra có GIF PoC thử hai ảnh động từ thẻ nhớ như hướng dẫn bên dưới.
 
 Các trang theme và video đã cung cấp được dùng làm nguồn cảm hứng về cảm giác thị giác, cách trình bày và nhịp chuyển động. Không sao chép mã nguồn, firmware, ảnh GIF hay gói theme của bên khác. Hình ảnh mới được dựng bằng primitive LVGL của firmware.
 
@@ -52,9 +52,9 @@ Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhậ
 ## Luồng và giới hạn kỹ thuật
 
 1. Web gọi GET /api/face_themes để đọc catalog; chọn theme qua POST /api/face_themes. MCP dùng self.robot.face_theme với các action list/status/refresh/select.
-2. FaceThemeService đọc gói JSON trên worker riêng qua SdStorage; tối đa 7 theme tích hợp và 16 theme SD. Chọn theme lưu snapshot vào NVS rồi cập nhật display trên application task.
+2. FaceThemeService đọc gói JSON trên worker riêng qua SdStorage; tối đa 7 theme thủ tục, 1 mục GIF PoC và 16 theme SD. Chọn theme lưu snapshot vào NVS rồi cập nhật display trên application task.
 3. RobotEyesView vẽ theo design space 240×144 và tự co theo FaceRegion LVGL. Nền theme phủ toàn layout TFT theo kích thước firmware khai báo; vùng thông tin bên dưới chọn màu chữ có tương phản.
-4. Renderer chạy theo timer 40 ms khi mặt đang hiển thị. Ẩn mặt hoặc tắt animation sẽ dừng cập nhật khung hình. Không giải mã GIF/video, không cấp framebuffer theme hay buffer lớn theo từng frame.
+4. Renderer chạy theo timer 40 ms khi mặt đang hiển thị. Ẩn mặt hoặc tắt animation sẽ dừng cập nhật khung hình. Renderer thủ tục không giải mã GIF/video và không cấp framebuffer theme theo từng frame. GIF PoC có bộ nhớ riêng như mô tả bên dưới.
 
 holo và plasma thêm một số lớp hình có opacity; orbital vẽ vòng bằng các đoạn ngắn. Khối lượng vẽ vẫn giới hạn theo mỗi frame để giữ công việc audio và giao diện khác ổn định. Trên TFT 240×240, vùng artwork được scale từ layout hiện có; không cần nhập kích thước màn hình trên webserver.
 
@@ -63,3 +63,21 @@ Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/
 ## Nghiệm thu
 
 Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra theme tích hợp và bốn gói tải thêm với idle, happy, surprised, listening và speaking; quan sát phụ kiện, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.
+
+
+## GIF PoC từ thẻ nhớ
+
+PoC thử hai GIF của người dùng, chưa phải kho artwork chính thức. Chuẩn bị:
+
+```text
+/robot/themes/gif-poc/idle.gif
+/robot/themes/gif-poc/talking.gif
+```
+
+Mỗi file phải là GIF hợp lệ, tối đa 512 KiB và 240×240 pixel. Trong ví dụ Cherry, có thể đổi `Neutral.gif` thành `idle.gif` và chọn một GIF chuyển động làm `talking.gif`. Sao chép qua trang quản lý thẻ nhớ hoặc bằng máy tính, sau đó vào Dashboard → Biểu cảm robot → Kho theme khuôn mặt → **GIF PoC (SD)**. Lúc nói dùng `talking.gif`; các trạng thái khác dùng `idle.gif`. Không áp dụng miệng vector và GIF không lip-sync theo giọng nói.
+
+Firmware tải hai GIF trên worker của theme qua `SdStorage::Download` vào PSRAM, kiểm tra header, khung ảnh và cấu trúc khối trước khi hiển thị. LVGL 9.5 giải mã một GIF tại một thời điểm, tạm dừng khi giao diện mặt bị ẩn. Ảnh được thu theo tỉ lệ để vừa vùng mặt và không che phụ đề. Bộ đệm ảnh ARGB8888 205×205 cần khoảng 164 KiB, ngoài tối đa 1 MiB PSRAM dành cho hai file; chi phí thực tế còn có decoder và các bộ đệm giao diện. Dung lượng này được giải phóng khi đổi theme. Nếu không đọc được file, lựa chọn mới bị từ chối; sau reboot thiếu thẻ thì mặt thủ tục dự phòng vẫn xuất hiện và có thông báo trong kho theme. Chọn lại GIF PoC sau khi gắn thẻ để thử lại.
+
+GIF Cherry có nhịp nguồn 50 fps. Bản mẫu cục bộ để thử đã thu về 160×160 và lấy mỗi bốn frame, khoảng 12,5 fps; tốc độ thực tế trên ESP32 phụ thuộc decoder, TFT và công việc đồng thời. Kiểm tra thực tế trên thiết bị, bao gồm âm thanh, chế độ khác và bộ nhớ, trước khi quyết định format chính thức. Việc dùng GIF nguồn bên thứ ba là thử nghiệm cục bộ; chỉ phân phối sau khi xác nhận quyền sử dụng.
+
+Tham khảo [MinhTiLab Theme](https://robot.minhtilab.com/theme): giao diện tùy chỉnh hai GIF chờ/nói, màu nền/chữ và ẩn phụ đề; trang đóng gói GIF cùng font và model vào `assets.bin` để tải hoặc nạp phân vùng flash. PoC KyNangSo chỉ đọc hai file riêng trên SD; không nhập `.bin` hoặc thay model wake word.

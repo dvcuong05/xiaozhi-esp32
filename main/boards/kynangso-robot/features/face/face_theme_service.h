@@ -46,5 +46,6 @@ private:
     std::string Refresh();
     std::string Install(const std::string& manifest);
     std::string Select(const std::string& id);
+    std::string LoadGifPair(FaceTheme& theme);
 };
 }  // namespace kynangso

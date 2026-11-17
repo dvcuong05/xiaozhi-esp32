@@ -6,6 +6,7 @@
             "name": "kynangso-robot",
             "sdkconfig_append": [
                 "CONFIG_LV_USE_QRCODE=y",
+                "CONFIG_LV_USE_GIF=y",
                 "CONFIG_HTTPD_WS_SUPPORT=y",
                 "CONFIG_FATFS_API_ENCODING_UTF_8=y",
                 "CONFIG_FATFS_API_ENCODING_ANSI_OEM=n",

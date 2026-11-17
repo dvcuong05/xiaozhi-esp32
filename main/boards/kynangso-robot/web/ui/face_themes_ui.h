@@ -9,7 +9,7 @@
     R"THEME(<article class="card wide"><div class="card-head"><div><h2>Kho theme khuôn mặt</h2><p>Chọn phong cách cho tất cả biểu cảm. Hình bên dưới minh họa màu và dáng mắt.</p></div><span class="tag">FACE THEMES</span></div>)THEME" \
     R"THEME(<div id="faceThemeActive" class="hint">Đang đọc theme hiện tại…</div><div id="faceThemeGrid" class="face-theme-grid"></div>)THEME" \
     R"THEME(<div class="row"><button class="ghost" onclick="faceThemeAction('refresh')">Tải lại danh sách</button><button class="ghost" onclick="downloadFaceTheme()">Tải gói mẫu</button><label class="ghost" for="faceThemeFile">Nhập theme vào SD</label><input id="faceThemeFile" type="file" accept=".json,application/json" onchange="importFaceTheme(this)" style="max-width:220px"></div>)THEME" \
-    R"THEME(<p class="mini-note">Bảy theme có sẵn dùng được không cần thẻ. Tải thêm theme tại <a href="https://myrobot.kynangso.com/my/themes" target="_blank" rel="noopener">Kho theme KyNangSo</a>, rồi nhập vào SD hoặc chép vào /robot/themes. Mỗi gói tối đa 2 KiB. Theme đã chọn vẫn dùng được khi tháo thẻ.</p><div id="faceThemeStatus" class="statusline" role="status" aria-live="polite"></div></article>)THEME"
+    R"THEME(<p class="mini-note">Bảy theme có sẵn dùng được không cần thẻ. Tải thêm theme tại <a href="https://myrobot.kynangso.com/my/themes" target="_blank" rel="noopener">Kho theme KyNangSo</a>, rồi nhập vào SD hoặc chép vào /robot/themes. Mỗi gói tối đa 2 KiB. Theme JSON đã chọn vẫn dùng được khi tháo thẻ. GIF PoC cần /robot/themes/gif-poc/idle.gif và talking.gif; mỗi file tối đa 512 KiB, 240×240.</p><div id="faceThemeStatus" class="statusline" role="status" aria-live="polite"></div></article>)THEME"
 
 #define ROBOT_FACE_THEME_SCRIPT \
     R"THEME(let faceThemeCatalog=[], faceThemePending=false, faceThemePoll=0;)THEME" \
@@ -20,9 +20,9 @@
     R"THEME( for(const t of faceThemeCatalog){)THEME" \
     R"THEME(  const card=document.createElement('div');card.className='face-theme-card'+(t.id===d.active_id?' active':'');)THEME" \
     R"THEME(  const preview=document.createElement('div');preview.className='face-theme-preview '+t.style;preview.style.backgroundColor=t.background;preview.style.setProperty('--theme-accent',t.accent);preview.setAttribute('aria-hidden','true');)THEME" \
-    R"THEME(  for(let i=0;i<2;i++){const eye=document.createElement('span');eye.className='face-theme-eye';eye.style.backgroundColor=t.primary;preview.append(eye)})THEME" \
+    R"THEME(  if(t.style==='gif-poc'){preview.textContent='GIF · SD'}else for(let i=0;i<2;i++){const eye=document.createElement('span');eye.className='face-theme-eye';eye.style.backgroundColor=t.primary;preview.append(eye)})THEME" \
     R"THEME(  const title=document.createElement('strong');title.textContent=t.name;)THEME" \
-    R"THEME(  const note=document.createElement('small');note.textContent=(t.builtin?'Có sẵn':'Thẻ nhớ')+' · '+t.style;)THEME" \
+    R"THEME(  const note=document.createElement('small');note.textContent=(t.style==='gif-poc'?'Cần 2 file GIF trên thẻ':(t.builtin?'Có sẵn':'Thẻ nhớ')+' · '+t.style);)THEME" \
     R"THEME(  const button=document.createElement('button');button.textContent=t.id===d.active_id?'Đang dùng':'Chọn theme';button.className=t.id===d.active_id?'ghost':'primary';button.disabled=d.busy||faceThemePending;button.onclick=()=>faceThemeAction('select',t.id);)THEME" \
     R"THEME(  card.append(preview,title,note,button);grid.append(card);)THEME" \
     R"THEME( })THEME" \

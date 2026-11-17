@@ -570,6 +570,12 @@ void KyNangSoRobotDisplay::SetBehaviorCallbacks(std::function<void(bool)> speaki
     }
 }
 
+void KyNangSoRobotDisplay::SetFaceTheme(const kynangso::FaceTheme& theme) {
+    DisplayLockGuard lock(this);
+    if (lock && robot_eyes_ != nullptr)
+        robot_eyes_->SetTheme(theme);
+}
+
 void KyNangSoRobotDisplay::ConfigureFace(const kynangso::FaceConfig& config) {
     DisplayLockGuard lock(this);
     if (!lock)

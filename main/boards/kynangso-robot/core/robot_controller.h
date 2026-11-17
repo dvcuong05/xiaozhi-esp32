@@ -3,6 +3,7 @@
 
 #include "core/robot_settings.h"
 #include "features/bluetooth/bluetooth_service.h"
+#include "features/face/face_theme_service.h"
 #include "features/motion/robot_drive.h"
 #include "features/time/robot_time_service.h"
 #include "integration/web_chat_bridge.h"
@@ -37,6 +38,7 @@ public:
     BluetoothService& Bluetooth() { return bluetooth_; }
     bool HandleBluetoothButton(int action);  // -1 previous, 1 next, 0 connect, 2 close
     FaceConfig GetFaceConfig() const;
+    FaceThemeService& FaceThemes() { return *face_themes_; }
     bool ConfigureFace(const FaceConfig& config);
     InfoShuttleConfig GetInfoShuttleConfig() const;
     bool ConfigureInfoShuttle(const InfoShuttleConfig& config);
@@ -99,6 +101,9 @@ private:
     std::function<void(int)> apply_tft_rotation_;
     WebChatBridge web_chat_;
     std::shared_ptr<RobotTimeService> time_service_;
+    std::shared_ptr<std::atomic<bool>> face_theme_alive_ =
+        std::make_shared<std::atomic<bool>>(true);
+    std::unique_ptr<FaceThemeService> face_themes_;
     BluetoothService bluetooth_;
 #if CONFIG_KYNANGSO_ROBOT_D1_BLUETOOTH_SUPPORT
     struct BluetoothUiLifetime { std::atomic<bool> alive{true}; std::atomic<bool> pending{false}; };

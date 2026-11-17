@@ -2,6 +2,7 @@
 #define KYNANGSO_ROBOT_WEB_UI_H_
 
 #include "web/ui/web_navigation.h"
+#include "web/ui/face_themes_ui.h"
 
 namespace kynangso::web_ui {
 
@@ -33,7 +34,7 @@ static constexpr char kIndexHtml[] =
         .system-strip>.tag{display:flex;align-items:center;gap:7px;flex:none}.system-strip .stats{flex:1;grid-template-columns:repeat(3,minmax(115px,1fr));gap:7px;max-width:660px}.system-strip .stat{padding:6px 9px;border-radius:9px}.system-strip .stat span{font-size:9px}.system-strip .stat b{font-size:13px}
         .routine-control{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}.routine-label{display:block;margin-bottom:7px;color:var(--muted);font-size:10px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.routine-control .row{gap:7px}.routine-control button{padding:8px 10px;font-size:11px}.routine-control .statusline{margin:6px 0 0}
         @media(max-width:620px){.system-strip{align-items:stretch;flex-direction:column}.system-strip .stats{width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}.system-strip .stat{padding:6px}.system-strip .stat b{font-size:12px}}
-)WEBUI" ROBOT_WEB_NAV_STYLE
+)WEBUI" ROBOT_FACE_THEME_CSS ROBOT_WEB_NAV_STYLE
     R"WEBUI(</style>
 </head>
 <body>
@@ -68,6 +69,8 @@ static constexpr char kIndexHtml[] =
         <section class="feature-group" id="expressions">
             <div class="group-head"><div><span class="group-kicker">02 · Tương tác</span><h2>Biểu cảm robot</h2><p>Cài gương mặt mặc định và phản ứng khi trò chuyện.</p></div><span class="group-count">Hiển thị · Hoạt ảnh · Chuyển động tùy chọn</span></div>
             <div class="group-grid">
+)WEBUI" ROBOT_FACE_THEME_HTML R"WEBUI(
+
                 <article class="card wide"><div class="card-head"><div><h2>Gương mặt & cảm xúc</h2><p>Chỉnh mắt, miệng và biểu cảm. Chuyển động theo cảm xúc được tắt mặc định.</p></div><span class="tag">TFT · FACE</span></div>
                     <fieldset id="faceControls" disabled style="border:0;padding:0;margin:0">
                         <div class="row"><label class="check"><input id="faceEyes" type="checkbox" checked> Hiện đôi mắt</label><label class="check"><input id="faceAnimation" type="checkbox" checked> Hoạt ảnh mắt và miệng</label><label class="check"><input id="faceFollow" type="checkbox" checked> Theo cảm xúc hội thoại</label></div>
@@ -190,6 +193,8 @@ static constexpr char kIndexHtml[] =
     async function saveVolume(){try{const volume=Number($('speakerVolume').value);await json('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume})});say('volumeStatus','Đã gửi mức âm lượng '+volume+'%.',true)}catch(e){say('volumeStatus',e.message)}}
     function changeVolume(delta){$('speakerVolume').value=Math.max(0,Math.min(100,Number($('speakerVolume').value)+delta));$('speakerVolumeValue').textContent=$('speakerVolume').value;saveVolume()}
     load();
+)WEBUI" ROBOT_FACE_THEME_SCRIPT R"WEBUI(
+
     window.addEventListener('beforeunload',()=>{if(logSocket)logSocket.close()});
 </script>
 </body>

@@ -9,6 +9,7 @@ Thư mục gốc giữ `kynangso_robot.cc` để khởi tạo phần cứng và 
 | Thư mục | Trách nhiệm |
 | --- | --- |
 | `core/` | Controller điều phối và cấu hình dùng chung của robot |
+| `features/face/` | Catalog theme, kiểm tra gói SD, lưu lựa chọn và nạp nền |
 | `features/motion/` | Điều khiển motor và routine |
 | `features/time/` | Báo thức, nhắc việc, countdown, Pomodoro |
 | `features/media/` | Trạng thái phiên phát nhạc |
@@ -168,6 +169,11 @@ sau reboot. RAM và hàng đợi có giới hạn; không ghi NVS mỗi giây. C
 thực tế TFT, âm thanh, touch, reboot/NTP và chuyển pha trên robot.
 
 ## Cảm xúc, đôi mắt và chuyển động khi nói
+
+Kho theme khuôn mặt có Classic Cyan, Candy Rose, Neon Violet và Pixel Mint; nhập gói JSON
+nhỏ từ web vào `/robot/themes`, chọn bằng web hoặc MCP, giữ lựa chọn sau reboot/tháo SD.
+Xem [hướng dẫn và workflow theme](docs/features/face-themes/README.md).
+
 
 Dashboard có thẻ **Cảm xúc & màn hình đôi mắt**: bật/tắt đôi mắt, hoạt ảnh
 mắt/miệng, theo cảm xúc hội thoại và chọn biểu cảm khi nghỉ. Bấm **Lưu & áp dụng**

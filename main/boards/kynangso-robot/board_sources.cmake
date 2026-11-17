@@ -1,5 +1,7 @@
 # KyNangSo board sources; tests are built separately.
 set(KYNANGSO_BOARD_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/features/face/face_theme.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/features/face/face_theme_service.cc"
     "${CMAKE_CURRENT_LIST_DIR}/features/firmware/robot_ota.cc"
     "${CMAKE_CURRENT_LIST_DIR}/features/bluetooth/bluetooth_service.cc"
     "${CMAKE_CURRENT_LIST_DIR}/kynangso_robot.cc"

@@ -551,6 +551,8 @@ bool WebServer::Start(int port) {
         {"/api/tft_config", HTTP_GET, ApiTftConfigHandler, this},
         {"/api/tft_config", HTTP_POST, ApiTftConfigHandler, this},
         {"/api/face_config", HTTP_GET, ApiFaceConfigHandler, this},
+        {"/api/face_themes", HTTP_GET, ApiFaceThemesHandler, this},
+        {"/api/face_themes", HTTP_POST, ApiFaceThemesHandler, this},
         {"/api/face_config", HTTP_POST, ApiFaceConfigHandler, this},
         {"/api/info_shuttle", HTTP_GET, ApiInfoShuttleHandler, this},
         {"/api/info_shuttle", HTTP_POST, ApiInfoShuttleHandler, this},
@@ -1470,6 +1472,30 @@ esp_err_t WebServer::ApiTftConfigHandler(httpd_req_t* req) {
     if (response != nullptr)
         cJSON_AddStringToObject(response, "result", "TFT rotation scheduled");
     return SendJson(req, response);
+}
+
+esp_err_t WebServer::ApiFaceThemesHandler(httpd_req_t* req) {
+    auto& service = GetServer(req)->controller_.FaceThemes();
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (req->method == HTTP_POST) {
+        cJSON* root = ParseBody(req);
+        if (!root)
+            return ESP_FAIL;
+        const auto* action = cJSON_GetObjectItemCaseSensitive(root, "action");
+        const auto* id = cJSON_GetObjectItemCaseSensitive(root, "id");
+        const auto* manifest = cJSON_GetObjectItemCaseSensitive(root, "manifest");
+        const bool accepted = cJSON_IsString(action) && (!id || cJSON_IsString(id)) &&
+                              (!manifest || cJSON_IsString(manifest)) &&
+                              service.Request(action->valuestring, id ? id->valuestring : "",
+                                              manifest ? manifest->valuestring : "");
+        cJSON_Delete(root);
+        if (!accepted) {
+            httpd_resp_set_status(req, "409 Conflict");
+            return httpd_resp_sendstr(req, "Yêu cầu không hợp lệ hoặc đang xử lý theme khác.");
+        }
+        httpd_resp_set_status(req, "202 Accepted");
+    }
+    return SendJson(req, service.Snapshot());
 }
 
 esp_err_t WebServer::ApiFaceConfigHandler(httpd_req_t* req) {

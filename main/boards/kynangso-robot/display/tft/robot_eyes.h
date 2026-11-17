@@ -3,6 +3,7 @@
 
 #include <lvgl.h>
 #include "display/tft/robot_face_art.h"
+#include "features/face/face_theme.h"
 
 #include <cstdint>
 
@@ -21,9 +22,11 @@ public:
     void SetAnimation(bool enabled);
     void SetSpeechLevel(uint8_t level);
     void SetSize(lv_coord_t width, lv_coord_t height);
+    void SetTheme(const kynangso::FaceTheme& theme);
 
 private:
     lv_obj_t* root_ = nullptr;
+    kynangso::FaceTheme theme_;
     lv_obj_t* mouth_ = nullptr;
     lv_obj_t* mouth_inside_ = nullptr;
     lv_timer_t* timer_ = nullptr;

@@ -8,9 +8,10 @@ constexpr int kTimerPeriodMs = 40;
 
 class FaceCanvas {
 public:
-    FaceCanvas(lv_layer_t* layer, const lv_area_t& bounds)
+    FaceCanvas(lv_layer_t* layer, const lv_area_t& bounds, const kynangso::FaceTheme& theme)
         : layer_(layer),
           bounds_(bounds),
+          theme_(theme),
           sx_(lv_area_get_width(&bounds) / 240.0f),
           sy_(lv_area_get_height(&bounds) / 144.0f) {}
 
@@ -22,16 +23,20 @@ public:
         dsc.p2.x = bounds_.x1 + static_cast<int>(x2 * sx_);
         dsc.p2.y = bounds_.y1 + static_cast<int>(y2 * sy_);
         dsc.width = std::max(1, static_cast<int>(width * std::min(sx_, sy_)));
-        dsc.color = lv_color_hex(color);
-        dsc.round_start = dsc.round_end = true;
+        dsc.color = lv_color_hex(Color(color));
+        dsc.round_start = dsc.round_end = theme_.style != "pixel";
         lv_draw_line(layer_, &dsc);
     }
 
     void Box(float x, float y, float width, float height, float radius, unsigned color) {
         lv_draw_rect_dsc_t dsc;
         lv_draw_rect_dsc_init(&dsc);
-        dsc.bg_color = lv_color_hex(color);
+        dsc.bg_color = lv_color_hex(Color(color));
         dsc.bg_opa = LV_OPA_COVER;
+        if (theme_.style == "pixel")
+            radius = 0;
+        else if (theme_.style == "soft")
+            radius = std::min(width, height) / 2;
         dsc.radius = static_cast<int>(radius * std::min(sx_, sy_));
         const lv_area_t area = {
             bounds_.x1 + static_cast<int>(x * sx_),
@@ -51,14 +56,27 @@ public:
             dsc.p[i].x = bounds_.x1 + static_cast<int>(x[i] * sx_);
             dsc.p[i].y = bounds_.y1 + static_cast<int>(y[i] * sy_);
         }
-        dsc.color = lv_color_hex(color);
+        dsc.color = lv_color_hex(Color(color));
         dsc.opa = LV_OPA_COVER;
         lv_draw_triangle(layer_, &dsc);
     }
 
 private:
+    unsigned Color(unsigned color) const {
+        using namespace kynangso::face_art;
+        if (color == kCyan)
+            return theme_.primary;
+        if (color == kPink)
+            return theme_.accent;
+        if (color == kTear)
+            return theme_.tear;
+        if (color == kBlack)
+            return theme_.background;
+        return color;
+    }
     lv_layer_t* layer_;
     lv_area_t bounds_;
+    const kynangso::FaceTheme& theme_;
     float sx_;
     float sy_;
 };
@@ -109,7 +127,7 @@ void RobotEyesView::DrawFace(lv_event_t* event) {
         bounds.y1 -= offset;
         bounds.y2 -= offset;
     }
-    FaceCanvas canvas(lv_event_get_layer(event), bounds);
+    FaceCanvas canvas(lv_event_get_layer(event), bounds, view->theme_);
     const unsigned frame =
         view->animation_enabled_ ? view->frame_ : (view->mode_ == RobotEyesMode::Boot ? 36 : 40);
     kynangso::face_art::Draw(canvas, view->mode_, frame,
@@ -120,6 +138,14 @@ void RobotEyesView::OnTimer(lv_timer_t* timer) {
     auto* view = static_cast<RobotEyesView*>(lv_timer_get_user_data(timer));
     ++view->frame_;
     view->Render();
+}
+
+void RobotEyesView::SetTheme(const kynangso::FaceTheme& theme) {
+    theme_ = theme;
+    lv_obj_set_style_bg_color(root_, lv_color_hex(theme_.background), 0);
+    lv_obj_set_style_bg_color(mouth_, lv_color_hex(theme_.primary), 0);
+    lv_obj_set_style_bg_color(mouth_inside_, lv_color_hex(theme_.background), 0);
+    Render();
 }
 
 void RobotEyesView::SetVisible(bool visible) {
@@ -188,12 +214,12 @@ void RobotEyesView::RenderMouth() {
     const int mouth_width = std::max(40, static_cast<int>(width_) / 3) - speech_level_ / 24;
     lv_obj_set_size(mouth_, mouth_width, mouth_height);
     lv_obj_set_pos(mouth_, (width_ - mouth_width) / 2, height_ * 4 / 5 - mouth_height / 2);
-    lv_obj_set_style_radius(mouth_, mouth_height / 2, 0);
+    lv_obj_set_style_radius(mouth_, theme_.style == "pixel" ? 0 : mouth_height / 2, 0);
     if (mouth_height >= 10) {
         lv_obj_remove_flag(mouth_inside_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_size(mouth_inside_, mouth_width - 8, mouth_height - 6);
         lv_obj_center(mouth_inside_);
-        lv_obj_set_style_radius(mouth_inside_, mouth_height / 2, 0);
+        lv_obj_set_style_radius(mouth_inside_, theme_.style == "pixel" ? 0 : mouth_height / 2, 0);
     } else {
         lv_obj_add_flag(mouth_inside_, LV_OBJ_FLAG_HIDDEN);
     }

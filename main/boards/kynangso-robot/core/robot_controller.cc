@@ -34,6 +34,14 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
       display_(display),
       storage_(storage),
       apply_tft_rotation_(std::move(apply_tft_rotation)) {
+    face_themes_ = std::make_unique<FaceThemeService>(
+        settings_, storage_, [alive = face_theme_alive_, view = &display_](const FaceTheme& theme) {
+            Application::GetInstance().Schedule([alive, view, theme]() {
+                if (alive->load())
+                    view->SetFaceTheme(theme);
+            });
+        });
+    face_themes_->Start();
     time_service_ =
         std::make_shared<RobotTimeService>([this](const TimeView& view, TimeRingtone ringtone) {
             display_.SetTimeView(view);
@@ -187,6 +195,8 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
 }
 
 RobotController::~RobotController() {
+    face_theme_alive_->store(false);
+    face_themes_.reset();
     weather_stop_.store(true);
     if (weather_worker_.joinable())
         weather_worker_.join();

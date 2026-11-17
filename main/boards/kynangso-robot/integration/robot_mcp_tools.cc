@@ -336,6 +336,39 @@ static ToolResult StopListening(const PropertyList&) {
 
 void RegisterRobotMcpTools(kynangso::RobotController& controller) {
     auto& mcp = McpServer::GetInstance();
+    Property theme_action("action", kPropertyTypeString, std::string("status"));
+    theme_action.SetMaxLength(16);
+    Property theme_id("id", kPropertyTypeString, std::string{});
+    theme_id.SetMaxLength(32);
+    mcp.AddTool(
+        "self.robot.face_theme",
+        "Đổi bộ giao diện khuôn mặt/emoji robot (face theme), không phải đổi một cảm xúc. "
+        "action=list/status xem danh sách và active_id; refresh tải lại theme từ SD; select dùng "
+        "id "
+        "đã lấy trong danh sách. Hỗ trợ yêu cầu tiếng Việt/English như đổi sang Pixel Mint, "
+        "show face themes, switch to Candy Rose. Không đoán ID theme tùy chỉnh. "
+        "busy=true chỉ là đang xử lý; gọi status sau đó và chỉ báo đã chọn khi busy=false, "
+        "error rỗng và active_id khớp. Theme hiện khi TFT đang hiển thị khuôn mặt; "
+        "không ngắt TV/nhạc/QR. Bốn theme có sẵn dùng được khi không có SD.",
+        PropertyList({theme_action, theme_id}), [&controller](const PropertyList& p) -> ToolResult {
+            const auto action = p["action"].value<std::string>();
+            if (action != "status" && action != "list") {
+                if ((action != "select" && action != "refresh") ||
+                    !controller.FaceThemes().Request(action, p["id"].value<std::string>(), ""))
+                    return std::unexpected(
+                        "Yêu cầu theme không hợp lệ hoặc robot đang xử lý theme khác.");
+            }
+            auto* state = controller.FaceThemes().Snapshot();
+            if (!state)
+                return std::unexpected("Không đủ bộ nhớ để đọc danh sách theme.");
+            char* encoded = cJSON_PrintUnformatted(state);
+            cJSON_Delete(state);
+            if (!encoded)
+                return std::unexpected("Không đủ bộ nhớ để trả trạng thái theme.");
+            std::string result(encoded);
+            cJSON_free(encoded);
+            return result;
+        });
     mcp.AddTool(
         "self.time.schedule",
         "Quản lý báo thức và nhắc việc theo giờ Việt Nam UTC+7. Khi người dùng hỏi lịch, gọi "

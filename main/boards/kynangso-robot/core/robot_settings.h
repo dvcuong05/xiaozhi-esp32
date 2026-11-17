@@ -89,6 +89,8 @@ public:
     esp_err_t SaveQr(const QrConfig& config);
     FaceConfig LoadFace() const;
     esp_err_t SaveFace(const FaceConfig& config);
+    std::string LoadFaceTheme() const;
+    esp_err_t SaveFaceTheme(const std::string& manifest);
     InfoShuttleConfig LoadInfoShuttle() const;
     esp_err_t SaveInfoShuttle(const InfoShuttleConfig& config);
 

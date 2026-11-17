@@ -44,6 +44,7 @@ public:
     void ShowNotification(const char* notification, int duration_ms = 3000) override;
     void SetEmotion(const char* emotion) override;
     void ConfigureFace(const kynangso::FaceConfig& config);
+    void SetFaceTheme(const kynangso::FaceTheme& theme);
     void ConfigureInfoShuttle(const kynangso::InfoShuttleConfig& config);
     void ShowNextInfoShuttleCard();
     void SetUpcomingScheduleProvider(std::function<kynangso::UpcomingScheduleList()> provider);

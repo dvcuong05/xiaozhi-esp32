@@ -1,6 +1,7 @@
 #include "core/robot_settings.h"
 
 #include "config.h"
+#include "features/face/face_theme.h"
 #include "features/motion/robot_drive.h"
 
 #include <algorithm>
@@ -400,6 +401,31 @@ esp_err_t RobotSettings::SaveQr(const QrConfig& config) {
     std::lock_guard<std::mutex> lock(mutex_);
     return WriteNamespace("qr_config", [&record](nvs_handle_t handle) {
         return nvs_set_blob(handle, "record", record.data(), record.size());
+    });
+}
+
+std::string RobotSettings::LoadFaceTheme() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    NvsHandle handle("face_theme", NVS_READONLY);
+    size_t size = 0;
+    if (handle.error != ESP_OK || nvs_get_str(handle.value, "manifest", nullptr, &size) != ESP_OK ||
+        size < 2 || size > 2049)
+        return {};
+    std::string value(size, '\0');
+    if (nvs_get_str(handle.value, "manifest", value.data(), &size) != ESP_OK)
+        return {};
+    value.resize(size - 1);
+    return value;
+}
+
+esp_err_t RobotSettings::SaveFaceTheme(const std::string& manifest) {
+    FaceTheme theme;
+    std::string error;
+    if (!ParseFaceTheme(manifest, theme, error))
+        return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("face_theme", [&manifest](nvs_handle_t handle) {
+        return nvs_set_str(handle, "manifest", manifest.c_str());
     });
 }
 

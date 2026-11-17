@@ -69,9 +69,9 @@ Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm t
 
 Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép đặt tên, chọn kiểu/màu dự phòng và gán GIF cho từng trạng thái. Có thể chọn nhiều file cùng lúc nếu tên file là tên biểu cảm như `Happy.gif`, `Angry.gif`, `Neutral.gif`; các tên tiếng Việt và bí danh phổ biến cũng được chuẩn hóa. File chưa nhận diện có thể gán thủ công tại ô của từng trạng thái. Có thể chỉ tải một vài trạng thái; trạng thái chưa có GIF dùng renderer vẽ sẵn. Hiện hỗ trợ 17 khóa: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`. Các bí danh như `idle`, `talking`, `crying`, `wink` được chuẩn hóa về khóa tương ứng.
 
-Khi chọn nhiều file, tên phải khớp với một khóa/biệt danh đã hỗ trợ: ví dụ `Happy.gif`, `Bình thường.gif`, `Đang nghe.gif`. Không phân biệt hoa/thường, dấu tiếng Việt, khoảng trắng hoặc dấu gạch nối; tên có thêm hậu tố như `Happy-v2.gif` không tự ánh xạ. File không theo quy ước vẫn dùng được nếu chọn trực tiếp ở ô của biểu cảm tương ứng. Sau khi cài, robot tự lưu bằng tên khóa chuẩn như `happy.gif`.
+Chọn toàn bộ GIF trong bộ chọn nhiều file. Tên khớp khóa/biệt danh như `Happy.gif`, `Bình thường.gif`, `Đang nghe.gif` được tự gán; không phân biệt hoa/thường, dấu tiếng Việt, khoảng trắng hoặc dấu gạch nối. Tên chưa nhận diện được hoặc cần chỉnh có thể gán bằng danh sách thả xuống ngay trên dòng file rồi bấm **Ghi**. Tên có hậu tố như `Happy-v2.gif` không tự ánh xạ. Khi cài, robot lưu theo tên khóa chuẩn như `happy.gif`.
 
-Danh sách file đã chọn hiển thị tên, biểu cảm được ánh xạ và trạng thái. Các file cùng ánh xạ tới một biểu cảm được tô đỏ, nêu đủ tên file ở thông báo lỗi và có nút **Bỏ file** trên từng dòng để sửa ngay tại chỗ.
+Danh sách file đã chọn hiển thị tên, biểu cảm được ánh xạ và trạng thái. “Trùng” nghĩa là nhiều bí danh cùng ánh xạ tới một biểu cảm, không phải tên file giống nhau; ví dụ `Sad.gif` và `Buồn.gif` đều trỏ tới `sad`. Các file này được tô đỏ và chỉ rõ file đối ứng. Có thể đổi biểu cảm trong danh sách thả xuống rồi bấm **Ghi**, hoặc bỏ file. Tên lạ cũng có thể được gán thủ công như vậy. Khi cài, hệ thống chuẩn hóa và lưu theo tên khóa, ví dụ `sad.gif`; mỗi biểu cảm chỉ nhận một GIF.
 
 ### Chuẩn hóa và lưu
 

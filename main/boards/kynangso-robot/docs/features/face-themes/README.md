@@ -67,13 +67,13 @@ Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm t
 
 ## Theme GIF biểu cảm từ thẻ nhớ
 
-Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép đặt tên, chọn kiểu/màu dự phòng và gán GIF cho từng trạng thái. Có thể chỉ tải một vài trạng thái; trạng thái chưa có GIF dùng renderer vẽ sẵn. Hiện hỗ trợ 17 khóa: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`. Các bí danh như `idle`, `talking`, `crying`, `wink` được chuẩn hóa về khóa tương ứng.
+Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép đặt tên, chọn kiểu/màu dự phòng và gán GIF cho từng trạng thái. Có thể chọn nhiều file cùng lúc nếu tên file là tên biểu cảm như `Happy.gif`, `Angry.gif`, `Neutral.gif`; các tên tiếng Việt và bí danh phổ biến cũng được chuẩn hóa. File chưa nhận diện có thể gán thủ công tại ô của từng trạng thái. Có thể chỉ tải một vài trạng thái; trạng thái chưa có GIF dùng renderer vẽ sẵn. Hiện hỗ trợ 17 khóa: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`. Các bí danh như `idle`, `talking`, `crying`, `wink` được chuẩn hóa về khóa tương ứng.
 
 ### Chuẩn hóa và lưu
 
-1. Trình duyệt kiểm tra từng GIF nguồn (tối đa 10 MiB, 512×512, 120 frame), sau đó gửi file cho Web Worker cục bộ. GIF nguồn không được tải lên dịch vụ backend.
+1. Trình duyệt kiểm tra từng GIF nguồn (tối đa 10 MiB, 512×512, 120 frame), sau đó gửi từng file cho Web Worker cục bộ theo thứ tự. GIF nguồn không được tải lên dịch vụ backend hoặc chép thô vào thẻ SD.
 2. Worker ghép frame và transparency/disposal, đổi nền trong suốt sang màu nền theme, thu nhỏ có nội suy, lấy mẫu tối đa 10 fps và giảm palette. Nếu output còn quá lớn, worker lần lượt giảm số màu, kích thước và số frame.
-3. Bản cuối có tối đa 160×160, 40 frame từ công cụ chuẩn hóa (firmware chấp nhận tối đa 60 frame) và 256 KiB mỗi biểu cảm. Mỗi file được gửi tuần tự thành chunk 32 KiB lên robot.
+3. Bản cuối có tối đa 160×160, 40 frame từ công cụ chuẩn hóa (firmware chấp nhận tối đa 60 frame) và 256 KiB mỗi biểu cảm. Mỗi file được tải tuần tự thành chunk 32 KiB lên robot; chỉ bản đã chuẩn hóa được ghi lên SD. Cách này tránh cần dung lượng tạm cho toàn bộ GIF nguồn và không để lại file thô khi browser bị đóng giữa chừng.
 4. GIF lưu tại `/robot/themes/<id>/<expression>.gif`; manifest version 2 lưu tại `/robot/themes/<id>.json`. Không ghi đè ID đã có. Tối đa 16 theme tùy chỉnh trên một thẻ. Có thể đổi theme khi đang dùng; muốn xóa phải chuyển sang theme khác trước.
 
 ### Tải lên robot và giới hạn tài nguyên

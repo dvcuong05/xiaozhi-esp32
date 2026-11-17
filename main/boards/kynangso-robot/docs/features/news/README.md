@@ -7,6 +7,9 @@
 > [!TIP]
 > Robot chỉ nhận một tiêu đề ngắn từ server khi người dùng hỏi tin. Robot không tự kết nối báo, tải RSS hay chạy vòng polling.
 
+> [!WARNING]
+> Backend mới đã deploy, nhưng firmware hỗ trợ `display.news` mới chỉ build, chưa nạp lên robot. Màn hình sẽ hiển thị tin sau khi nạp firmware tương ứng và xác minh trên thiết bị thật.
+
 ## 🔄 Luồng hiển thị
 
 ```mermaid

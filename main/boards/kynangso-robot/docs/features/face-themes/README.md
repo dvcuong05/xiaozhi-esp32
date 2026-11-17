@@ -69,6 +69,8 @@ Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm t
 
 Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép đặt tên, chọn kiểu/màu dự phòng và gán GIF cho từng trạng thái. Có thể chọn nhiều file cùng lúc nếu tên file là tên biểu cảm như `Happy.gif`, `Angry.gif`, `Neutral.gif`; các tên tiếng Việt và bí danh phổ biến cũng được chuẩn hóa. File chưa nhận diện có thể gán thủ công tại ô của từng trạng thái. Có thể chỉ tải một vài trạng thái; trạng thái chưa có GIF dùng renderer vẽ sẵn. Hiện hỗ trợ 17 khóa: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`. Các bí danh như `idle`, `talking`, `crying`, `wink` được chuẩn hóa về khóa tương ứng.
 
+Khi chọn nhiều file, tên phải khớp với một khóa/biệt danh đã hỗ trợ: ví dụ `Happy.gif`, `Bình thường.gif`, `Đang nghe.gif`. Không phân biệt hoa/thường, dấu tiếng Việt, khoảng trắng hoặc dấu gạch nối; tên có thêm hậu tố như `Happy-v2.gif` không tự ánh xạ. File không theo quy ước vẫn dùng được nếu chọn trực tiếp ở ô của biểu cảm tương ứng. Sau khi cài, robot tự lưu bằng tên khóa chuẩn như `happy.gif`.
+
 ### Chuẩn hóa và lưu
 
 1. Trình duyệt kiểm tra từng GIF nguồn (tối đa 10 MiB, 512×512, 120 frame), sau đó gửi từng file cho Web Worker cục bộ theo thứ tự. GIF nguồn không được tải lên dịch vụ backend hoặc chép thô vào thẻ SD.

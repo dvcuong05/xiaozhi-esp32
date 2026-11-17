@@ -75,8 +75,6 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
         unsigned weather_ticks = 0;
         while (!weather_stop_.load()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            if (++weather_ticks % 10 != 0)
-                continue;
             auto config = settings_.LoadInfoShuttle();
             if (!config.enabled || !config.show_weather)
                 continue;
@@ -86,8 +84,14 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                 next = now;
                 display_.SetInfoShuttleWeather("");
             }
-            if (now < next || !Application::GetInstance().IsDeviceBridgeConnected())
+            bool refresh_requested = weather_refresh_requested_.load();
+            if (!refresh_requested && ++weather_ticks % 10 != 0)
                 continue;
+            if (!refresh_requested && now < next)
+                continue;
+            if (!Application::GetInstance().IsDeviceBridgeConnected())
+                continue;
+            weather_refresh_requested_.exchange(false);
             next = now + std::chrono::seconds(120 + esp_random() % 31);
             cJSON* payload = cJSON_CreateObject();
             if (!payload)
@@ -231,6 +235,15 @@ bool RobotController::AdvanceInfoShuttle() {
     if (!settings_.LoadInfoShuttle().enabled)
         return false;
     Application::GetInstance().Schedule([this]() { display_.ShowNextInfoShuttleCard(); });
+    return true;
+}
+
+bool RobotController::RefreshInfoShuttleWeather() {
+    const auto config = settings_.LoadInfoShuttle();
+    if (!config.enabled || !config.show_weather ||
+        !Application::GetInstance().IsDeviceBridgeConnected())
+        return false;
+    weather_refresh_requested_.store(true);
     return true;
 }
 

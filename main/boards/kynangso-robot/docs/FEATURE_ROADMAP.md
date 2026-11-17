@@ -17,8 +17,10 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [x] Màn hình chính động (Dynamic Main Screen) có thẻ toàn màn hình cho khuôn mặt, lịch kế
       tiếp và thời tiết; dashboard cấu hình thẻ, thứ tự và chu kỳ. Radio/nhạc/TV/đồng hồ, hội
       thoại cùng overlay ưu tiên tạm dừng tính năng. Workflow: features/info-shuttle/README.md.
-- [ ] Nối weather provider/MCP backend để gửi dữ liệu tới thẻ thời tiết qua
-      WSS Device Bridge `display.weather`.
+- [x] Nối weather provider Open-Meteo ở MCP backend với robot qua WSS Device Bridge
+      `weather.current`; backend cache theo địa điểm 15 phút, giới hạn 256 địa điểm. Robot giữ
+      dữ liệu gần nhất khi mất mạng; MCP `self.robot.dynamic_main_screen.refresh_weather` cho phép
+      xếp yêu cầu cập nhật nền theo giọng nói. Thẻ vẫn chỉ hiện khi cấu hình Dynamic Main Screen bật.
 
 - [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo tên
       file trong `/robot/music` vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
@@ -296,3 +298,21 @@ thị:
 - [ ] Quét QR URL/IP và QR thanh toán mới trên TFT thật, kiểm tra đúng người
       nhận/số tiền, giữ sau reboot; QR tạm/IP không thay mặc định. Thử record
       NVS lỗi, xoay TFT, renew timer và expiry khi nhạc/boot/eyes đang hoạt động.
+
+## Thứ tự backlog sau rà soát (17/11/2026)
+
+Các mục dưới đây xếp theo mức sẵn sàng triển khai, không phải cam kết hoàn thành cùng lúc.
+
+1. **Vòng quay chọn tên**: software-only; nhận danh sách tên qua MCP, chạy animation TFT,
+   chọn kết quả công bằng và để trợ lý đọc tên thắng. Đây là tính năng mới tiếp theo phù hợp.
+2. **Nhật ký chẩn đoán offline**: dùng microSD tùy chọn với dung lượng/tuổi thọ giới hạn;
+   chỉ ghi sự kiện hệ thống, không ghi âm hoặc nội dung hội thoại.
+3. **Tin tức và dữ liệu thị trường Việt Nam**: trước khi code cần chốt provider/API, quyền dùng
+   dữ liệu và attribution; RSS công khai không mặc nhiên cho phép dùng trong sản phẩm thương mại.
+4. **SmartThings**: tích hợp backend-only sau khi tài khoản và TV đã được ghép, API quyền điều
+   khiển được xác minh; không đưa credential lên robot.
+5. **Tính năng phụ thuộc phần cứng**: VL53L1X, đèn Edison, IR, camera IP và Bluetooth cần xác nhận
+   module/driver, chân GPIO, nguồn và cách điều khiển trước khi triển khai.
+
+Tạm hoãn theo quyết định hiện tại: pause bằng TTP223. Laser chưa đưa vào kế hoạch triển khai;
+ưu tiên LED chỉ điểm an toàn nếu sau này cần trò chơi tương tác.

@@ -40,6 +40,7 @@ public:
     InfoShuttleConfig GetInfoShuttleConfig() const;
     bool ConfigureInfoShuttle(const InfoShuttleConfig& config);
     bool AdvanceInfoShuttle();
+    bool RefreshInfoShuttleWeather();
     bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
     bool PreviewEmotion(int preset);
     bool PreviewFace(int emotion);
@@ -86,6 +87,7 @@ public:
 
 private:
     std::atomic<bool> weather_stop_{false};
+    std::atomic<bool> weather_refresh_requested_{false};
     std::thread weather_worker_;
     RobotSettings& settings_;
     RobotDrive& drive_;

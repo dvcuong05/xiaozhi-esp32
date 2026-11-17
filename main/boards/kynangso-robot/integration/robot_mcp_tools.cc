@@ -594,6 +594,18 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
         "ưu tiên khác. Nếu tính năng đang tắt, yêu cầu bật trước.",
         PropertyList(),
         [&controller](const PropertyList&) { return AdvanceInfoShuttle(controller); });
+    mcp.AddTool(
+        "self.robot.dynamic_main_screen.refresh_weather",
+        "Yêu cầu cập nhật thẻ thời tiết trên Màn hình chính động khi người dùng muốn làm mới thời tiết. "
+        "Chỉ dùng khi màn hình chính động và thẻ thời tiết đang bật; robot cần kết nối MCP server. "
+        "Lệnh chạy nền, không chặn hội thoại. Backend có thể trả dữ liệu cache tối đa 15 phút.",
+        PropertyList(), [&controller](const PropertyList&) -> ToolResult {
+            if (!controller.RefreshInfoShuttleWeather())
+                return std::unexpected(
+                    "Không thể làm mới thời tiết: hãy bật Màn hình chính động và thẻ Thời tiết, "
+                    "đồng thời kiểm tra kết nối MCP server.");
+            return "Đã xếp yêu cầu cập nhật thẻ thời tiết. Kết quả sẽ xuất hiện khi TFT rảnh.";
+        });
 
     mcp.AddTool(
         "self.network.ip2qrcode",

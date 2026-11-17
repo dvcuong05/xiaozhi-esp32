@@ -234,8 +234,11 @@ giao diện robot gốc; lịch và thời tiết mở thành trang toàn màn h
 Cấu hình qua GET/POST /api/info_shuttle được lưu trong NVS. Radio, nhạc, TV, đồng hồ/đếm giờ,
 hội thoại và các overlay TFT ưu tiên sẽ ẩn giao diện này và tạm dừng timer đến khi kết thúc hoặc
 bị hủy. Lịch lấy từ bộ hẹn giờ nội bộ. Backend có thể gửi tóm tắt thời tiết qua WSS Device Bridge
-bằng lệnh display.weather (trường summary, tối đa 192 byte UTF-8); provider thời tiết ở backend
-chưa được nối. Điều khiển bằng giọng nói dùng các MCP tool `self.robot.dynamic_main_screen.*`.
+bằng lệnh display.weather (trường summary, tối đa 192 byte UTF-8). Robot lấy dữ liệu hiện tại từ
+provider Open-Meteo ở backend qua Device Bridge `weather.current`; backend cache theo địa điểm
+15 phút. MCP `self.robot.dynamic_main_screen.refresh_weather` xếp yêu cầu cập nhật bằng worker
+nền khi người dùng yêu cầu, không chặn audio/UI. Điều khiển còn lại dùng các MCP tool
+`self.robot.dynamic_main_screen.*`.
 Xem [workflow chi tiết](docs/features/info-shuttle/README.md).
 
 ## Xem console log qua webserver

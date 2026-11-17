@@ -29,6 +29,10 @@ Màn hình chính động (Dynamic Main Screen) qua giọng nói trong chat:
   còn lại; luôn bật ít nhất một thẻ.
 - `self.robot.dynamic_main_screen.next`: chuyển sang thẻ kế tiếp ngay khi TFT rảnh. Nội dung TFT
   có quyền ưu tiên vẫn được giữ nguyên.
+- `self.robot.dynamic_main_screen.refresh_weather`: xếp yêu cầu làm mới thẻ thời tiết trong worker
+  nền. Chỉ gọi khi Màn hình chính động và thẻ thời tiết đang bật; robot cần kết nối Device Bridge.
+  Lệnh không chặn audio/UI. Backend cache dữ liệu theo địa điểm 15 phút, vì vậy yêu cầu làm mới
+  có thể nhận lại bản tin đang cache thay vì gọi provider liên tục.
 
 Các lệnh thay đổi cấu hình dùng chung `RobotController` và NVS với trang webserver; cập nhật màn
 hình được đưa vào hàng đợi chính của ứng dụng. MCP server/agent cần có các tool thiết bị này trong
@@ -64,10 +68,10 @@ tối đa 256 địa điểm. Robot làm mới mỗi 15–16 phút với jitter;
 Tắt màn hình chính động hoặc thẻ thời tiết sẽ dừng các lần lấy mới. Worker riêng dùng chung
 WSS, không chặn vòng lặp TFT hoặc âm thanh. Dữ liệu cuối được giữ khi lỗi kết nối.
 
-Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ “theo thành phố”.
+Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ "theo thành phố".
 Tên địa điểm mơ hồ trả lỗi để người dùng bổ sung tỉnh/thành, không chọn ngẫu nhiên kết quả.
-Nguồn: https://open-meteo.com/en/docs ; cần tuân thủ gói sử dụng của Open-Meteo khi triển khai.
-Cần cập nhật cả backend và firmware để RPC này hoạt động.
+Nguồn: https://open-meteo.com/en/docs. Provider được tích hợp ở backend và robot hiện gọi qua
+Device Bridge `weather.current`; không gửi yêu cầu HTTP thời tiết trực tiếp từ ESP32.
 
 Nền hai thẻ dùng màu phẳng tối kiểu iOS, bỏ gradient và quầng sáng. Nhiệt độ Noto Sans Bold 36 px, thành phố Bold 20 px. Dưới 30°C xanh lá, từ 30 đến dưới 34°C cam, từ 34°C đỏ.
 

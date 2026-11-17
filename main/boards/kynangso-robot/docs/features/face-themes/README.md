@@ -14,6 +14,14 @@ Các trang theme và video đã cung cấp được dùng làm nguồn cảm h�
 - **Quantum Orbit** — vòng quỹ đạo đứt đoạn xoay quanh mắt với các điểm sáng di chuyển.
 - **Prism Reactor** — mắt nhiều lớp như khối năng lượng, lõi giữa nhịp sáng và hạt plasma chuyển động.
 
+## Theme tải thêm
+
+Kho theme công khai: https://myrobot.kynangso.com/my/themes. Bốn gói đầu tiên gồm Red Devil, Capybara thư thái, Shiba vàng và Mochi Heart. Đây là gói JSON nhỏ, lưu màu và một kiểu vẽ đã có trong firmware; không mang ảnh, GIF, mã thực thi hay thư viện mới.
+
+Để cài, tải gói JSON, mở **Dashboard → Biểu cảm robot → Kho theme khuôn mặt → Nhập theme vào SD**. Firmware tự lưu file tại `/robot/themes/<id>.json`; sau đó chọn **Tải lại danh sách** và bấm **Chọn theme**. Có thể chép file vào thư mục đó bằng trang microSD thay cho nút nhập. Tối đa 16 theme tùy chỉnh được lưu trên robot; các gói khác vẫn có thể tải từ kho MyRobot khi cần.
+
+Các gói Red Devil, Capybara, Shiba và Mochi cần firmware có renderer tương ứng. Sau khi cài firmware hỗ trợ các style này, có thể tải thêm gói JSON cùng style mà không cần nạp lại firmware.
+
 Các hiệu ứng tạo chiều sâu 2.5D bằng lớp sáng/tối, viền và opacity; firmware không chạy bộ dựng hình 3D thật.
 
 ## Sử dụng
@@ -37,7 +45,7 @@ JSON mẫu:
 
     {"version":1,"id":"my-aether","name":"My Aether","style":"holo","primary":"#75F5FF","accent":"#A889FF","tear":"#48D7FF","background":"#041326"}
 
-JSON phẳng version 1 gồm đúng tám trường như mẫu; màu dùng #RRGGBB. id dài 1–32 ký tự thường a-z, số, _, -; tên 1–64 byte UTF-8. Các giá trị style hợp lệ là rounded, soft, pixel, holo, orbital, plasma. Những gói cũ dùng ba style đầu vẫn tương thích.
+JSON phẳng version 1 gồm đúng tám trường như mẫu; màu dùng #RRGGBB. id dài 1–32 ký tự thường a-z, số, _, -; tên 1–64 byte UTF-8. Các giá trị style hợp lệ là rounded, soft, pixel, holo, orbital, plasma, demon, capybara, shiba và mochi. Gói firmware cũ vẫn tương thích.
 
 Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhập lại vào SD. Các file mẫu bổ sung nằm trong examples/.
 
@@ -54,4 +62,4 @@ Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/
 
 ## Nghiệm thu
 
-Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra cả bảy theme với idle, happy, surprised, listening và speaking; quan sát vệt sáng/quỹ đạo, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.
+Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra theme tích hợp và bốn gói tải thêm với idle, happy, surprised, listening và speaking; quan sát phụ kiện, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.

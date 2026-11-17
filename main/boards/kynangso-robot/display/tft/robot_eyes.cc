@@ -49,6 +49,16 @@ public:
 
     void Box(float x, float y, float width, float height, float radius, unsigned color) {
         const unsigned mapped_color = Color(color);
+        if (color == kynangso::face_art::kCyan && theme_.style == "demon") {
+            DrawBox(x - 5, y - 5, width + 10, height + 10, radius + 5, theme_.accent, 68);
+            DrawBox(x + 2, y + 4, width, height, radius, Blend(theme_.background, 0x5A0714, 90),
+                    LV_OPA_COVER);
+            DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
+            const float flicker = static_cast<float>((frame_ * 7) % 17);
+            GlowLine(x + 4, y + height - 4 - flicker * 0.18f,
+                     x + width - 4, y + height - 4, 1.5f, theme_.tear, 180);
+            return;
+        }
         if (color == kynangso::face_art::kCyan && theme_.style == "holo") {
             DrawBox(x - 4, y - 4, width + 8, height + 8, radius + 4, theme_.accent, 42);
             DrawBox(x + 2, y + 4, width, height, radius,
@@ -101,7 +111,8 @@ private:
         dsc.bg_opa = opacity;
         if (theme_.style == "pixel")
             radius = 0;
-        else if (theme_.style == "soft")
+        else if (theme_.style == "soft" || theme_.style == "capybara" ||
+                 theme_.style == "mochi")
             radius = std::min(width, height) / 2;
         dsc.radius = static_cast<int>(radius * std::min(sx_, sy_));
         const lv_area_t area = {
@@ -147,7 +158,31 @@ private:
 
 void DrawThemeBackgroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& theme,
                                 unsigned frame) {
-    if (theme.style == "holo") {
+    if (theme.style == "demon") {
+        canvas.GlowLine(38, 48, 48, 21, 4, theme.accent, 120);
+        canvas.Triangle(36, 51, 48, 16, 61, 49, theme.accent);
+        canvas.GlowLine(202, 48, 192, 21, 4, theme.accent, 120);
+        canvas.Triangle(204, 51, 192, 16, 179, 49, theme.accent);
+        canvas.GlowLine(48, 20, 49, 40, 1.5f, theme.tear, 140);
+        canvas.GlowLine(192, 20, 191, 40, 1.5f, theme.tear, 140);
+    } else if (theme.style == "capybara") {
+        canvas.GlowBox(49, 35, 18, 16, 9, theme.accent, 235);
+        canvas.GlowBox(173, 35, 18, 16, 9, theme.accent, 235);
+        canvas.GlowBox(54, 39, 8, 8, 4, theme.tear, 210);
+        canvas.GlowBox(178, 39, 8, 8, 4, theme.tear, 210);
+    } else if (theme.style == "shiba") {
+        canvas.Triangle(34, 68, 42, 18, 78, 48, theme.accent);
+        canvas.Triangle(206, 68, 198, 18, 162, 48, theme.accent);
+        canvas.Triangle(43, 53, 46, 31, 64, 49, theme.tear);
+        canvas.Triangle(197, 53, 194, 31, 176, 49, theme.tear);
+    } else if (theme.style == "mochi") {
+        canvas.GlowLine(32, 47, 40, 39, 2, theme.tear, 185);
+        canvas.GlowLine(40, 39, 48, 47, 2, theme.tear, 185);
+        canvas.GlowLine(40, 39, 40, 55, 2, theme.tear, 185);
+        canvas.GlowLine(192, 112, 200, 104, 2, theme.accent, 185);
+        canvas.GlowLine(200, 104, 208, 112, 2, theme.accent, 185);
+        canvas.GlowLine(200, 104, 200, 120, 2, theme.accent, 185);
+    } else if (theme.style == "holo") {
         const unsigned color = theme.accent;
         constexpr float kInset = 16;
         constexpr float kLength = 18;
@@ -188,7 +223,23 @@ void DrawThemeBackgroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& t
 
 void DrawThemeForegroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& theme,
                                 unsigned frame) {
-    if (theme.style == "orbital") {
+    if (theme.style == "capybara") {
+        canvas.GlowBox(101, 99, 38, 22, 11, theme.accent, 245);
+        canvas.GlowBox(112, 99, 16, 9, 4, theme.primary, 255);
+        canvas.GlowBox(117, 102, 6, 4, 2, theme.background, 255);
+        canvas.GlowLine(120, 106, 120, 113, 1, theme.background, 220);
+        canvas.GlowLine(120, 113, 114, 116, 1, theme.background, 220);
+        canvas.GlowLine(120, 113, 126, 116, 1, theme.background, 220);
+    } else if (theme.style == "shiba") {
+        canvas.GlowBox(42, 99, 20, 11, 6, theme.tear, 190);
+        canvas.GlowBox(178, 99, 20, 11, 6, theme.tear, 190);
+        canvas.GlowBox(108, 105, 24, 9, 5, theme.accent, 220);
+    } else if (theme.style == "mochi") {
+        const float pulse = 1.0f + (std::sin(frame * 0.12f) + 1.0f) * 0.8f;
+        canvas.GlowBox(42, 99, 14 + pulse, 8 + pulse, 6, theme.accent, 205);
+        canvas.GlowBox(184 - pulse, 99, 14 + pulse, 8 + pulse, 6, theme.accent, 205);
+        canvas.GlowBox(114, 111, 12, 5, 2.5f, theme.tear, 245);
+    } else if (theme.style == "orbital") {
         for (int eye = 0; eye < 2; ++eye) {
             const float phase = frame * 0.075f + eye * 2.5f;
             const float cx = eye == 0 ? 69.0f : 171.0f;

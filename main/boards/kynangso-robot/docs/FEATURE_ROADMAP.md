@@ -71,7 +71,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Kết nối API và hiện camera giao thông HCM
 - [ ] Tính năng smarthome: điều khiển các thiết bị qua API,..
 - [ ] Tính năng stream IP camera của gia đình (cần plan mua thiết bị phù hợp có public api tích hợp,vv)
-- [x] Kho theme khuôn mặt: 7 theme thủ tục gồm 4 kiểu cơ bản và 3 hiệu ứng chiều sâu/hoạt ảnh (Aether Hologram, Quantum Orbit, Prism Reactor); gói JSON SD tại `/robot/themes`, chọn/nhập qua web và MCP `self.robot.face_theme`, giữ snapshot NVS khi thiếu thẻ. [Workflow và giới hạn](features/face-themes/README.md). Build thành công; nghiệm thu TFT thực tế theo checklist trong README.
+- [x] Kho theme khuôn mặt: 7 theme tích hợp và gói JSON cài qua SD; thêm 4 gói tải từ MyRobot (Red Devil, Capybara, Shiba, Mochi), renderer procedural nhẹ và giữ snapshot NVS khi thiếu thẻ. [Workflow, kho tải và giới hạn](features/face-themes/README.md). Build thành công; chờ nghiệm thu các gói mới trên TFT thật.
 - [x] Live TV: catalog SQLite tại MCP server, `/tv` quản lý/tìm/phát/dừng kênh;
       MCP `tv_search/play/stop/status`, RPC hai chiều trên WSS hiện có.
       MJPEG 240×240/12 fps + Opus dùng audio player chung; một phiên TV,

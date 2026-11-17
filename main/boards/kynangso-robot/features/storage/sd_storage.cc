@@ -842,6 +842,14 @@ uint32_t ReadMp3Duration(const std::string& full_path, uint64_t file_size) {
 }
 }  // namespace
 
+// Reserve one SD sector before network tasks fragment internal DMA memory.
+// Access to the card is serialized by io_mutex_.
+SdStorage::SdStorage() {
+    dma_sector_buffer_ = heap_caps_malloc(512, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (!dma_sector_buffer_)
+        ESP_LOGW(kTag, "Cannot reserve SD DMA sector; using driver allocations");
+}
+
 SdStorage::~SdStorage() {
     if (worker_ != nullptr) {
         xTaskNotify(worker_, kStopCommand, eSetValueWithOverwrite);
@@ -851,6 +859,7 @@ SdStorage::~SdStorage() {
         vSemaphoreDelete(stopped_);
     InvalidatePhotoIndex();
     heap_caps_free(music_index_);
+    heap_caps_free(dma_sector_buffer_);
 }
 
 void SdStorage::Start() {
@@ -979,6 +988,12 @@ void SdStorage::Mount() {
                               ". Kiểm tra thẻ FAT32, dây nối và nguồn cấp.");
         ESP_LOGW(kTag, "SD mount failed: %s (CS48/SCK39/MOSI38/MISO40)", esp_err_to_name(err));
         return;
+    }
+    // Only assign the reserved buffer when it fits the card's native sector.
+    // Other sector sizes keep the IDF driver's allocation behavior.
+    if (dma_sector_buffer_ && card->csd.sector_size <= 512) {
+        card->host.dma_aligned_buffer = dma_sector_buffer_;
+        card->host.unaligned_multi_block_rw_max_chunk_size = 1;
     }
     card_ = card;
     InvalidatePhotoIndex();
@@ -2221,7 +2236,8 @@ SdStorage::Result SdStorage::Download(const std::string& path,
         return {Code::Busy, "Đang phát file từ thẻ. Dừng phát rồi thử lại."};
     struct stat info = {};
     if (stat(full.c_str(), &info) != 0)
-        return {Code::NotFound, "Không tìm thấy file."};
+        return errno == ENOENT ? Result{Code::NotFound, "Không tìm thấy file."}
+                               : IoError("stat download");
     if (!S_ISREG(info.st_mode) || info.st_size < 0 ||
         static_cast<uint64_t>(info.st_size) > kMaxFileBytes)
         return {Code::Limit, "Chỉ tải xuống file thường tối đa 1 GiB."};

@@ -82,6 +82,7 @@ public:
     static constexpr char kMusicRoot[] = "/robot/music";
     static constexpr size_t kMaxMusicTracks = 512;
 
+    SdStorage();
     ~SdStorage();
     void Start();
     Status GetStatus() const;
@@ -125,6 +126,7 @@ private:
     TaskHandle_t worker_ = nullptr;
     SemaphoreHandle_t stopped_ = nullptr;
     void* card_ = nullptr;
+    void* dma_sector_buffer_ = nullptr;
     bool bus_initialized_ = false;
     std::atomic<unsigned> playback_files_{0};
     std::string upload_path_;

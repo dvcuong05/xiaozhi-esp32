@@ -41,7 +41,7 @@ phiên chat để mô hình gọi chúng theo yêu cầu của người dùng.
 ## Màu sắc, chữ và icon thời tiết
 
 Webserver lưu tông màu Calendar và Thời tiết riêng. Tiêu đề và địa điểm dùng font Noto Sans 16 px có đủ glyph tiếng Việt; địa điểm
-được xuống dòng khi dài. Font được tạo bằng `scripts/generate_time_font.py --size 16`. Khuôn mặt robot không dùng các tuỳ chỉnh này và giữ nguyên giao diện gốc.
+được xuống dòng khi dài. Font được tạo bằng `scripts/generate_time_font.py --size 16`. Bộ tạo font tự kiểm tra 142 codepoint tiếng Việt ở cả NFC/NFD, gồm `Ĩ/ĩ` (U+0128/U+0129) và `Ũ/ũ` (U+0168/U+0169), tránh lỗi như “Vũng Tàu” bị mất chữ `ũ`. Tất cả cỡ Noto Sans board-local regular/bold đều dùng dải glyph này; nhãn thời tiết và vòng quay dùng các font đó cùng fallback theme. Khuôn mặt robot không dùng các tuỳ chỉnh này và giữ nguyên giao diện gốc.
 
 Backend trả `icon_kind` cùng bản tin thời tiết theo từng địa điểm: `0` nắng, `1` nhiều mây,
 `2` mưa, `3` dông, `4` gió mạnh, `5` tuyết, `6` sương mù. TFT vẽ icon bằng các hình LVGL;

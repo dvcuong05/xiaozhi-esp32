@@ -26,8 +26,10 @@ trình chiếu vòng quay trên TFT, còn kết quả được chọn ở backen
    `device_bridge_hub.request` với `type=wheel.start`.
 3. Firmware xác thực cấu trúc lệnh, giới hạn số tên/độ dài và chuyển cập nhật giao diện qua
    `Application::Schedule`; không chạy animation trong callback WSS.
-4. TFT chạy animation vòng quay giảm tốc khoảng 5 giây, làm nổi tên thắng và hiệu ứng pháo giấy;
-   kết quả giữ thêm khoảng 2 giây rồi trở về giao diện trước đó.
+4. TFT chỉ hiện một tiêu đề “VÒNG QUAY MAY MẮN” và bánh xe chia lát màu, mỗi lựa chọn nằm trên
+   lát tương ứng; nhãn dài tự rút gọn bằng dấu ba chấm. Bánh xe giảm tốc trong khoảng 5 giây,
+   dừng đúng lát người thắng, chạy pháo hoa nhiều đợt và giữ kết quả thêm 10 giây trước khi trở về
+   giao diện trước đó.
 5. MCP trả `choice` để trợ lý thông báo kết quả. Chỉ đọc kết quả sau phản hồi thành công của tool.
 
 ## Giới hạn và ưu tiên màn hình
@@ -38,8 +40,10 @@ Một lần chạy tối đa 16 lựa chọn, mỗi mục tối đa 48 byte UTF-
 Các hiệu ứng audio và trạng thái robot không bị thay đổi.
 
 Các nhãn LVGL nằm ở `lv_layer_top`, nên không tự nhận font mới từ theme. Khi theme nạp lại font,
-`OnThemeTextFontChanged` phải cập nhật font cho toàn bộ nhãn của vòng quay trước khi font cũ được giải
-phóng; nếu không, LVGL có thể dereference font pointer cũ khi tính layout và làm robot reset.
+`OnThemeTextFontChanged` cập nhật fallback cho toàn bộ nhãn trước khi font cũ được giải phóng; nếu
+không, LVGL có thể dereference font pointer cũ khi tính layout và làm robot reset. Tiêu đề dùng
+Noto Sans Bold 20 px; nhãn lựa chọn và kết quả dùng Noto Sans 14 px board-local, có fallback sang
+theme cho ký tự ngoài bộ glyph tiếng Việt.
 
 Nếu có nhiều robot trực tuyến, cần chỉ định `device_id`; backend không tự đoán robot đích. Việc
 chọn kết quả diễn ra trên backend, nên animation TFT chỉ là trình diễn cho kết quả đã chọn.

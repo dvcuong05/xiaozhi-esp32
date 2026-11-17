@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import unicodedata
 import shutil
 import subprocess
 import tempfile
@@ -15,14 +16,45 @@ SHA256 = "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
 BOLD_SOURCE = "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf"
 BOLD_SHA256 = "c976e4b1b99edc88775377fcc21692ca4bfa46b6d6ca6522bfda505b28ff9d6a"
 RANGES = (
-    "0x20-0x7e,0xa0-0xff,0x102-0x103,0x110-0x111,0x1a0-0x1a1,0x1af-0x1b0,"
+    "0x20-0x7e,0xa0-0xff,0x102-0x103,0x110-0x111,0x128-0x129,0x168-0x169,"
+    "0x1a0-0x1a1,0x1af-0x1b0,"
     "0x1ea0-0x1ef9,0x300-0x303,0x306,0x309,0x31b,0x323,"
     "0x2013-0x2014,0x2018-0x2019,0x201c-0x201d,0x2022,0x2026"
 )
-BASIC_RANGES = "0x20-0x7e,0xb0"
+
+
+def validate_vietnamese_glyph_coverage():
+    """Fail early if the generated fonts would omit any Vietnamese vowel or tone."""
+    covered = set()
+    for item in RANGES.split(","):
+        start, separator, end = item.partition("-")
+        first = int(start, 16)
+        last = int(end, 16) if separator else first
+        covered.update(range(first, last + 1))
+
+    tones = ("", "\u0300", "\u0301", "\u0309", "\u0303", "\u0323")
+    missing = set()
+    for base in "aăâeêioôơuưy":
+        for letter in (base, base.upper()):
+            for tone in tones:
+                composed = unicodedata.normalize("NFC", letter + tone)
+                decomposed = unicodedata.normalize("NFD", composed)
+                for form in (composed, decomposed):
+                    missing.update(
+                        ord(char) for char in form if ord(char) > 127 and ord(char) not in covered
+                    )
+
+    missing.update(ord(char) for char in "đĐ" if ord(char) not in covered)
+    if missing:
+        names = ", ".join(
+            f"U+{codepoint:04X} {unicodedata.name(chr(codepoint), 'UNKNOWN')}"
+            for codepoint in sorted(missing)
+        )
+        raise SystemExit(f"Vietnamese glyph ranges are incomplete: {names}")
 
 
 def main():
+    validate_vietnamese_glyph_coverage()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--font", type=Path, help="Existing source TTF; otherwise download it")
     parser.add_argument("--weight", choices=("regular", "bold"), default="regular")
@@ -54,7 +86,7 @@ def main():
         }
         font_name, output_path = outputs[(args.weight, args.size)]
         output = BOARD / output_path
-        glyph_ranges = BASIC_RANGES if args.size == 36 else RANGES
+        glyph_ranges = RANGES
         subprocess.run([
             npx, "--yes", "lv_font_conv@1.5.3", "--size", str(args.size), "--bpp", "1",
             "--no-compress", "--no-kerning", "--font", str(font.resolve()),

@@ -68,8 +68,7 @@ tối đa 256 địa điểm. Robot làm mới mỗi 15–16 phút với jitter;
 Tắt màn hình chính động hoặc thẻ thời tiết sẽ dừng các lần lấy mới. Worker riêng dùng chung
 WSS, không chặn vòng lặp TFT hoặc âm thanh. Dữ liệu cuối được giữ khi lỗi kết nối.
 
-Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ "theo thành phố".
-Tên địa điểm mơ hồ trả lỗi để người dùng bổ sung tỉnh/thành, không chọn ngẫu nhiên kết quả.
+Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ "theo thành phố". Khi có nhiều kết quả trùng tên, backend so khớp tên không dấu và chọn kết quả thủ đô `PPLC` nếu tên khớp chính xác; ví dụ "Hà Nội" sẽ lấy đúng thành phố Hà Nội. Nếu còn mơ hồ, backend yêu cầu bổ sung tỉnh/thành, không chọn ngẫu nhiên.
 Nguồn: https://open-meteo.com/en/docs. Provider được tích hợp ở backend và robot hiện gọi qua
 Device Bridge `weather.current`; không gửi yêu cầu HTTP thời tiết trực tiếp từ ESP32.
 

@@ -236,19 +236,25 @@ hội thoại và các overlay TFT ưu tiên sẽ ẩn giao diện này và tạ
 bị hủy. Lịch lấy từ bộ hẹn giờ nội bộ. Backend có thể gửi tóm tắt thời tiết qua WSS Device Bridge
 bằng lệnh display.weather (trường summary, tối đa 192 byte UTF-8). Robot lấy dữ liệu hiện tại từ
 provider Open-Meteo ở backend qua Device Bridge `weather.current`; backend cache theo địa điểm
-15 phút. MCP `self.robot.dynamic_main_screen.refresh_weather` xếp yêu cầu cập nhật bằng worker
+15 phút, dùng vị trí đã lưu trên chính robot. Hồ Chí Minh chỉ là giá trị mặc định ban đầu trong NVS;
+provider không cố định thành phố. Nếu tên thành phố trả nhiều kết quả, backend chọn thủ
+đô `PPLC` khi tên khớp (ví dụ Hà Nội), còn trường hợp vẫn mơ hồ thì yêu cầu bổ sung tỉnh/thành.
+MCP `self.robot.dynamic_main_screen.refresh_weather` xếp yêu cầu cập nhật bằng worker
 nền khi người dùng yêu cầu, không chặn audio/UI. Điều khiển còn lại dùng các MCP tool
 `self.robot.dynamic_main_screen.*`.
 Xem [workflow chi tiết](docs/features/info-shuttle/README.md).
 
-## Vòng quay chọn tên qua MCP
+## Quay chọn ngẫu nhiên qua MCP
 
-Người dùng có thể yêu cầu chọn ngẫu nhiên từ 2-16 tên đã nêu trong hội thoại. MCP backend kiểm tra
-danh sách, chọn một tên bằng bộ sinh ngẫu nhiên hệ thống và gửi lệnh `wheel.start` đến robot đích
-qua Device Bridge WSS. TFT hiển thị vòng quay giảm tốc và hiệu ứng pháo giấy; sau khoảng 7 giây,
-màn hình trở về giao diện trước đó. Tool trả tên thắng để trợ lý đọc kết quả. Danh sách không được
-lưu trên robot; vòng quay không điều khiển motor và không che QR, Live TV, đồng hồ/cảnh báo thời gian,
-Bluetooth hay nội dung audio đang phát. Chi tiết: [workflow MCP và firmware](docs/features/name-wheel/README.md).
+Người dùng có thể yêu cầu chọn ngẫu nhiên từ 2-16 lựa chọn trong hội thoại, gồm tên người, hoạt động,
+món ăn hoặc phương án bất kỳ. Ví dụ: “Chọn giúp tôi giữa đọc sách, đi dạo và nghe nhạc” hoặc “Pick
+one for me: reading, walking, and listening to music.” MCP backend kiểm tra danh sách, chọn một mục
+bằng bộ sinh ngẫu nhiên hệ thống và gửi lệnh `wheel.start` đến robot đích qua Device Bridge WSS.
+TFT hiển thị vòng quay giảm tốc và hiệu ứng pháo giấy; sau khoảng 7 giây, màn hình trở về giao diện
+trước đó. Tool trả lựa chọn thắng để trợ lý đọc kết quả. Tiếng Việt và English được hỗ trợ; nhãn
+được giữ nguyên. Danh sách không được lưu trên robot; vòng quay không điều khiển motor và không che
+QR, Live TV, đồng hồ/cảnh báo thời gian, Bluetooth hay nội dung audio đang phát. Chi tiết:
+[workflow MCP và firmware](docs/features/name-wheel/README.md).
 
 ## Xem console log qua webserver
 

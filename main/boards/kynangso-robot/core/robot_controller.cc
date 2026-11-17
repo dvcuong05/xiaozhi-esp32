@@ -7,6 +7,7 @@
 #include "display/tft/kynangso_robot_display.h"
 #include "features/storage/sd_storage.h"
 
+#include <esp_log.h>
 #include <esp_random.h>
 #include <cJSON.h>
 #include <algorithm>
@@ -20,6 +21,9 @@
 #include <wifi_manager.h>
 
 namespace kynangso {
+namespace {
+constexpr char kTag[] = "RobotController";
+}  // namespace
 
 RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                                  SecondaryDisplay& secondary, KyNangSoRobotDisplay& display,
@@ -104,8 +108,10 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                 continue;
             std::string request(encoded), result, error;
             cJSON_free(encoded);
-            if (!Application::GetInstance().RequestService(request, &result, &error))
+            if (!Application::GetInstance().RequestService(request, &result, &error)) {
+                ESP_LOGW(kTag, "Weather service request failed: %s", error.c_str());
                 continue;
+            }
             cJSON* response = cJSON_Parse(result.c_str());
             const auto* summary = cJSON_GetObjectItemCaseSensitive(response, "summary");
             const auto* icon = cJSON_GetObjectItemCaseSensitive(response, "icon_kind");
@@ -117,6 +123,10 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                                                cJSON_IsNumber(icon) ? icon->valueint : -1);
                 next = std::chrono::steady_clock::now() +
                        std::chrono::seconds(900 + esp_random() % 61);
+            } else if (!weather_stop_.load() &&
+                       settings_.LoadInfoShuttle().weather_location == config.weather_location) {
+                ESP_LOGW(kTag,
+                         "Weather service returned no usable summary for the configured location");
             }
             cJSON_Delete(response);
         }

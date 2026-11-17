@@ -21,6 +21,8 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       `weather.current`; backend cache theo địa điểm 15 phút, giới hạn 256 địa điểm. Robot giữ
       dữ liệu gần nhất khi mất mạng; MCP `self.robot.dynamic_main_screen.refresh_weather` cho phép
       xếp yêu cầu cập nhật nền theo giọng nói. Thẻ vẫn chỉ hiện khi cấu hình Dynamic Main Screen bật.
+      Backend geocoding ưu tiên kết quả thủ đô `PPLC` nếu có nhiều địa danh trùng tên (ví dụ Hà Nội);
+      trường hợp còn mơ hồ vẫn yêu cầu người dùng bổ sung tỉnh/thành.
 
 - [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo tên
       file trong `/robot/music` vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
@@ -79,7 +81,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
       có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
 - [ ] Tạm hoãn (pause) bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
-- [x] Vòng quay chọn tên qua MCP: kiểm tra 2-16 tên, chọn winner ở backend bằng `secrets.choice`, gửi `wheel.start` tới robot đích và trình chiếu vòng quay giảm tốc/pháo giấy trên TFT; không lưu danh sách, không điều khiển motor. [Workflow firmware](features/name-wheel/README.md); backend xem `docs/features/random-picker/README.md` trong repo `xiaozhi-kynangso-services`.
+- [x] Quay chọn ngẫu nhiên qua MCP: nhận 2-16 lựa chọn (tên, hoạt động, món ăn, phương án), MCP hỗ trợ prompt tiếng Việt/English và giữ nguyên nhãn; backend chọn bằng `secrets.choice`, gửi `wheel.start` tới robot đích để TFT chạy vòng quay/pháo giấy. [Workflow firmware](features/name-wheel/README.md); backend xem `docs/features/random-picker/README.md`.
 - [x] Cấp token WSS theo từng robot qua enrollment/USB UART, cấu hình NVS và registry nhiều thiết bị trên MCP server. Đã deploy, nạp/provision/revoke/reboot một robot và kiểm tra cùng client giả lập; hai robot vật lý còn chờ; [kế hoạch](features/device-bridge/PLAN.md).
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)

@@ -81,8 +81,11 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       [Workflow](features/live-tv/README.md) và [kế hoạch/kết quả kiểm chứng](features/live-tv/PLAN.md).
       Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
       có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
+- [x] TFT shuttle cho phép bật/tắt và chọn face/calendar/weather, cùng thứ tự ngẫu nhiên/tuần tự và chu kỳ; tile mới ngoài ba loại này vẫn là backlog.
 - [ ] Tạm hoãn (pause) bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
 - [x] Quay chọn ngẫu nhiên qua MCP: nhận 2-16 lựa chọn (tên, hoạt động, món ăn, phương án), MCP hỗ trợ prompt tiếng Việt/English và giữ nguyên nhãn; backend chọn bằng `secrets.choice`, gửi `wheel.start` tới robot đích để TFT chạy vòng quay/pháo giấy. [Workflow firmware](features/name-wheel/README.md); backend xem `docs/features/random-picker/README.md`.
+- [ ] Tính năng trade chứng khoán, hỏi đáp và vẽ màn hình track mã chứng khoán
+- [ ] Làm lại tính năng đọc tin tức của Việt Nam nguồn báo chí của Việt Nam, giá cả thị trường của Việt Nam
 - [x] Cấp token WSS theo từng robot qua enrollment/USB UART, cấu hình NVS và registry nhiều thiết bị trên MCP server. Đã deploy, nạp/provision/revoke/reboot một robot và kiểm tra cùng client giả lập; hai robot vật lý còn chờ; [kế hoạch](features/device-bridge/PLAN.md).
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)

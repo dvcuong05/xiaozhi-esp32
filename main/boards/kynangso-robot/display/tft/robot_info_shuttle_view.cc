@@ -174,7 +174,7 @@ void RobotInfoShuttleView::BuildSchedulePage() {
     schedule_title_ = Label(schedule_page_, 46, 8, 91, 28, "Calendar", palette.schedule_header,
                             &robot_info_bold_20);
     schedule_heading_ =
-        Label(schedule_page_, 140, 13, width_ - 151, 22, "- What's next", 0xF1F5F9, &text_font_);
+        Label(schedule_page_, 140, 13, width_ - 151, 22, "- TODO", 0xF1F5F9, &text_font_);
 
     schedule_list_ = lv_obj_create(schedule_page_);
     lv_obj_remove_style_all(schedule_list_);

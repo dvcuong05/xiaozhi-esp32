@@ -71,6 +71,8 @@ Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** ch
 
 Khi chọn nhiều file, tên phải khớp với một khóa/biệt danh đã hỗ trợ: ví dụ `Happy.gif`, `Bình thường.gif`, `Đang nghe.gif`. Không phân biệt hoa/thường, dấu tiếng Việt, khoảng trắng hoặc dấu gạch nối; tên có thêm hậu tố như `Happy-v2.gif` không tự ánh xạ. File không theo quy ước vẫn dùng được nếu chọn trực tiếp ở ô của biểu cảm tương ứng. Sau khi cài, robot tự lưu bằng tên khóa chuẩn như `happy.gif`.
 
+Danh sách file đã chọn hiển thị tên, biểu cảm được ánh xạ và trạng thái. Các file cùng ánh xạ tới một biểu cảm được tô đỏ, nêu đủ tên file ở thông báo lỗi và có nút **Bỏ file** trên từng dòng để sửa ngay tại chỗ.
+
 ### Chuẩn hóa và lưu
 
 1. Trình duyệt kiểm tra từng GIF nguồn (tối đa 10 MiB, 512×512, 120 frame), sau đó gửi từng file cho Web Worker cục bộ theo thứ tự. GIF nguồn không được tải lên dịch vụ backend hoặc chép thô vào thẻ SD.

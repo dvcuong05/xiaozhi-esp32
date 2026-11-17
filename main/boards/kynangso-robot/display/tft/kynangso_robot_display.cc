@@ -373,6 +373,10 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
         screen_layout_->SetInfoRegionVisible(!face_shuttle);
         screen_layout_->SetVisible(mode == UiMode::NormalFace || face_shuttle);
     }
+    if (robot_eyes_ != nullptr) {
+        robot_eyes_->SetAnimation(face_config_.animation &&
+                                  (mode == UiMode::NormalFace || face_shuttle));
+    }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
     if (name_wheel_view_)

@@ -71,7 +71,9 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
     candidate.id = id;
     candidate.name = name;
     candidate.style = style;
-    if (candidate.style != "rounded" && candidate.style != "soft" && candidate.style != "pixel")
+    if (candidate.style != "rounded" && candidate.style != "soft" && candidate.style != "pixel" &&
+        candidate.style != "holo" && candidate.style != "orbital" &&
+        candidate.style != "plasma")
         return false;
     auto color = [&](const char* key, uint32_t& value) {
         const char* hex = text(key);

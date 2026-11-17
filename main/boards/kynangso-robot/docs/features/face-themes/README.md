@@ -1,81 +1,57 @@
-# Kho theme khuôn mặt
+# Theme khuôn mặt robot
 
-Theme thay bảng màu và hình dáng nét vẽ cho toàn bộ biểu cảm robot trên TFT. Đây là gói
-JSON cho renderer thủ tục của KyNangSo, không phải file firmware hay assets `.bin` của board khác.
-Tham khảo cách trình bày kho từ [DB-ROBOT](https://dbrobot.vn/theme.html); không tải hay ghi
-đè phân vùng assets bằng các gói của trang đó.
+Kho theme cho renderer LVGL thủ tục của KyNangSo. Mỗi theme dùng cùng bộ biểu cảm, chuyển động mắt và miệng TTS; theme chỉ thay bảng màu, hình khối và hiệu ứng ánh sáng.
+
+Các trang theme và video đã cung cấp được dùng làm nguồn cảm hứng về cảm giác thị giác, cách trình bày và nhịp chuyển động. Không sao chép mã nguồn, firmware, ảnh GIF hay gói theme của bên khác. Hình ảnh mới được dựng bằng primitive LVGL của firmware.
+
+## Theme tích hợp
+
+- **Classic Cyan** — giao diện cyan gọn, nền đen.
+- **Candy Rose** — mắt hồng bo mềm, nền tím đậm.
+- **Neon Violet** — mắt tím và điểm nhấn mint.
+- **Pixel Mint** — nét vuông kiểu pixel.
+- **Aether Hologram** — mắt như tấm kính phát sáng, có lớp đùn, HUD và vệt quét.
+- **Quantum Orbit** — vòng quỹ đạo đứt đoạn xoay quanh mắt với các điểm sáng di chuyển.
+- **Prism Reactor** — mắt nhiều lớp như khối năng lượng, lõi giữa nhịp sáng và hạt plasma chuyển động.
+
+Các hiệu ứng tạo chiều sâu 2.5D bằng lớp sáng/tối, viền và opacity; firmware không chạy bộ dựng hình 3D thật.
 
 ## Sử dụng
 
-Dashboard → **Biểu cảm robot → Kho theme khuôn mặt**:
+Mở Dashboard → **Biểu cảm robot → Kho theme khuôn mặt**, rồi chọn **Dùng theme**. Theme đổi ngay khi robot đang ở giao diện mặt; TV, nhạc, QR và các màn hình ưu tiên vẫn giữ nguyên luồng hiển thị.
 
-- **Classic Cyan**: mắt cyan và hình dáng gốc.
-- **Candy Rose**: mắt hồng, nét tròn mềm, điểm nhấn vàng trên nền tím đậm.
-- **Neon Violet**: mắt tím sáng và điểm nhấn mint trên nền midnight.
-- **Pixel Mint**: mắt xanh mint với góc vuông, đường nét không bo tròn.
+Có thể hỏi robot:
 
-Bấm **Chọn theme** và chờ hoàn tất. Màu/dáng mới áp dụng khi TFT hiển thị khuôn mặt;
-không ngắt TV, nhạc, QR hoặc thông báo ưu tiên. Biểu cảm idle, chớp mắt, nhìn quanh và
-miệng theo mức âm thanh TTS tiếp tục hoạt động. Hình trên web chỉ minh họa mắt trung tính.
-Theme và biểu cảm là hai lựa chọn độc lập; chạm đổi biểu cảm vẫn giữ theme.
+- “Đổi mặt robot sang Aether Hologram.”
+- “Cho robot dùng Quantum Orbit.”
+- “Chuyển sang Prism Reactor.”
+- “Switch the robot face theme to Quantum Orbit.”
 
-Không cần SD để dùng bốn theme có sẵn. Bấm **Tải gói mẫu**, chỉnh JSON rồi **Nhập theme vào SD**.
-File được lưu tại `/robot/themes/<id>.json`, không ghi đè ID/file đã tồn tại. Có thể upload
-bằng trang quản lý thẻ nhớ rồi bấm **Tải lại danh sách**. Xóa gói bằng trang thẻ nhớ rồi tải lại;
-theme đang chọn vẫn giữ bản cấu hình đã nạp. Muốn đổi gói đã chọn sau khi sửa file, tải lại và chọn lại.
+Theme và biểu cảm mặc định là hai thiết lập riêng. Các cảm xúc happy, surprised, sad, angry, listening, speaking và miệng theo biên độ âm thanh tiếp tục hoạt động với mọi theme.
 
-Ví dụ hội thoại (MCP tool phía firmware, không cần thay backend):
+## Gói theme tùy chỉnh
 
-- “Robot có những theme khuôn mặt nào?”
-- “Đổi mặt robot sang Candy Rose.”
-- “Cho robot dùng theme Pixel Mint.”
-- “Tải lại danh sách theme trên thẻ nhớ.”
-- “Switch the robot face theme to Neon Violet.”
+Không cần microSD cho theme tích hợp. Gói tùy chỉnh được lưu ở /robot/themes/<id>.json; giới hạn 16 gói do người dùng thêm, tối đa 2 KiB mỗi gói. Bỏ thẻ SD không ảnh hưởng theme đang chạy hoặc snapshot NVS.
 
-## Định dạng gói
+JSON mẫu:
 
-```json
-{"version":1,"id":"my-theme","name":"My Theme","style":"soft","primary":"#FF8AC6","accent":"#FFD166","tear":"#92E7FF","background":"#140D22"}
-```
+    {"version":1,"id":"my-aether","name":"My Aether","style":"holo","primary":"#75F5FF","accent":"#A889FF","tear":"#48D7FF","background":"#041326"}
 
-JSON phẳng, đủ đúng tám trường, tối đa 2 KiB; không chấp nhận object/array lồng nhau,
-khóa lặp hay khóa không hỗ trợ. `id` dài 1–32 ký tự `a-z`, `0-9`, `_`, `-`; tên file phải
-khớp ID. `name` dài 1–64 byte UTF-8, không có ký tự điều khiển. `style` là `rounded`,
-`soft` hoặc `pixel`. Màu theo `#RRGGBB`; primary/background phải đủ chênh lệch độ sáng.
-Các ID `classic`, `candy`, `neon`, `pixel` được dành cho theme có sẵn.
+JSON phẳng version 1 gồm đúng tám trường như mẫu; màu dùng #RRGGBB. id dài 1–32 ký tự thường a-z, số, _, -; tên 1–64 byte UTF-8. Các giá trị style hợp lệ là rounded, soft, pixel, holo, orbital, plasma. Những gói cũ dùng ba style đầu vẫn tương thích.
 
-Không có GIF, JPEG, script hoặc URL trong gói. Mọi biểu cảm dùng chung hình học hiện tại;
-gói này chưa hỗ trợ nhân vật hoạt hình có bộ animation riêng. Mẫu nằm trong thư mục `examples/`.
+Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhập lại vào SD. Các file mẫu bổ sung nằm trong examples/.
 
-## Workflow và module
+## Luồng và giới hạn kỹ thuật
 
-1. HTTP `GET /api/face_themes` hoặc MCP `self.robot.face_theme(action=list/status)` đọc catalog RAM.
-2. `POST /api/face_themes` nhận `action=refresh/select/install`, `id` cho select và `manifest`
-   là chuỗi JSON cho install. MCP nhận `status/list/refresh/select`; chọn theo ID từ danh sách.
-3. `RobotController::FaceThemes()` chuyển lệnh tới `FaceThemeService`. Chỉ một thao tác chờ/chạy;
-   HTTP trả 202 khi nhận, 409 nếu bận hoặc sai yêu cầu. Không đọc SD trong callback MCP/HTTP.
-4. Worker kiểm tra gói, đọc/ghi qua `SdStorage` với khóa I/O sẵn có. Catalog gồm bốn theme
-   có sẵn và tối đa 16 theme SD; một lần quét xét trang đầu tối đa 24 mục. Thư mục nên chỉ chứa
-   các file gói. `skipped` báo gói lỗi/trùng tên; `truncated` báo giới hạn danh sách.
-5. Select lưu snapshot nhỏ tại NVS `face_theme/manifest`, qua `RobotSettings`, rồi schedule
-   thay đổi trên application task. Display lấy khóa LVGL và gọi `RobotEyesView::SetTheme`.
-6. Client đọc lại `busy`, `operation`, `error`, `active_id`. Chỉ xác nhận chọn thành công khi
-   `busy=false`, `error` rỗng và `active_id` khớp. Lệnh đã nhận chưa đồng nghĩa đã lưu thành công.
+1. Web gọi GET /api/face_themes để đọc catalog; chọn theme qua POST /api/face_themes. MCP dùng self.robot.face_theme với các action list/status/refresh/select.
+2. FaceThemeService đọc gói JSON trên worker riêng qua SdStorage; tối đa 7 theme tích hợp và 16 theme SD. Chọn theme lưu snapshot vào NVS rồi cập nhật display trên application task.
+3. RobotEyesView vẽ theo design space 240×144 và tự co theo FaceRegion LVGL. Nền theme phủ toàn layout TFT theo kích thước firmware khai báo; vùng thông tin bên dưới chọn màu chữ có tương phản.
+4. Renderer chạy theo timer 40 ms khi mặt đang hiển thị. Ẩn mặt hoặc tắt animation sẽ dừng cập nhật khung hình. Không giải mã GIF/video, không cấp framebuffer theme hay buffer lớn theo từng frame.
 
-Khởi động khôi phục snapshot NVS; bản lưu lỗi dùng Classic Cyan. Thiếu/tháo SD không làm mất
-theme đang chạy. Lần đầu thẻ mount sẽ quét catalog; sau thay đổi file/remount dùng nút refresh.
-Ghi thẻ bị từ chối khi SD đang phát nhạc hoặc bận. Lỗi gói/lưu NVS không đổi theme đang chạy.
+holo và plasma thêm một số lớp hình có opacity; orbital vẽ vòng bằng các đoạn ngắn. Khối lượng vẽ vẫn giới hạn theo mỗi frame để giữ công việc audio và giao diện khác ổn định. Trên TFT 240×240, vùng artwork được scale từ layout hiện có; không cần nhập kích thước màn hình trên webserver.
 
-Renderer dùng shape LVGL có sẵn và timer 40 ms. Không tạo decoder, framebuffer theme hay
-animation task mới. Worker theme dùng stack 6 KiB, ưu tiên 2, queue một yêu cầu và catalog hữu hạn.
+Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/theme.html). Đây là liên kết tham khảo ý tưởng thư viện theme; artwork và cách dựng trong firmware KyNangSo là bản tự triển khai.
 
 ## Nghiệm thu
 
-Ngày 17/11/2026: build board qua `idf-init` và `kynangso-build-firmware.bat` thành công;
-app 3.454.512 byte, còn 16% phân vùng ứng dụng. Kiểm tra host dùng chính parser C++ đã qua
-round-trip, ba style, gói mẫu, sai ID/style/màu, khóa lặp/thiếu, JSON lồng và vượt kích thước.
-HTML được xuất từ header nhúng; JavaScript qua `node --check` và kiểm tra chuỗi UTF-8.
-
-Chưa nghiệm thu trên robot thật: chọn từng theme, thử vui/buồn/nghe/nói và touch; reboot/tháo SD
-vẫn giữ theme; nhập gói hợp lệ, từ chối gói lỗi/trùng ID; đổi theme khi TV/QR đang mở rồi quay về mặt.
-Build firmware thành công không thay thế kiểm tra màu và chuyển cảnh trên TFT.
+Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra cả bảy theme với idle, happy, surprised, listening và speaking; quan sát vệt sáng/quỹ đạo, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.

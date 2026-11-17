@@ -1,6 +1,7 @@
 #include "display/tft/robot_eyes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace {
@@ -8,14 +9,31 @@ constexpr int kTimerPeriodMs = 40;
 
 class FaceCanvas {
 public:
-    FaceCanvas(lv_layer_t* layer, const lv_area_t& bounds, const kynangso::FaceTheme& theme)
+    FaceCanvas(lv_layer_t* layer, const lv_area_t& bounds, const kynangso::FaceTheme& theme,
+               unsigned frame)
         : layer_(layer),
           bounds_(bounds),
           theme_(theme),
+          frame_(frame),
           sx_(lv_area_get_width(&bounds) / 240.0f),
           sy_(lv_area_get_height(&bounds) / 144.0f) {}
 
     void Line(float x1, float y1, float x2, float y2, float width, unsigned color) {
+        DrawLine(x1, y1, x2, y2, width, Color(color), LV_OPA_COVER);
+    }
+
+    void GlowLine(float x1, float y1, float x2, float y2, float width, unsigned color,
+                  lv_opa_t opacity) {
+        DrawLine(x1, y1, x2, y2, width, color, opacity);
+    }
+
+    void GlowBox(float x, float y, float width, float height, float radius, unsigned color,
+                 lv_opa_t opacity) {
+        DrawBox(x, y, width, height, radius, color, opacity);
+    }
+
+    void DrawLine(float x1, float y1, float x2, float y2, float width, unsigned color,
+                  lv_opa_t opacity) {
         lv_draw_line_dsc_t dsc;
         lv_draw_line_dsc_init(&dsc);
         dsc.p1.x = bounds_.x1 + static_cast<int>(x1 * sx_);
@@ -23,28 +41,41 @@ public:
         dsc.p2.x = bounds_.x1 + static_cast<int>(x2 * sx_);
         dsc.p2.y = bounds_.y1 + static_cast<int>(y2 * sy_);
         dsc.width = std::max(1, static_cast<int>(width * std::min(sx_, sy_)));
-        dsc.color = lv_color_hex(Color(color));
+        dsc.color = lv_color_hex(color);
+        dsc.opa = opacity;
         dsc.round_start = dsc.round_end = theme_.style != "pixel";
         lv_draw_line(layer_, &dsc);
     }
 
     void Box(float x, float y, float width, float height, float radius, unsigned color) {
-        lv_draw_rect_dsc_t dsc;
-        lv_draw_rect_dsc_init(&dsc);
-        dsc.bg_color = lv_color_hex(Color(color));
-        dsc.bg_opa = LV_OPA_COVER;
-        if (theme_.style == "pixel")
-            radius = 0;
-        else if (theme_.style == "soft")
-            radius = std::min(width, height) / 2;
-        dsc.radius = static_cast<int>(radius * std::min(sx_, sy_));
-        const lv_area_t area = {
-            bounds_.x1 + static_cast<int>(x * sx_),
-            bounds_.y1 + static_cast<int>(y * sy_),
-            bounds_.x1 + static_cast<int>((x + width) * sx_) - 1,
-            bounds_.y1 + static_cast<int>((y + height) * sy_) - 1,
-        };
-        lv_draw_rect(layer_, &dsc, &area);
+        const unsigned mapped_color = Color(color);
+        if (color == kynangso::face_art::kCyan && theme_.style == "holo") {
+            DrawBox(x - 4, y - 4, width + 8, height + 8, radius + 4, theme_.accent, 42);
+            DrawBox(x + 2, y + 4, width, height, radius,
+                    Blend(theme_.background, mapped_color, 78), LV_OPA_COVER);
+            DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
+            if (width > 20 && height > 16) {
+                const float sweep_width = std::max(5.0f, width * 0.16f);
+                const float travel = std::max(0.0f, width - sweep_width - 8.0f);
+                const float progress = (frame_ % 96) / 95.0f;
+                const float sweep_x = x + 4 + travel * progress;
+                GlowLine(sweep_x, y + 4, sweep_x + sweep_width, y + height - 5, 2,
+                         Blend(mapped_color, 0xFFFFFF, 175), 170);
+            }
+            return;
+        }
+        if (color == kynangso::face_art::kCyan && theme_.style == "plasma") {
+            DrawBox(x - 5, y - 5, width + 10, height + 10, radius + 5, theme_.accent, 48);
+            DrawBox(x + 2, y + 5, width, height, radius,
+                    Blend(theme_.background, theme_.accent, 92), LV_OPA_COVER);
+            DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
+            if (width > 20 && height > 18) {
+                DrawBox(x + 5, y + height * 0.72f, width - 10, std::max(2.0f, height * 0.10f),
+                        radius * 0.35f, theme_.accent, 105);
+            }
+            return;
+        }
+        DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
     }
 
     void Triangle(float x1, float y1, float x2, float y2, float x3, float y3, unsigned color) {
@@ -62,6 +93,38 @@ public:
     }
 
 private:
+    void DrawBox(float x, float y, float width, float height, float radius, unsigned color,
+                 lv_opa_t opacity) {
+        lv_draw_rect_dsc_t dsc;
+        lv_draw_rect_dsc_init(&dsc);
+        dsc.bg_color = lv_color_hex(color);
+        dsc.bg_opa = opacity;
+        if (theme_.style == "pixel")
+            radius = 0;
+        else if (theme_.style == "soft")
+            radius = std::min(width, height) / 2;
+        dsc.radius = static_cast<int>(radius * std::min(sx_, sy_));
+        const lv_area_t area = {
+            bounds_.x1 + static_cast<int>(x * sx_),
+            bounds_.y1 + static_cast<int>(y * sy_),
+            bounds_.x1 + static_cast<int>((x + width) * sx_) - 1,
+            bounds_.y1 + static_cast<int>((y + height) * sy_) - 1,
+        };
+        lv_draw_rect(layer_, &dsc, &area);
+    }
+
+    static unsigned Blend(unsigned from, unsigned to, unsigned amount) {
+        amount = std::min(amount, 255u);
+        unsigned result = 0;
+        constexpr unsigned kChannelShifts[] = {0u, 8u, 16u};
+        for (unsigned shift : kChannelShifts) {
+            const unsigned a = (from >> shift) & 0xFF;
+            const unsigned b = (to >> shift) & 0xFF;
+            result |= ((a * (255 - amount) + b * amount) / 255) << shift;
+        }
+        return result;
+    }
+
     unsigned Color(unsigned color) const {
         using namespace kynangso::face_art;
         if (color == kCyan)
@@ -77,9 +140,69 @@ private:
     lv_layer_t* layer_;
     lv_area_t bounds_;
     const kynangso::FaceTheme& theme_;
+    unsigned frame_;
     float sx_;
     float sy_;
 };
+
+void DrawThemeBackgroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& theme,
+                                unsigned frame) {
+    if (theme.style == "holo") {
+        const unsigned color = theme.accent;
+        constexpr float kInset = 16;
+        constexpr float kLength = 18;
+        canvas.GlowLine(kInset, 20, kInset + kLength, 20, 1.5f, color, 90);
+        canvas.GlowLine(kInset, 20, kInset, 36, 1.5f, color, 90);
+        canvas.GlowLine(224, 20, 224 - kLength, 20, 1.5f, color, 90);
+        canvas.GlowLine(224, 20, 224, 36, 1.5f, color, 90);
+        canvas.GlowLine(kInset, 124, kInset + kLength, 124, 1.5f, color, 90);
+        canvas.GlowLine(kInset, 124, kInset, 108, 1.5f, color, 90);
+        canvas.GlowLine(224, 124, 224 - kLength, 124, 1.5f, color, 90);
+        canvas.GlowLine(224, 124, 224, 108, 1.5f, color, 90);
+        const float scan_y = 12 + static_cast<float>((frame * 2) % 120);
+        canvas.GlowLine(24, scan_y, 216, scan_y, 1, theme.tear, 32);
+    } else if (theme.style == "orbital") {
+        constexpr unsigned kSegments = 10;
+        const int gap = (frame / 8) % kSegments;
+        for (int eye = 0; eye < 2; ++eye) {
+            const float cx = eye == 0 ? 69.0f : 171.0f;
+            for (unsigned i = 0; i < kSegments; ++i) {
+                if (static_cast<int>(i) == gap || static_cast<int>(i) == (gap + 1) % kSegments)
+                    continue;
+                const float a0 = (i * 2.0f * kynangso::face_art::kPi) / kSegments;
+                const float a1 = ((i + 1) * 2.0f * kynangso::face_art::kPi) / kSegments;
+                canvas.GlowLine(cx + std::cos(a0) * 42, 72 + std::sin(a0) * 34,
+                                cx + std::cos(a1) * 42, 72 + std::sin(a1) * 34, 1.5f,
+                                theme.accent, 100);
+            }
+        }
+    } else if (theme.style == "plasma") {
+        for (unsigned i = 0; i < 4; ++i) {
+            const float phase = frame * 0.045f + i * 1.5708f;
+            const float x = 24 + i * 64;
+            const float y = 24 + (std::sin(phase) + 1) * 44;
+            canvas.GlowBox(x, y, 3, 3, 1.5f, theme.accent, 90);
+        }
+    }
+}
+
+void DrawThemeForegroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& theme,
+                                unsigned frame) {
+    if (theme.style == "orbital") {
+        for (int eye = 0; eye < 2; ++eye) {
+            const float phase = frame * 0.075f + eye * 2.5f;
+            const float cx = eye == 0 ? 69.0f : 171.0f;
+            const float x = cx + std::cos(phase) * 42;
+            const float y = 72 + std::sin(phase) * 34;
+            canvas.GlowBox(x - 3, y - 3, 6, 6, 3, theme.primary, 235);
+        }
+    } else if (theme.style == "plasma") {
+        const float pulse = 8 + (std::sin(frame * 0.09f) + 1) * 2.5f;
+        canvas.GlowBox(120 - pulse, 72 - pulse, pulse * 2, pulse * 2, pulse, theme.accent, 62);
+        canvas.GlowBox(114, 66, 12, 12, 6, theme.primary, 225);
+        canvas.GlowBox(117, 69, 6, 6, 3, 0xFFFFFF, 245);
+    }
+}
 }  // namespace
 
 RobotEyesView::RobotEyesView(lv_obj_t* parent, lv_coord_t width, lv_coord_t height)
@@ -127,11 +250,13 @@ void RobotEyesView::DrawFace(lv_event_t* event) {
         bounds.y1 -= offset;
         bounds.y2 -= offset;
     }
-    FaceCanvas canvas(lv_event_get_layer(event), bounds, view->theme_);
     const unsigned frame =
         view->animation_enabled_ ? view->frame_ : (view->mode_ == RobotEyesMode::Boot ? 36 : 40);
+    FaceCanvas canvas(lv_event_get_layer(event), bounds, view->theme_, frame);
+    DrawThemeBackgroundEffects(canvas, view->theme_, frame);
     kynangso::face_art::Draw(canvas, view->mode_, frame,
                              view->status_mode_ == RobotEyesMode::Speaking);
+    DrawThemeForegroundEffects(canvas, view->theme_, frame);
 }
 
 void RobotEyesView::OnTimer(lv_timer_t* timer) {

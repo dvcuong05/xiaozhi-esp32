@@ -4,13 +4,25 @@
 #include "features/storage/sd_storage.h"
 
 namespace kynangso {
+namespace {
+constexpr size_t kMaxUserThemes = 16;
+constexpr size_t kMaxBuiltInThemes = 7;
+constexpr size_t kMaxThemeCatalog = kMaxUserThemes + kMaxBuiltInThemes;
+}  // namespace
+
 FaceThemeService::FaceThemeService(RobotSettings& settings, SdStorage& storage,
                                    std::function<void(const FaceTheme&)> apply)
     : settings_(settings), storage_(storage), apply_(std::move(apply)) {
     catalog_ = {{{}, true},
                 {{"candy", "Candy Rose", "soft", 0xFF8AC6, 0xFFD166, 0x92E7FF, 0x140D22}, true},
                 {{"neon", "Neon Violet", "rounded", 0xB794FF, 0x4DFFD2, 0x55D8FF, 0x080C20}, true},
-                {{"pixel", "Pixel Mint", "pixel", 0x66FFB2, 0xFFCF5C, 0x73CFFF, 0x03130F}, true}};
+                {{"pixel", "Pixel Mint", "pixel", 0x66FFB2, 0xFFCF5C, 0x73CFFF, 0x03130F}, true},
+                {{"aether", "Aether Hologram", "holo", 0x75F5FF, 0xA889FF, 0x48D7FF, 0x041326},
+                 true},
+                {{"orbit", "Quantum Orbit", "orbital", 0xA28BFF, 0xFF54D9, 0x62EFFF, 0x08091D},
+                 true},
+                {{"prism", "Prism Reactor", "plasma", 0xFF76D8, 0x62F4FF, 0xFFD166, 0x17091D},
+                 true}};
 }
 
 FaceThemeService::~FaceThemeService() {
@@ -100,7 +112,7 @@ std::string FaceThemeService::Refresh() {
         if (file.directory || file.name.size() < 6 ||
             file.name.substr(file.name.size() - 5) != ".json")
             continue;
-        if (next.size() >= 20) {
+        if (next.size() >= kMaxThemeCatalog) {
             truncated = true;
             break;
         }
@@ -150,7 +162,9 @@ std::string FaceThemeService::Install(const std::string& manifest) {
         for (const auto& entry : catalog_)
             if (entry.theme.id == theme.id)
                 return "ID theme đã tồn tại; hãy chọn ID mới.";
-        if (catalog_.size() >= 20)
+        const auto user_theme_count = std::count_if(
+            catalog_.begin(), catalog_.end(), [](const Entry& entry) { return !entry.builtin; });
+        if (user_theme_count >= kMaxUserThemes)
             return "Kho theme đã đủ 16 gói SD. Hãy xóa bớt gói rồi tải lại danh sách.";
     }
     for (const char* path : {"/robot", "/robot/themes"}) {

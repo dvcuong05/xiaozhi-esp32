@@ -37,5 +37,9 @@ Một lần chạy tối đa 16 lựa chọn, mỗi mục tối đa 48 byte UTF-
 đang hiện QR/đồng hồ hoặc cảnh báo thời gian/Bluetooth/Live TV, đang phát nhạc/radio hoặc đang trình chiếu ảnh.
 Các hiệu ứng audio và trạng thái robot không bị thay đổi.
 
+Các nhãn LVGL nằm ở `lv_layer_top`, nên không tự nhận font mới từ theme. Khi theme nạp lại font,
+`OnThemeTextFontChanged` phải cập nhật font cho toàn bộ nhãn của vòng quay trước khi font cũ được giải
+phóng; nếu không, LVGL có thể dereference font pointer cũ khi tính layout và làm robot reset.
+
 Nếu có nhiều robot trực tuyến, cần chỉ định `device_id`; backend không tự đoán robot đích. Việc
 chọn kết quả diễn ra trên backend, nên animation TFT chỉ là trình diễn cho kết quả đã chọn.

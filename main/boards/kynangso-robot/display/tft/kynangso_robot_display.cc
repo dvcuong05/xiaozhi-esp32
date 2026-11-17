@@ -1201,6 +1201,8 @@ void KyNangSoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     }
     if (info_shuttle_view_ != nullptr)
         info_shuttle_view_->SetFont(text_font);
+    if (name_wheel_view_ != nullptr)
+        name_wheel_view_->SetFont(text_font);
     for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,
                         music_lyric_, payment_qr_caption_, live_tv_title_}) {
         if (label != nullptr) {

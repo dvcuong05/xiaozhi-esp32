@@ -27,21 +27,21 @@ RobotNameWheelView::RobotNameWheelView(int width, int height, const lv_font_t* f
     lv_obj_set_style_pad_all(root_, 0, 0);
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
 
-    auto* title = lv_label_create(root_);
-    lv_label_set_text(title, "VÒNG QUAY MAY MẮN");
-    lv_obj_set_width(title, width_ - 20);
-    lv_obj_set_style_text_font(title, font, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xE9D5FF), 0);
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
+    title_ = lv_label_create(root_);
+    lv_label_set_text(title_, "VÒNG QUAY MAY MẮN");
+    lv_obj_set_width(title_, width_ - 20);
+    lv_obj_set_style_text_font(title_, font, 0);
+    lv_obj_set_style_text_color(title_, lv_color_hex(0xE9D5FF), 0);
+    lv_obj_set_style_text_align(title_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(title_, LV_ALIGN_TOP_MID, 0, 16);
 
-    auto* subtitle = lv_label_create(root_);
-    lv_label_set_text(subtitle, "AI PICKER  ·  CHỌN NGẪU NHIÊN");
-    lv_obj_set_width(subtitle, width_ - 20);
-    lv_obj_set_style_text_font(subtitle, font, 0);
-    lv_obj_set_style_text_color(subtitle, lv_color_hex(0x8291AA), 0);
-    lv_obj_set_style_text_align(subtitle, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 42);
+    subtitle_ = lv_label_create(root_);
+    lv_label_set_text(subtitle_, "AI PICKER  ·  CHỌN NGẪU NHIÊN");
+    lv_obj_set_width(subtitle_, width_ - 20);
+    lv_obj_set_style_text_font(subtitle_, font, 0);
+    lv_obj_set_style_text_color(subtitle_, lv_color_hex(0x8291AA), 0);
+    lv_obj_set_style_text_align(subtitle_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(subtitle_, LV_ALIGN_TOP_MID, 0, 42);
 
     ring_ = lv_obj_create(root_);
     lv_obj_set_size(ring_, std::min(width_, height_) - 78, std::min(width_, height_) - 78);
@@ -59,11 +59,11 @@ RobotNameWheelView::RobotNameWheelView(int width, int height, const lv_font_t* f
     lv_obj_move_background(ring_);
     lv_obj_align(ring_, LV_ALIGN_CENTER, 0, 5);
 
-    auto* pointer = lv_label_create(root_);
-    lv_label_set_text(pointer, "▼");
-    lv_obj_set_style_text_font(pointer, font, 0);
-    lv_obj_set_style_text_color(pointer, lv_color_hex(0xFBBF24), 0);
-    lv_obj_align_to(pointer, ring_, LV_ALIGN_TOP_MID, 0, -6);
+    pointer_ = lv_label_create(root_);
+    lv_label_set_text(pointer_, "▼");
+    lv_obj_set_style_text_font(pointer_, font, 0);
+    lv_obj_set_style_text_color(pointer_, lv_color_hex(0xFBBF24), 0);
+    lv_obj_align_to(pointer_, ring_, LV_ALIGN_TOP_MID, 0, -6);
 
     name_ = lv_label_create(root_);
     lv_obj_set_width(name_, width_ - 72);
@@ -101,6 +101,16 @@ RobotNameWheelView::~RobotNameWheelView() {
         lv_timer_delete(timer_);
     if (root_ != nullptr)
         lv_obj_delete(root_);
+}
+
+void RobotNameWheelView::SetFont(const lv_font_t* font) {
+    if (font == nullptr)
+        return;
+    lv_obj_t* labels[] = {title_, subtitle_, pointer_, name_, result_};
+    for (auto* label : labels) {
+        if (label != nullptr)
+            lv_obj_set_style_text_font(label, font, 0);
+    }
 }
 
 bool RobotNameWheelView::Start(std::vector<std::string> names, std::string winner) {

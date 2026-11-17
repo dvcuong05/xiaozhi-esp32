@@ -68,7 +68,7 @@ tối đa 256 địa điểm. Robot làm mới mỗi 15–16 phút với jitter;
 Tắt màn hình chính động hoặc thẻ thời tiết sẽ dừng các lần lấy mới. Worker riêng dùng chung
 WSS, không chặn vòng lặp TFT hoặc âm thanh. Dữ liệu cuối được giữ khi lỗi kết nối.
 
-Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ "theo thành phố". Khi có nhiều kết quả trùng tên, backend so khớp tên không dấu và chọn kết quả thủ đô `PPLC` nếu tên khớp chính xác; ví dụ "Hà Nội" sẽ lấy đúng thành phố Hà Nội. Nếu còn mơ hồ, backend yêu cầu bổ sung tỉnh/thành, không chọn ngẫu nhiên.
+Backend bỏ các tiền tố như "Tỉnh", "Thủ đô", "Thành phố", "Phường" trước khi tra cứu và chỉ tìm tại Việt Nam. Nếu không tìm được phường/xã, server thử thành phố sau dấu phẩy và ghi rõ "theo thành phố". Khi có nhiều kết quả trùng tên, backend ưu tiên thủ đô `PPLC`; ví dụ "Thủ đô Hà Nội" chọn Hà Nội. Open-Meteo không phân giải ổn định tên tỉnh Đồng Tháp, nên truy vấn cấp tỉnh này dùng trung tâm hành chính hiện tại là Mỹ Tho và ghi chú khu vực được ước tính. Các địa danh vẫn mơ hồ sẽ yêu cầu bổ sung tỉnh/thành thay vì chọn ngẫu nhiên.
 Nguồn: https://open-meteo.com/en/docs. Provider được tích hợp ở backend và robot hiện gọi qua
 Device Bridge `weather.current`; không gửi yêu cầu HTTP thời tiết trực tiếp từ ESP32.
 

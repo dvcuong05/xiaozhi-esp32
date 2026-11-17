@@ -19,6 +19,7 @@ public:
 
     bool Start(std::vector<std::string> names, std::string winner);
     void SetVisible(bool visible);
+    void SetFont(const lv_font_t* font);
     bool IsActive() const { return active_; }
 
 private:
@@ -26,6 +27,9 @@ private:
     int height_;
     lv_obj_t* root_ = nullptr;
     lv_obj_t* ring_ = nullptr;
+    lv_obj_t* title_ = nullptr;
+    lv_obj_t* subtitle_ = nullptr;
+    lv_obj_t* pointer_ = nullptr;
     lv_obj_t* name_ = nullptr;
     lv_obj_t* result_ = nullptr;
     lv_obj_t* confetti_[8] = {};

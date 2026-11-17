@@ -35,5 +35,10 @@ set(KYNANGSO_BOARD_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/web/server/tv_web_server.cc"
     "${CMAKE_CURRENT_LIST_DIR}/web/server/web_server.cc"
 )
+set(KYNANGSO_BOARD_EMBED_FILES
+    "boards/kynangso-robot/web/ui/vendor/omggif.js"
+    "boards/kynangso-robot/web/ui/vendor/gifenc.js"
+    "boards/kynangso-robot/web/ui/face_theme_gif_worker.js"
+)
 list(APPEND BOARD_SOURCES ${KYNANGSO_BOARD_SOURCES})
 list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}")

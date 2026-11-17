@@ -52,6 +52,7 @@ public:
     void PreviewFaceEmotion(const char* emotion, int duration_ms = 2000);
     void SetBehaviorCallbacks(std::function<void(bool)> speaking,
                               std::function<void(const char*)> emotion);
+    void SetFaceGifRequestCallback(std::function<void(const char*)> callback);
     void StartBootSequence() override;
     void FinishBootSequence() override;
     void OnBootEvent(BootStage stage, const char* detail) override;
@@ -100,6 +101,8 @@ private:
     std::unique_ptr<kynangso::RobotScreenLayout> screen_layout_;
     std::unique_ptr<RobotEyesView> robot_eyes_;
     kynangso::FaceTheme face_theme_;
+    std::string current_face_expression_ = "neutral";
+    std::function<void(const char*)> face_gif_request_callback_;
     std::unique_ptr<kynangso::RobotSpectrum> spectrum_;
     kynangso::RobotMusicSession music_session_;
     bool bluetooth_touch_enabled_ = false;

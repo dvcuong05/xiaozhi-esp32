@@ -2,12 +2,67 @@
 
 #include <cJSON.h>
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 
 namespace kynangso {
+namespace {
+constexpr const char* kGifExpressions[] = {
+    "neutral",  "happy",     "sad",   "angry",   "surprised", "sleepy",
+    "confused", "listening", "laugh", "love",    "dizzy",     "distracted",
+    "devil",    "confident", "yawn",  "playful", "speaking"};
+constexpr size_t kExpressionCount = sizeof(kGifExpressions) / sizeof(kGifExpressions[0]);
+
+struct EmotionAlias {
+    const char* alias;
+    const char* canonical;
+};
+constexpr EmotionAlias kEmotionAliases[] = {{"idle", "neutral"},      {"smile", "happy"},
+                                            {"joy", "laugh"},         {"astonished", "surprised"},
+                                            {"wow", "surprised"},     {"panic", "surprised"},
+                                            {"cry", "sad"},           {"crying", "sad"},
+                                            {"disappointed", "sad"},  {"anger", "angry"},
+                                            {"sleep", "sleepy"},      {"thinking", "confused"},
+                                            {"loving", "love"},       {"heart", "love"},
+                                            {"mischievous", "devil"}, {"cool", "confident"},
+                                            {"wink", "playful"},      {"action_yawn", "yawn"},
+                                            {"talk", "speaking"},     {"talking", "speaking"}};
+}  // namespace
+
+const char* FaceGifExpressionName(size_t index) {
+    return index < kExpressionCount ? kGifExpressions[index] : nullptr;
+}
+
+int FaceGifExpressionIndex(const char* name) {
+    if (name == nullptr)
+        return -1;
+    for (size_t i = 0; i < kExpressionCount; ++i)
+        if (std::strcmp(name, kGifExpressions[i]) == 0)
+            return static_cast<int>(i);
+    return -1;
+}
+
+int CanonicalFaceGifExpression(const char* name) {
+    if (name == nullptr)
+        return -1;
+    char normalized[32] = {};
+    size_t length = std::strlen(name);
+    if (length == 0 || length >= sizeof(normalized))
+        return -1;
+    for (size_t i = 0; i < length; ++i)
+        normalized[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[i])));
+    if (const int index = FaceGifExpressionIndex(normalized); index >= 0)
+        return index;
+    for (const auto& alias : kEmotionAliases)
+        if (std::strcmp(normalized, alias.alias) == 0)
+            return FaceGifExpressionIndex(alias.canonical);
+    return -1;
+}
+
 bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& error) {
     error = "Gói theme không hợp lệ: cần JSON phẳng version 1, tên, style và bốn màu #RRGGBB.";
     if (json.empty() || json.size() > 2048 || json.find('\0') != std::string::npos)
@@ -39,9 +94,18 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
     Json root(cJSON_ParseWithOpts(json.c_str(), nullptr, true), cJSON_Delete);
     if (!root || !cJSON_IsObject(root.get()))
         return false;
-    const char* keys[] = {"version", "id",     "name", "style",
-                          "primary", "accent", "tear", "background"};
-    for (const auto* key : keys) {
+    const auto* version = cJSON_GetObjectItemCaseSensitive(root.get(), "version");
+    if (!cJSON_IsNumber(version) || (version->valuedouble != 1 && version->valuedouble != 2))
+        return false;
+    const bool has_gif_expressions = version->valuedouble == 2;
+    const char* keys_v1[] = {"version", "id",     "name", "style",
+                             "primary", "accent", "tear", "background"};
+    const char* keys_v2[] = {"version", "id",   "name",       "style",      "primary",
+                             "accent",  "tear", "background", "expressions"};
+    const auto* keys = has_gif_expressions ? keys_v2 : keys_v1;
+    const size_t expected_keys = has_gif_expressions ? 9 : 8;
+    for (size_t key_index = 0; key_index < expected_keys; ++key_index) {
+        const auto* key = keys[key_index];
         unsigned count = 0;
         for (auto* item = root->child; item; item = item->next)
             if (item->string && std::strcmp(item->string, key) == 0)
@@ -49,10 +113,7 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
         if (count != 1)
             return false;
     }
-    if (cJSON_GetArraySize(root.get()) != 8)
-        return false;
-    const auto* version = cJSON_GetObjectItemCaseSensitive(root.get(), "version");
-    if (!cJSON_IsNumber(version) || version->valuedouble != 1)
+    if (cJSON_GetArraySize(root.get()) != static_cast<int>(expected_keys))
         return false;
     auto text = [&](const char* key) -> const char* {
         const auto* item = cJSON_GetObjectItemCaseSensitive(root.get(), key);
@@ -92,6 +153,20 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
     if (!color("primary", candidate.primary) || !color("accent", candidate.accent) ||
         !color("tear", candidate.tear) || !color("background", candidate.background))
         return false;
+    if (has_gif_expressions) {
+        const auto* expressions = cJSON_GetObjectItemCaseSensitive(root.get(), "expressions");
+        if (!cJSON_IsArray(expressions) || cJSON_GetArraySize(expressions) == 0 ||
+            cJSON_GetArraySize(expressions) > static_cast<int>(kExpressionCount))
+            return false;
+        for (auto* item = expressions->child; item; item = item->next) {
+            if (!cJSON_IsString(item))
+                return false;
+            const int index = FaceGifExpressionIndex(item->valuestring);
+            if (index < 0 || candidate.gif_expressions[index])
+                return false;
+            candidate.gif_expressions[index] = true;
+        }
+    }
     auto brightness = [](uint32_t c) {
         return (299 * ((c >> 16) & 255) + 587 * ((c >> 8) & 255) + 114 * (c & 255)) / 1000;
     };
@@ -109,7 +184,8 @@ std::string EncodeFaceTheme(const FaceTheme& theme) {
     cJSON* root = cJSON_CreateObject();
     if (!root)
         return {};
-    cJSON_AddNumberToObject(root, "version", 1);
+    const bool has_gif_expressions = theme.HasGifExpressions();
+    cJSON_AddNumberToObject(root, "version", has_gif_expressions ? 2 : 1);
     cJSON_AddStringToObject(root, "id", theme.id.c_str());
     cJSON_AddStringToObject(root, "name", theme.name.c_str());
     cJSON_AddStringToObject(root, "style", theme.style.c_str());
@@ -122,6 +198,16 @@ std::string EncodeFaceTheme(const FaceTheme& theme) {
     color("accent", theme.accent);
     color("tear", theme.tear);
     color("background", theme.background);
+    if (has_gif_expressions) {
+        cJSON* expressions = cJSON_AddArrayToObject(root, "expressions");
+        if (!expressions) {
+            cJSON_Delete(root);
+            return {};
+        }
+        for (size_t i = 0; i < kExpressionCount; ++i)
+            if (theme.gif_expressions[i])
+                cJSON_AddItemToArray(expressions, cJSON_CreateString(kGifExpressions[i]));
+    }
     char* encoded = cJSON_PrintUnformatted(root);
     std::string result = encoded ? encoded : "";
     cJSON_free(encoded);

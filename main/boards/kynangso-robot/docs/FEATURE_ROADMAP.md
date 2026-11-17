@@ -72,7 +72,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
 - [ ] Tính năng smarthome: điều khiển các thiết bị qua API,..
 - [ ] Tính năng stream IP camera của gia đình (cần plan mua thiết bị phù hợp có public api tích hợp,vv)
 - [x] Kho theme khuôn mặt: 7 theme tích hợp và gói JSON cài qua SD; thêm 4 gói tải từ MyRobot (Red Devil, Capybara, Shiba, Mochi), renderer procedural nhẹ và giữ snapshot NVS khi thiếu thẻ. [Workflow, kho tải và giới hạn](features/face-themes/README.md). Build thành công; chờ nghiệm thu các gói mới trên TFT thật.
-- [x] PoC GIF theme: hai GIF idle/nói trên microSD; người dùng đã xác nhận GIF chạy khá mượt và dòng chữ bên dưới rõ trên TFT. [Hướng dẫn, kết quả và giới hạn còn lại](features/face-themes/README.md). Cần xác nhận trực quan riêng GIF lúc robot nói và thử tải dài trước khi quyết định format chính thức.
+- [x] Theme GIF biểu cảm chính thức: 17 trạng thái, chuẩn hóa trên trình duyệt, lưu GIF và manifest lên microSD; firmware chỉ nạp GIF cần thiết, cache tối đa hai file và hoãn đọc thẻ khi đang phát audio SD. Build và harness chuẩn hóa đã qua; cần nạp firmware mới để nghiệm thu trực quan toàn bộ trạng thái trên robot. [Workflow và giới hạn](features/face-themes/README.md).
 - [x] Live TV: catalog SQLite tại MCP server, `/tv` quản lý/tìm/phát/dừng kênh;
       MCP `tv_search/play/stop/status`, RPC hai chiều trên WSS hiện có.
       MJPEG 240×240/12 fps + Opus dùng audio player chung; một phiên TV,

@@ -192,10 +192,15 @@ RobotController::RobotController(RobotSettings& settings, RobotDrive& drive,
                 preset = 7;
             drive_.PlayEmotion(preset);
         });
+    display_.SetFaceGifRequestCallback([this](const char* expression) {
+        if (face_themes_)
+            face_themes_->RequestEmotion(expression);
+    });
 }
 
 RobotController::~RobotController() {
     face_theme_alive_->store(false);
+    display_.SetFaceGifRequestCallback({});
     face_themes_.reset();
     weather_stop_.store(true);
     if (weather_worker_.joinable())

@@ -56,6 +56,7 @@ private:
     static esp_err_t ApiTftConfigHandler(httpd_req_t* req);
     static esp_err_t ApiFaceConfigHandler(httpd_req_t* req);
     static esp_err_t ApiFaceThemesHandler(httpd_req_t* req);
+    static esp_err_t ApiFaceThemeNormalizerHandler(httpd_req_t* req);
     static esp_err_t ApiInfoShuttleHandler(httpd_req_t* req);
     static esp_err_t ApiFacePreviewHandler(httpd_req_t* req);
     static esp_err_t ApiEmotionPreviewHandler(httpd_req_t* req);

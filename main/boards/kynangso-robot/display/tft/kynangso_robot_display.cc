@@ -134,6 +134,7 @@ void KyNangSoRobotDisplay::SetupUI() {
     robot_eyes_->SetVisible(face_config_.eyes);
     robot_eyes_->SetAnimation(face_config_.animation);
     robot_eyes_->SetEmotion(kynangso::kFaceEmotions[face_config_.idle_emotion]);
+    current_face_expression_ = kynangso::kFaceEmotions[face_config_.idle_emotion];
     spectrum_ = std::make_unique<kynangso::RobotSpectrum>();
     HideLegacyEmoji();
 
@@ -576,6 +577,15 @@ void KyNangSoRobotDisplay::SetBehaviorCallbacks(std::function<void(bool)> speaki
     }
 }
 
+void KyNangSoRobotDisplay::SetFaceGifRequestCallback(std::function<void(const char*)> callback) {
+    DisplayLockGuard lock(this);
+    if (!lock)
+        return;
+    face_gif_request_callback_ = std::move(callback);
+    if (face_gif_request_callback_)
+        face_gif_request_callback_(current_face_expression_.c_str());
+}
+
 void KyNangSoRobotDisplay::SetFaceTheme(const kynangso::FaceTheme& theme) {
     DisplayLockGuard lock(this);
     if (!lock)
@@ -592,6 +602,7 @@ void KyNangSoRobotDisplay::ConfigureFace(const kynangso::FaceConfig& config) {
     if (!lock)
         return;
     face_config_ = config;
+    current_face_expression_ = kynangso::kFaceEmotions[config.idle_emotion];
     if (face_preview_timer_ != nullptr) {
         lv_timer_delete(face_preview_timer_);
         face_preview_timer_ = nullptr;
@@ -601,6 +612,8 @@ void KyNangSoRobotDisplay::ConfigureFace(const kynangso::FaceConfig& config) {
         robot_eyes_->SetEmotion(kynangso::kFaceEmotions[config.idle_emotion]);
         robot_eyes_->SetVisible(config.eyes);
     }
+    if (face_gif_request_callback_)
+        face_gif_request_callback_(current_face_expression_.c_str());
     ApplyUiMode();
 }
 
@@ -723,11 +736,22 @@ void KyNangSoRobotDisplay::PreviewFaceEmotion(const char* emotion, int duration_
     if (face_preview_timer_ != nullptr)
         lv_timer_delete(face_preview_timer_);
     robot_eyes_->SetEmotion(emotion);
+    const int preview_index = kynangso::CanonicalFaceGifExpression(emotion);
+    if (preview_index >= 0) {
+        current_face_expression_ =
+            kynangso::FaceGifExpressionName(static_cast<size_t>(preview_index));
+        if (face_gif_request_callback_)
+            face_gif_request_callback_(current_face_expression_.c_str());
+    }
     face_preview_timer_ = lv_timer_create(
         [](lv_timer_t* timer) {
             auto* display = static_cast<KyNangSoRobotDisplay*>(lv_timer_get_user_data(timer));
             display->robot_eyes_->SetEmotion(
                 kynangso::kFaceEmotions[display->face_config_.idle_emotion]);
+            display->current_face_expression_ =
+                kynangso::kFaceEmotions[display->face_config_.idle_emotion];
+            if (display->face_gif_request_callback_)
+                display->face_gif_request_callback_(display->current_face_expression_.c_str());
             display->face_preview_timer_ = nullptr;
             display->ApplyUiMode();
             lv_timer_delete(timer);
@@ -808,8 +832,17 @@ void KyNangSoRobotDisplay::SetStatus(const char* status) {
     if (lock && robot_eyes_ != nullptr) {
         robot_eyes_->SetStatus(mode);
         if (mode == RobotEyesMode::Neutral || !face_config_.follow_emotion) {
+            current_face_expression_ = kynangso::kFaceEmotions[face_config_.idle_emotion];
             robot_eyes_->SetEmotion(kynangso::kFaceEmotions[face_config_.idle_emotion]);
+        } else if (mode == RobotEyesMode::Sad) {
+            current_face_expression_ = "sad";
         }
+        const char* expression = mode == RobotEyesMode::Speaking    ? "speaking"
+                                 : mode == RobotEyesMode::Listening ? "listening"
+                                 : mode == RobotEyesMode::Sad ? "sad"
+                                                              : current_face_expression_.c_str();
+        if (face_gif_request_callback_)
+            face_gif_request_callback_(expression);
         ApplyUiMode();
     }
 }
@@ -982,6 +1015,15 @@ void KyNangSoRobotDisplay::SetEmotion(const char* emotion) {
     if (face_preview_timer_ == nullptr && face_config_.follow_emotion &&
         !robot_eyes_->SetEmotion(emotion)) {
         robot_eyes_->SetEmotion("neutral");
+    }
+    if (face_preview_timer_ == nullptr && face_config_.follow_emotion) {
+        const int expression_index = kynangso::CanonicalFaceGifExpression(emotion);
+        current_face_expression_ =
+            expression_index >= 0
+                ? kynangso::FaceGifExpressionName(static_cast<size_t>(expression_index))
+                : "neutral";
+        if (face_gif_request_callback_)
+            face_gif_request_callback_(current_face_expression_.c_str());
     }
     ApplyUiMode();
 }

@@ -118,6 +118,7 @@ public:
     Result OpenAudioFile(const std::string& path, FILE*& file);
     bool ReadAudioFile(FILE* file, char* buffer, size_t capacity, size_t& bytes_read);
     void CloseAudioFile(FILE* file);
+    bool IsAudioPlaybackActive() const { return playback_files_.load() != 0; }
 
 private:
     mutable std::mutex status_mutex_;

@@ -31,6 +31,15 @@
 #include <cJSON.h>
 #include <wifi_manager.h>
 
+extern "C" {
+extern const uint8_t _binary_omggif_js_start[];
+extern const uint8_t _binary_omggif_js_end[];
+extern const uint8_t _binary_gifenc_js_start[];
+extern const uint8_t _binary_gifenc_js_end[];
+extern const uint8_t _binary_face_theme_gif_worker_js_start[];
+extern const uint8_t _binary_face_theme_gif_worker_js_end[];
+}
+
 #define TAG "WEB_SERVER"
 
 static const char* INDEX_HTML = kynangso::web_ui::kIndexHtml;
@@ -553,6 +562,7 @@ bool WebServer::Start(int port) {
         {"/api/face_config", HTTP_GET, ApiFaceConfigHandler, this},
         {"/api/face_themes", HTTP_GET, ApiFaceThemesHandler, this},
         {"/api/face_themes", HTTP_POST, ApiFaceThemesHandler, this},
+        {"/api/face_themes/normalizer.js", HTTP_GET, ApiFaceThemeNormalizerHandler, this},
         {"/api/face_config", HTTP_POST, ApiFaceConfigHandler, this},
         {"/api/info_shuttle", HTTP_GET, ApiInfoShuttleHandler, this},
         {"/api/info_shuttle", HTTP_POST, ApiInfoShuttleHandler, this},
@@ -1496,6 +1506,35 @@ esp_err_t WebServer::ApiFaceThemesHandler(httpd_req_t* req) {
         httpd_resp_set_status(req, "202 Accepted");
     }
     return SendJson(req, service.Snapshot());
+}
+
+esp_err_t WebServer::ApiFaceThemeNormalizerHandler(httpd_req_t* req) {
+    constexpr char kPrefix[] = "var exports = {};\n";
+    constexpr size_t kChunkBytes = 2048;
+    auto send_asset = [&](const uint8_t* begin, const uint8_t* end) {
+        while (begin < end) {
+            const size_t size = std::min(kChunkBytes, static_cast<size_t>(end - begin));
+            const auto result = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(begin),
+                                                      static_cast<ssize_t>(size));
+            if (result != ESP_OK)
+                return result;
+            begin += size;
+        }
+        return ESP_OK;
+    };
+
+    httpd_resp_set_type(req, "application/javascript; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    if (httpd_resp_send_chunk(req, kPrefix, sizeof(kPrefix) - 1) != ESP_OK ||
+        send_asset(_binary_omggif_js_start, _binary_omggif_js_end) != ESP_OK ||
+        httpd_resp_send_chunk(req, "\n", 1) != ESP_OK ||
+        send_asset(_binary_gifenc_js_start, _binary_gifenc_js_end) != ESP_OK ||
+        httpd_resp_send_chunk(req, "\n", 1) != ESP_OK ||
+        send_asset(_binary_face_theme_gif_worker_js_start, _binary_face_theme_gif_worker_js_end) !=
+            ESP_OK)
+        return ESP_FAIL;
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 esp_err_t WebServer::ApiFaceConfigHandler(httpd_req_t* req) {

@@ -322,38 +322,74 @@ void RobotEyesView::OnTimer(lv_timer_t* timer) {
 
 void RobotEyesView::SetTheme(const kynangso::FaceTheme& theme) {
 #if CONFIG_LV_USE_GIF
-    if (gif_ != nullptr) {
+    // Keep the current source alive until LVGL has detached its decoder. A
+    // custom-expression change reuses one GIF widget and its fixed-size frame buffer.
+    const auto previous_pair = theme_.gifs;
+    const auto previous_gif = theme_.active_gif;
+    const bool keep_gif_widget =
+        gif_ != nullptr && ((previous_pair && theme.gifs) || (previous_gif && theme.active_gif));
+    if (gif_ != nullptr && !keep_gif_widget) {
         lv_obj_delete(gif_);
         gif_ = nullptr;
+        gif_loaded_ = false;
+        gif_single_active_ = false;
     }
-    gif_loaded_ = false;
 #endif
     theme_ = theme;
 #if CONFIG_LV_USE_GIF
-    if (theme_.gifs) {
-        auto setup = [](lv_image_dsc_t& descriptor, const kynangso::FaceGifData& data) {
-            descriptor = {};
-            descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-            descriptor.header.cf = LV_COLOR_FORMAT_RAW;
-            descriptor.data = data.bytes.get();
-            descriptor.data_size = data.size;
-        };
-        setup(gif_idle_, theme_.gifs->idle);
-        setup(gif_talking_, theme_.gifs->talking);
-        gif_ = lv_gif_create(root_);
+    auto setup = [](lv_image_dsc_t& descriptor, const kynangso::FaceGifData& data) {
+        descriptor = {};
+        descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+        descriptor.header.cf = LV_COLOR_FORMAT_RAW;
+        descriptor.data = data.bytes.get();
+        descriptor.data_size = data.size;
+    };
+    if (theme_.active_gif) {
+        const bool same_source = previous_gif == theme_.active_gif;
+        setup(gif_single_, *theme_.active_gif);
+        if (gif_ == nullptr)
+            gif_ = lv_gif_create(root_);
         if (gif_ != nullptr) {
             lv_gif_set_auto_pause_invisible(gif_, true);
-            gif_talking_active_ = false;
-            lv_gif_set_src(gif_, &gif_idle_);
+            if (!same_source || !gif_loaded_)
+                lv_gif_set_src(gif_, &gif_single_);
+            gif_single_active_ = true;
             gif_loaded_ = lv_gif_is_loaded(gif_);
             if (!gif_loaded_) {
                 lv_obj_delete(gif_);
                 gif_ = nullptr;
             } else {
-                lv_obj_center(gif_);
+                lv_obj_clear_flag(gif_, LV_OBJ_FLAG_HIDDEN);
                 UpdateGif();
             }
         }
+    } else if (theme_.gifs) {
+        const bool same_source = previous_pair == theme_.gifs;
+        setup(gif_idle_, theme_.gifs->idle);
+        setup(gif_talking_, theme_.gifs->talking);
+        if (gif_ == nullptr)
+            gif_ = lv_gif_create(root_);
+        if (gif_ != nullptr) {
+            lv_gif_set_auto_pause_invisible(gif_, true);
+            gif_single_active_ = false;
+            if (!same_source || !gif_loaded_) {
+                gif_talking_active_ = false;
+                lv_gif_set_src(gif_, &gif_idle_);
+            }
+            gif_loaded_ = lv_gif_is_loaded(gif_);
+            if (!gif_loaded_) {
+                lv_obj_delete(gif_);
+                gif_ = nullptr;
+            } else {
+                lv_obj_clear_flag(gif_, LV_OBJ_FLAG_HIDDEN);
+                UpdateGif();
+            }
+        }
+    } else if (gif_ != nullptr) {
+        lv_obj_delete(gif_);
+        gif_ = nullptr;
+        gif_loaded_ = false;
+        gif_single_active_ = false;
     }
 #endif
     lv_obj_set_style_bg_color(root_, lv_color_hex(theme_.background), 0);
@@ -434,6 +470,22 @@ void RobotEyesView::SetSpeechLevel(uint8_t level) {
 
 #if CONFIG_LV_USE_GIF
 void RobotEyesView::UpdateGif() {
+    if (gif_ == nullptr || !gif_loaded_)
+        return;
+    if (gif_single_active_) {
+        if (!theme_.active_gif || theme_.active_gif->width == 0 || theme_.active_gif->height == 0)
+            return;
+        const auto& data = *theme_.active_gif;
+        const int scale = std::min(256, std::min(static_cast<int>(width_) * 256 / data.width,
+                                                 static_cast<int>(height_) * 256 / data.height));
+        lv_image_set_scale(gif_, std::max(1, scale));
+        lv_obj_center(gif_);
+        if (!animation_enabled_ || !visible_)
+            lv_gif_pause(gif_);
+        return;
+    }
+    if (!theme_.gifs)
+        return;
     const bool talking = status_mode_ == RobotEyesMode::Speaking;
     if (talking != gif_talking_active_) {
         lv_gif_set_src(gif_, talking ? &gif_talking_ : &gif_idle_);

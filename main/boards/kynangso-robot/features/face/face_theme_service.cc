@@ -24,7 +24,8 @@ FaceThemeService::FaceThemeService(RobotSettings& settings, SdStorage& storage,
         {{"aether", "Aether Hologram", "holo", 0x75F5FF, 0xA889FF, 0x48D7FF, 0x041326}, true},
         {{"orbit", "Quantum Orbit", "orbital", 0xA28BFF, 0xFF54D9, 0x62EFFF, 0x08091D}, true},
         {{"prism", "Prism Reactor", "plasma", 0xFF76D8, 0x62F4FF, 0xFFD166, 0x17091D}, true},
-        {{"gif-poc", "GIF PoC (SD)", "gif-poc", 0xFFFFFF, 0xFF70AE, 0x69D9FF, 0x000000}, true}};
+        {{"gif-poc", "GIF cũ (2 trạng thái)", "gif-poc", 0xFFFFFF, 0xFF70AE, 0x69D9FF, 0x000000},
+         true}};
 }
 
 FaceThemeService::~FaceThemeService() {
@@ -57,8 +58,8 @@ void FaceThemeService::Start() {
 
 bool FaceThemeService::Request(const std::string& action, const std::string& id,
                                const std::string& manifest) {
-    if ((action != "select" && action != "refresh" && action != "install") || id.size() > 32 ||
-        manifest.size() > 2048)
+    if ((action != "select" && action != "refresh" && action != "install" && action != "delete") ||
+        id.size() > 32 || manifest.size() > 2048)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
     if (busy_ || worker_ == nullptr)
@@ -70,7 +71,22 @@ bool FaceThemeService::Request(const std::string& action, const std::string& id,
     message_ = "Đang xử lý";
     busy_ = true;
     ++operation_;
+    xTaskNotifyGive(worker_);
     return true;
+}
+
+void FaceThemeService::RequestEmotion(const char* emotion) {
+    const int expression_index = CanonicalFaceGifExpression(emotion);
+    if (expression_index < 0)
+        return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    const char* expression = FaceGifExpressionName(static_cast<size_t>(expression_index));
+    if (requested_expression_ == expression)
+        return;
+    requested_expression_ = expression;
+    ++gif_request_generation_;
+    if (worker_ != nullptr)
+        xTaskNotifyGive(worker_);
 }
 
 cJSON* FaceThemeService::Snapshot() const {
@@ -174,6 +190,15 @@ std::string FaceThemeService::Install(const std::string& manifest) {
         if (!result && result.code != SdStorage::Code::Exists)
             return result.message;
     }
+    if (theme.HasGifExpressions()) {
+        const auto directory = "/robot/themes/" + theme.id;
+        auto result = storage_.MakeDirectory(directory);
+        if (!result && result.code != SdStorage::Code::Exists)
+            return result.message;
+        const auto files = ValidateGifThemeFiles(theme, error);
+        if (files != GifLoadResult::Ok)
+            return error.empty() ? "Chưa thể kiểm tra file GIF; thử lại sau." : error;
+    }
     const std::string canonical = EncodeFaceTheme(theme);
     if (canonical.empty())
         return "Không đủ bộ nhớ để tạo theme.";
@@ -184,15 +209,47 @@ std::string FaceThemeService::Install(const std::string& manifest) {
     return Refresh();
 }
 
+std::string FaceThemeService::Delete(const std::string& id) {
+    if (id.empty() || id.size() > 32)
+        return "ID theme không hợp lệ.";
+    for (const unsigned char c : id)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
+            return "ID theme không hợp lệ.";
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = std::find_if(catalog_.begin(), catalog_.end(), [&](const Entry& entry) {
+            return entry.theme.id == id && !entry.builtin;
+        });
+        if (found == catalog_.end())
+            return "Chỉ có thể xóa theme tùy chỉnh trên thẻ nhớ.";
+        if (active_.id == id)
+            return "Hãy chuyển sang theme khác trước khi xóa theme đang dùng.";
+    }
+
+    auto directory = storage_.Remove("/robot/themes/" + id);
+    if (!directory && directory.code != SdStorage::Code::NotFound)
+        return directory.message;
+    auto manifest = storage_.Remove("/robot/themes/" + id + ".json");
+    if (!manifest && manifest.code != SdStorage::Code::NotFound)
+        return manifest.message;
+    if (!directory && !manifest)
+        return "Không tìm thấy dữ liệu theme trên thẻ nhớ.";
+    return Refresh();
+}
+
 // Validate the block structure before exposing untrusted card data to the decoder.
 // LZW codes remain the decoder's responsibility; this PoC only accepts complete GIFs.
-static bool ValidateGif(const uint8_t* data, size_t size, uint16_t& width, uint16_t& height) {
+static bool ValidateGif(const uint8_t* data, size_t size, uint16_t max_dimension,
+                        uint16_t max_frames, uint16_t& width, uint16_t& height,
+                        uint16_t& frame_count) {
+    frame_count = 0;
     if (size < 14 || (std::memcmp(data, "GIF87a", 6) && std::memcmp(data, "GIF89a", 6)))
         return false;
     auto u16 = [&](size_t i) { return static_cast<unsigned>(data[i] | (data[i + 1] << 8)); };
     width = static_cast<uint16_t>(u16(6));
     height = static_cast<uint16_t>(u16(8));
-    if (!width || !height || width > 240 || height > 240)
+    if (!width || !height || width > max_dimension || height > max_dimension)
         return false;
     size_t pos = 13;
     auto skip = [&](size_t n) {
@@ -231,6 +288,8 @@ static bool ValidateGif(const uint8_t* data, size_t size, uint16_t& width, uint1
         if (!w || !h || x + w > width || y + h > height ||
             ((flags & 0x80) && !skip(3u << ((flags & 7) + 1))) || !skip(1) || !blocks())
             return false;
+        if (++frame_count > max_frames)
+            return false;
         has_frame = true;
     }
     return false;
@@ -258,7 +317,7 @@ std::string FaceThemeService::LoadGifPair(FaceTheme& theme) {
         });
         if (!result)
             return too_large ? "GIF vượt 512 KiB." : result.message;
-        if (!ValidateGif(buffer, used, output.width, output.height))
+        if (!ValidateGif(buffer, used, 240, 512, output.width, output.height, output.frame_count))
             return "GIF không hợp lệ hoặc vượt 240×240.";
         auto* raw = owner.release();
         auto* resized = static_cast<uint8_t*>(
@@ -285,8 +344,149 @@ std::string FaceThemeService::LoadGifPair(FaceTheme& theme) {
     return {};
 }
 
+FaceThemeService::GifLoadResult FaceThemeService::LoadGifExpression(
+    const FaceTheme& theme, const std::string& expression,
+    std::shared_ptr<const FaceGifData>& output, std::string& error) {
+    constexpr size_t kMaxGifBytes = 256 * 1024;
+    const int expression_index = FaceGifExpressionIndex(expression.c_str());
+    if (!theme.HasGifExpressions() || expression_index < 0 ||
+        !theme.gif_expressions[expression_index])
+        return GifLoadResult::Error;
+
+    const auto directory = "/robot/themes/" + theme.id;
+    SdStorage::Listing listing;
+    const auto listed = storage_.List(directory, 0, listing);
+    if (!listed) {
+        error = listed.message;
+        return listed.code == SdStorage::Code::Busy ? GifLoadResult::Busy : GifLoadResult::Error;
+    }
+    if (listing.more) {
+        error = "Thư mục theme có quá nhiều file.";
+        return GifLoadResult::Error;
+    }
+    const std::string filename = expression + ".gif";
+    const auto file = std::find_if(
+        listing.entries.begin(), listing.entries.end(),
+        [&](const SdStorage::Entry& item) { return !item.directory && item.name == filename; });
+    if (file == listing.entries.end() || file->size == 0 || file->size > kMaxGifBytes) {
+        error = "GIF biểu cảm thiếu hoặc vượt 256 KiB: " + filename;
+        return GifLoadResult::Error;
+    }
+    const size_t file_size = static_cast<size_t>(file->size);
+    auto* buffer =
+        static_cast<uint8_t*>(heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!buffer) {
+        error = "Không đủ PSRAM để nạp GIF biểu cảm.";
+        return GifLoadResult::Error;
+    }
+    std::unique_ptr<uint8_t, decltype(&heap_caps_free)> owner(buffer, &heap_caps_free);
+    size_t used = 0;
+    bool too_large = false;
+    const auto path = directory + "/" + filename;
+    const auto result = storage_.Download(path, [&](const char* data, size_t size) {
+        if (size > file_size - used) {
+            too_large = true;
+            return false;
+        }
+        std::memcpy(buffer + used, data, size);
+        used += size;
+        return true;
+    });
+    if (!result) {
+        error = too_large ? "GIF biểu cảm vượt 256 KiB." : result.message;
+        return result.code == SdStorage::Code::Busy ? GifLoadResult::Busy : GifLoadResult::Error;
+    }
+    if (used != file_size) {
+        error = "Kích thước GIF thay đổi trong lúc đọc; hãy tải lại danh sách theme.";
+        return GifLoadResult::Error;
+    }
+
+    auto data = std::make_shared<FaceGifData>();
+    if (!ValidateGif(buffer, used, 160, 60, data->width, data->height, data->frame_count)) {
+        error = "GIF không hợp lệ hoặc vượt giới hạn 160×160/60 khung hình.";
+        return GifLoadResult::Error;
+    }
+    auto* raw = owner.release();
+    data->bytes = std::shared_ptr<uint8_t>(raw, [](uint8_t* p) { heap_caps_free(p); });
+    data->size = used;
+    output = std::move(data);
+    error.clear();
+    return GifLoadResult::Ok;
+}
+
+FaceThemeService::GifLoadResult FaceThemeService::ValidateGifThemeFiles(const FaceTheme& theme,
+                                                                        std::string& error) {
+    SdStorage::Listing listing;
+    const auto listed = storage_.List("/robot/themes/" + theme.id, 0, listing);
+    if (!listed) {
+        error = listed.message;
+        return listed.code == SdStorage::Code::Busy ? GifLoadResult::Busy : GifLoadResult::Error;
+    }
+    if (listing.more) {
+        error = "Thư mục theme có quá nhiều file.";
+        return GifLoadResult::Error;
+    }
+    for (size_t i = 0; i < kFaceGifExpressionCount; ++i) {
+        if (!theme.gif_expressions[i])
+            continue;
+        const std::string filename = std::string(FaceGifExpressionName(i)) + ".gif";
+        auto found = std::find_if(listing.entries.begin(), listing.entries.end(),
+                                  [&](const SdStorage::Entry& item) {
+                                      return !item.directory && item.name == filename &&
+                                             item.size > 0 && item.size <= 256 * 1024;
+                                  });
+        if (found == listing.entries.end()) {
+            error = "Thiếu GIF hoặc file vượt 256 KiB: " + filename;
+            return GifLoadResult::Error;
+        }
+    }
+    error.clear();
+    return GifLoadResult::Ok;
+}
+
+std::shared_ptr<const FaceGifData> FaceThemeService::FindCachedGif(const std::string& theme_id,
+                                                                   const std::string& expression) {
+    for (auto& entry : gif_cache_) {
+        if (entry.data && entry.theme_id == theme_id && entry.expression == expression) {
+            entry.last_used = ++gif_cache_clock_;
+            return entry.data;
+        }
+    }
+    return {};
+}
+
+void FaceThemeService::CacheGif(const std::string& theme_id, const std::string& expression,
+                                std::shared_ptr<const FaceGifData> data) {
+    size_t target = 0;
+    for (size_t i = 0; i < gif_cache_.size(); ++i) {
+        if (!gif_cache_[i].data ||
+            (gif_cache_[i].theme_id == theme_id && gif_cache_[i].expression == expression)) {
+            target = i;
+            break;
+        }
+        if (gif_cache_[i].last_used < gif_cache_[target].last_used)
+            target = i;
+    }
+    gif_cache_[target] = {theme_id, expression, std::move(data), ++gif_cache_clock_};
+}
+
+void FaceThemeService::ClearGifCache() {
+    for (auto& entry : gif_cache_)
+        entry = {};
+    gif_cache_clock_ = 0;
+}
+
+void FaceThemeService::EvictInactiveGifCache(const std::string& theme_id,
+                                            const std::string& active_expression) {
+    for (auto& entry : gif_cache_)
+        if (entry.data && entry.theme_id == theme_id && entry.expression != active_expression)
+            entry = {};
+}
+
 std::string FaceThemeService::Select(const std::string& id) {
     FaceTheme theme;
+    std::string requested_expression;
+    std::string previous_id;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto found = std::find_if(catalog_.begin(), catalog_.end(),
@@ -294,19 +494,113 @@ std::string FaceThemeService::Select(const std::string& id) {
         if (found == catalog_.end())
             return "Không tìm thấy theme; hãy tải lại danh sách và chọn đúng ID.";
         theme = found->theme;
+        requested_expression = requested_expression_;
+        previous_id = active_.id;
     }
+    if (previous_id != id)
+        ClearGifCache();
     if (theme.style == "gif-poc") {
+        theme.active_gif.reset();
+        theme.active_gif_expression.clear();
         auto error = LoadGifPair(theme);
         if (!error.empty())
             return error;
+    } else if (theme.HasGifExpressions()) {
+        std::string error;
+        const auto files = ValidateGifThemeFiles(theme, error);
+        if (files != GifLoadResult::Ok)
+            return error.empty() ? "Chưa thể kiểm tra file GIF; thử lại sau." : error;
+
+        int expression_index = FaceGifExpressionIndex(requested_expression.c_str());
+        if (expression_index < 0 || !theme.gif_expressions[expression_index]) {
+            expression_index = FaceGifExpressionIndex("neutral");
+            if (expression_index < 0 || !theme.gif_expressions[expression_index]) {
+                for (size_t i = 0; i < kFaceGifExpressionCount; ++i)
+                    if (theme.gif_expressions[i]) {
+                        expression_index = static_cast<int>(i);
+                        break;
+                    }
+            }
+        }
+        if (expression_index >= 0 && theme.gif_expressions[expression_index]) {
+            requested_expression = FaceGifExpressionName(static_cast<size_t>(expression_index));
+            std::shared_ptr<const FaceGifData> data =
+                previous_id == theme.id ? FindCachedGif(theme.id, requested_expression)
+                                        : std::shared_ptr<const FaceGifData>{};
+            if (!data) {
+                const auto loaded = LoadGifExpression(theme, requested_expression, data, error);
+                if (loaded != GifLoadResult::Ok)
+                    return error.empty() ? "Không tải được GIF biểu cảm." : error;
+                CacheGif(theme.id, requested_expression, data);
+            }
+            theme.active_gif = std::move(data);
+            theme.active_gif_expression = requested_expression;
+        }
+    } else {
+        theme.active_gif.reset();
+        theme.active_gif_expression.clear();
     }
     const auto json = EncodeFaceTheme(theme);
     if (json.empty() || settings_.SaveFaceTheme(json) != ESP_OK)
         return "Không lưu được theme; giữ lựa chọn hiện tại.";
     apply_(theme);
-    std::lock_guard<std::mutex> lock(mutex_);
-    active_ = std::move(theme);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_ = theme;
+    }
+    if (theme.active_gif && theme.HasGifExpressions())
+        CacheGif(theme.id, theme.active_gif_expression, theme.active_gif);
     return {};
+}
+
+bool FaceThemeService::ApplyRequestedGif(uint32_t generation, const std::string& expression) {
+    FaceTheme theme;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (generation != gif_request_generation_)
+            return false;
+        theme = active_;
+    }
+    if (!theme.HasGifExpressions() || theme.active_gif_expression == expression)
+        return true;
+    if (storage_.IsAudioPlaybackActive())
+        return false;
+
+    std::shared_ptr<const FaceGifData> data;
+    std::string error;
+    const int expression_index = FaceGifExpressionIndex(expression.c_str());
+    if (expression_index >= 0 && theme.gif_expressions[expression_index]) {
+        data = FindCachedGif(theme.id, expression);
+        if (!data) {
+            EvictInactiveGifCache(theme.id, theme.active_gif_expression);
+            const auto loaded = LoadGifExpression(theme, expression, data, error);
+            if (loaded == GifLoadResult::Busy)
+                return false;
+            if (loaded == GifLoadResult::Ok) {
+                CacheGif(theme.id, expression, data);
+            } else {
+                ESP_LOGW("FaceTheme", "GIF %s/%s unavailable; procedural fallback: %s",
+                         theme.id.c_str(), expression.c_str(), error.c_str());
+            }
+        }
+    }
+
+    theme.active_gif = std::move(data);
+    theme.active_gif_expression = expression;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (generation != gif_request_generation_ || active_.id != theme.id)
+            return false;
+        active_ = theme;
+    }
+    if (theme.active_gif)
+        ESP_LOGI("FaceTheme", "Loaded %s/%s GIF: %u bytes, %ux%u, %u frames; PSRAM free=%u",
+                 theme.id.c_str(), expression.c_str(),
+                 static_cast<unsigned>(theme.active_gif->size), theme.active_gif->width,
+                 theme.active_gif->height, theme.active_gif->frame_count,
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+    apply_(theme);
+    return true;
 }
 
 void FaceThemeService::Run() {
@@ -325,6 +619,8 @@ void FaceThemeService::Run() {
                 error = Refresh();
             else if (action == "install")
                 error = Install(manifest);
+            else if (action == "delete")
+                error = Delete(id);
             else
                 error = Select(id);
             std::lock_guard<std::mutex> lock(mutex_);
@@ -352,7 +648,18 @@ void FaceThemeService::Run() {
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(200));
+        FaceTheme active;
+        std::string expression;
+        uint32_t generation = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            active = active_;
+            expression = requested_expression_;
+            generation = gif_request_generation_;
+        }
+        if (active.HasGifExpressions() && storage_.GetStatus().state == "mounted")
+            ApplyRequestedGif(generation, expression);
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
     }
 }
 }  // namespace kynangso

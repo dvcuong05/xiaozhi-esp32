@@ -501,6 +501,19 @@ public:
             }
             cJSON_AddStringToObject(response, "status", "queued");
             accepted = true;
+        } else if (command == "display.news") {
+            const cJSON* headline_json = cJSON_GetObjectItemCaseSensitive(root, "headline");
+            const cJSON* source_json = cJSON_GetObjectItemCaseSensitive(root, "source");
+            if (!cJSON_IsString(headline_json) || !headline_json->valuestring ||
+                !cJSON_IsString(source_json) || !source_json->valuestring || !controller_ ||
+                !controller_->ShowNews(headline_json->valuestring, source_json->valuestring)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("display.news requires a short headline and source");
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddBoolToObject(response, "oled_available", controller_->IsOledAvailable());
+            accepted = true;
         } else if (command == "wheel.start") {
             const cJSON* names_json = cJSON_GetObjectItemCaseSensitive(root, "names");
             const cJSON* winner_json = cJSON_GetObjectItemCaseSensitive(root, "winner");

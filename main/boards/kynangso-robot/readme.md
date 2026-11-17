@@ -29,6 +29,7 @@ Luồng gọi: web UI → HTTP handler → controller/service của feature → 
 Khi thêm file C/C++, khai báo trong `board_sources.cmake`; CMake chỉ dùng manifest này cho board KyNangSo. Các board khác giữ cách gom source hiện có. Include nội bộ dùng đường dẫn từ gốc board, ví dụ `features/time/robot_time_service.h`, giúp nhận biết module sở hữu và tránh phụ thuộc thứ tự include directory. Test không nằm trong manifest firmware.
 
 Workflow OTA, giới hạn tương thích và kiểm thử trên robot: [docs/features/firmware-ota/README.md](docs/features/firmware-ota/README.md).
+Luồng tin tức qua MCP và hiển thị tạm thời trên TFT/OLED: [docs/features/news/README.md](docs/features/news/README.md).
 
 Board ESP32-S3 cho XiaoZhi với màn hình TFT ST7789, micro và loa I2S simplex, nút bấm, microSD, LED và hai motor DC qua hai cầu H của L298N. OLED SSD1306 phụ, TTP223 và mạch Bluetooth D1 Mini là phần mở rộng tùy chọn, mặc định không khởi tạo hoặc chiếm GPIO. Build chỉ chọn một board factory qua `DECLARE_BOARD(KyNangSoRobot)`.
 

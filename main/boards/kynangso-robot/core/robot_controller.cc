@@ -281,6 +281,26 @@ bool RobotController::SetInfoShuttleWeather(std::string summary, int icon_kind) 
     return true;
 }
 
+bool RobotController::ShowNews(std::string headline, std::string source) {
+    const auto has_control = [](const std::string& text) {
+        return std::any_of(text.begin(), text.end(), [](unsigned char value) {
+            return value < 0x20 || value == 0x7f;
+        });
+    };
+    if (headline.empty() || headline.size() > 160 || source.empty() || source.size() > 48 ||
+        has_control(headline) || has_control(source))
+        return false;
+
+    const std::string tft_message = headline + " · " + source;
+    const std::string oled_message = headline + " · " + source;
+    Application::GetInstance().Schedule([this, tft_message, oled_message]() {
+        display_.ShowNotification(tft_message.c_str(), 12000);
+        if (secondary_.IsAvailable())
+            secondary_.ShowText(oled_message, 12000, 2);
+    });
+    return true;
+}
+
 bool RobotController::StartNameWheel(std::vector<std::string> names, std::string winner) {
     if (names.size() < 2 || names.size() > 16 || winner.empty() ||
         std::find(names.begin(), names.end(), winner) == names.end())

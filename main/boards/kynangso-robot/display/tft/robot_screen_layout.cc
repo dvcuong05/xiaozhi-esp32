@@ -88,6 +88,22 @@ void RobotScreenLayout::SetInfoRegionVisible(bool visible) {
         lv_obj_add_flag(info_region_, LV_OBJ_FLAG_HIDDEN);
 }
 
+void RobotScreenLayout::SetBackgroundColor(uint32_t color) {
+    const lv_color_t background = lv_color_hex(color);
+    lv_obj_t* regions[] = {root_, face_region_, info_region_};
+    for (lv_obj_t* region : regions) {
+        lv_obj_set_style_bg_color(region, background, 0);
+        lv_obj_set_style_bg_opa(region, LV_OPA_COVER, 0);
+    }
+
+    const unsigned red = (color >> 16) & 0xFF;
+    const unsigned green = (color >> 8) & 0xFF;
+    const unsigned blue = color & 0xFF;
+    const unsigned brightness = (299 * red + 587 * green + 114 * blue) / 1000;
+    lv_obj_set_style_text_color(
+        info_label_, brightness > 150 ? lv_color_hex(0x101827) : lv_color_hex(0xE2E8F0), 0);
+}
+
 void RobotScreenLayout::RenderText() {
     lv_anim_delete(info_label_, nullptr);
     lv_obj_set_y(info_label_, 0);

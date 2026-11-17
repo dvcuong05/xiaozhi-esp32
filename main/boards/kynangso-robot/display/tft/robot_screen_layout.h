@@ -3,6 +3,7 @@
 
 #include <lvgl.h>
 
+#include <cstdint>
 #include <string>
 
 namespace kynangso {
@@ -28,6 +29,7 @@ public:
     void DismissStartupHint();
     void SetHideSubtitle(bool hide);
     void SetInfoRegionVisible(bool visible);
+    void SetBackgroundColor(uint32_t color);
     void SetFont(const lv_font_t* font);
     bool CanShowInfoShuttle() const;
 

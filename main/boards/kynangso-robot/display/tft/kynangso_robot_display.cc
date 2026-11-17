@@ -126,9 +126,11 @@ void KyNangSoRobotDisplay::SetupUI() {
     screen_layout_ = std::make_unique<kynangso::RobotScreenLayout>(
         lv_screen_active(), width_, height_,
         static_cast<LvglTheme*>(current_theme_)->text_font()->font());
+    screen_layout_->SetBackgroundColor(face_theme_.background);
     screen_layout_->SetHideSubtitle(hide_subtitle_);
     robot_eyes_ = std::make_unique<RobotEyesView>(screen_layout_->FaceRegion(), width_,
                                                   screen_layout_->FaceHeight());
+    robot_eyes_->SetTheme(face_theme_);
     robot_eyes_->SetVisible(face_config_.eyes);
     robot_eyes_->SetAnimation(face_config_.animation);
     robot_eyes_->SetEmotion(kynangso::kFaceEmotions[face_config_.idle_emotion]);
@@ -572,8 +574,13 @@ void KyNangSoRobotDisplay::SetBehaviorCallbacks(std::function<void(bool)> speaki
 
 void KyNangSoRobotDisplay::SetFaceTheme(const kynangso::FaceTheme& theme) {
     DisplayLockGuard lock(this);
-    if (lock && robot_eyes_ != nullptr)
-        robot_eyes_->SetTheme(theme);
+    if (!lock)
+        return;
+    face_theme_ = theme;
+    if (screen_layout_ != nullptr)
+        screen_layout_->SetBackgroundColor(face_theme_.background);
+    if (robot_eyes_ != nullptr)
+        robot_eyes_->SetTheme(face_theme_);
 }
 
 void KyNangSoRobotDisplay::ConfigureFace(const kynangso::FaceConfig& config) {

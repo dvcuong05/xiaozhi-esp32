@@ -99,6 +99,7 @@ private:
 
     std::unique_ptr<kynangso::RobotScreenLayout> screen_layout_;
     std::unique_ptr<RobotEyesView> robot_eyes_;
+    kynangso::FaceTheme face_theme_;
     std::unique_ptr<kynangso::RobotSpectrum> spectrum_;
     kynangso::RobotMusicSession music_session_;
     bool bluetooth_touch_enabled_ = false;

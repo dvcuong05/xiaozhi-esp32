@@ -7,8 +7,8 @@
 > [!TIP]
 > Robot chỉ nhận một tiêu đề ngắn từ server khi người dùng hỏi tin. Robot không tự kết nối báo, tải RSS hay chạy vòng polling.
 
-> [!WARNING]
-> Backend mới đã deploy, nhưng firmware hỗ trợ `display.news` mới chỉ build, chưa nạp lên robot. Màn hình sẽ hiển thị tin sau khi nạp firmware tương ứng và xác minh trên thiết bị thật.
+> [!NOTE]
+> Kết quả thị trường dùng lại `display.news` hiện có. Firmware không gọi API giá, không tự làm mới dữ liệu và không cần thêm polling hoặc task nền. Nếu robot không hiện tóm tắt, hãy kiểm tra firmware trên board có hỗ trợ lệnh `display.news` hay chưa.
 
 ## 🔄 Luồng hiển thị
 
@@ -30,6 +30,20 @@ sequenceDiagram
 ```
 
 Server giữ RSS, cache, lọc nguồn và tạo kết quả MCP. Firmware chỉ xử lý hai chuỗi `headline` và `source`, rồi dùng các API hiển thị sẵn có.
+
+## 📈 Hiển thị kết quả thị trường
+
+Giá, tỷ giá, lãi suất hoặc cổ phiếu chỉ xuất hiện khi người dùng hỏi và backend gửi một tóm tắt cùng nguồn. Firmware xử lý payload giống tin tức; không cần biết API provider, credential, đơn vị cache hoặc cách quy đổi giá. Nội dung đã được server rút gọn trước khi gửi, còn firmware tiếp tục chặn chuỗi vượt giới hạn byte như hợp đồng ở trên.
+
+```json
+{
+  "type": "display.news",
+  "headline": "<tóm tắt ngắn từ dữ liệu có nguồn>",
+  "source": "<nhóm dữ liệu> · <nhà cung cấp>"
+}
+```
+
+TFT hiển thị notification ngắn; OLED phụ chạy marquee nếu phần cứng/driver đã bật. Việc gửi màn hình là tùy chọn: robot offline hoặc đang bận không làm hỏng kết quả MCP trả về cho người dùng.
 
 ## 📡 Hợp đồng WSS
 

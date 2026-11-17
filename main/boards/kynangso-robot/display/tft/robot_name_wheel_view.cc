@@ -14,10 +14,15 @@ namespace kynangso {
 namespace {
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kTwoPi = 2.0f * kPi;
+constexpr float kWheelTopAngle = -kPi / 2.0f;
 constexpr uint32_t kSpinDurationMs = 5000;
 constexpr uint32_t kResultHoldMs = 10000;
 constexpr uint32_t kFireworkCycleMs = 2500;
 constexpr uint32_t kFireworkBurstMs = 1000;
+
+float SliceCenterAngle(float rotation, size_t index, float slice_angle) {
+    return rotation + kWheelTopAngle + (static_cast<float>(index) + 0.5f) * slice_angle;
+}
 
 constexpr uint32_t kSliceColors[] = {0x6D5DFB, 0x087E8B, 0x27864B, 0xC05B31,
                                      0xC24168, 0x2563EB, 0x7C3AED, 0x0F766E};
@@ -57,7 +62,7 @@ RobotNameWheelView::RobotNameWheelView(int width, int height, const lv_font_t* f
 
     title_ = lv_label_create(root_);
     lv_obj_set_size(title_, width_ - 16, 26);
-    lv_label_set_text(title_, "VÒNG QUAY MAY MẮN");
+    lv_label_set_text(title_, "Random Wheel");
     lv_obj_set_style_text_font(title_, &robot_info_bold_20, 0);
     lv_obj_set_style_text_color(title_, lv_color_hex(0xF3E8FF), 0);
     lv_obj_set_style_text_align(title_, LV_TEXT_ALIGN_CENTER, 0);
@@ -153,8 +158,9 @@ bool RobotNameWheelView::Start(std::vector<std::string> names, std::string winne
     wheel_rotation_ = random_turn;
     spin_start_rotation_ = wheel_rotation_;
     const float slice_angle = kTwoPi / static_cast<float>(names_.size());
-    const float target_angle =
-        -kPi / 2.0f - (static_cast<float>(winner_index_) + 0.5f) * slice_angle;
+    // DrawWheel and SliceCenterAngle use the same top-angle origin. Invert the
+    // zero-rotation winner center so that its label lands exactly under the pointer.
+    const float target_angle = kWheelTopAngle - SliceCenterAngle(0.0f, winner_index_, slice_angle);
     float extra_turn = std::fmod(target_angle - wheel_rotation_, kTwoPi);
     if (extra_turn < 0.0f)
         extra_turn += kTwoPi;
@@ -211,7 +217,7 @@ void RobotNameWheelView::DrawWheel(lv_event_t* event) {
                                    ? 0xFBBF24
                                    : kSliceColors[index % std::size(kSliceColors)];
         const float start =
-            view->wheel_rotation_ - kPi / 2.0f + static_cast<float>(index) * slice_angle;
+            view->wheel_rotation_ + kWheelTopAngle + static_cast<float>(index) * slice_angle;
         for (int step = 0; step < steps_per_slice; ++step) {
             const float angle1 = start + slice_angle * static_cast<float>(step) /
                                              static_cast<float>(steps_per_slice);
@@ -285,8 +291,7 @@ void RobotNameWheelView::UpdateSliceLabels() {
 
     for (size_t index = 0; index < slice_labels_.size(); ++index) {
         auto* label = slice_labels_[index];
-        const float angle =
-            wheel_rotation_ - kPi / 2.0f + (static_cast<float>(index) + 0.5f) * slice_angle;
+        const float angle = SliceCenterAngle(wheel_rotation_, index, slice_angle);
         const int x = static_cast<int>(std::lround(center_x + std::cos(angle) * radius -
                                                    static_cast<float>(label_width) / 2.0f));
         const int y = static_cast<int>(std::lround(center_y + std::sin(angle) * radius - 9.0f));

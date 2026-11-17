@@ -26,10 +26,11 @@ trình chiếu vòng quay trên TFT, còn kết quả được chọn ở backen
    `device_bridge_hub.request` với `type=wheel.start`.
 3. Firmware xác thực cấu trúc lệnh, giới hạn số tên/độ dài và chuyển cập nhật giao diện qua
    `Application::Schedule`; không chạy animation trong callback WSS.
-4. TFT chỉ hiện một tiêu đề “VÒNG QUAY MAY MẮN” và bánh xe chia lát màu, mỗi lựa chọn nằm trên
-   lát tương ứng; nhãn dài tự rút gọn bằng dấu ba chấm. Bánh xe giảm tốc trong khoảng 5 giây,
-   dừng đúng lát người thắng, chạy pháo hoa nhiều đợt và giữ kết quả thêm 10 giây trước khi trở về
-   giao diện trước đó.
+4. TFT chỉ hiện tiêu đề hardcode “Random Wheel” và bánh xe chia lát màu, mỗi lựa chọn nằm trên
+   lát tương ứng; nhãn dài tự rút gọn bằng dấu ba chấm. Kim cố định ở đỉnh bánh xe; lát thắng,
+   nhãn và kết quả footer dùng chung phép tính góc để luôn khớp với `choice` backend đã chọn.
+   Bánh xe giảm tốc trong khoảng 5 giây, chạy pháo hoa nhiều đợt và giữ kết quả thêm 10 giây trước
+   khi trở về giao diện trước đó.
 5. MCP trả `choice` để trợ lý thông báo kết quả. Chỉ đọc kết quả sau phản hồi thành công của tool.
 
 ## Giới hạn và ưu tiên màn hình

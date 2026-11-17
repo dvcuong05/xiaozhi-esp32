@@ -11,6 +11,7 @@ set(KYNANGSO_BOARD_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/kynangso_robot_display.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_eyes.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_info_shuttle_view.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_name_wheel_view.cc"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_info_font.c"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_info_bold_20.c"
     "${CMAKE_CURRENT_LIST_DIR}/display/tft/robot_info_bold_36.c"

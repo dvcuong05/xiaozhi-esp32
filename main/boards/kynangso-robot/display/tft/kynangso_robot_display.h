@@ -8,6 +8,7 @@
 #include "display/lcd_display.h"
 #include "display/tft/robot_eyes.h"
 #include "display/tft/robot_info_shuttle_view.h"
+#include "display/tft/robot_name_wheel_view.h"
 #include "display/tft/robot_screen_layout.h"
 #include "display/tft/robot_spectrum.h"
 #include "display/tft/robot_time_view.h"
@@ -18,6 +19,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 class KyNangSoRobotDisplay final : public SpiLcdDisplay {
 public:
@@ -66,6 +68,8 @@ public:
     void SetLiveTvInterruptedCallback(std::function<void(bool)> callback);
     bool CanStartLiveTv();
     bool IsLiveTvVisible();
+    bool CanStartNameWheel();
+    bool StartNameWheel(std::vector<std::string> names, std::string winner);
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const kynangso::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
@@ -81,6 +85,7 @@ private:
         BootConsole,
         PaymentQr,
         AudioVisualizer,
+        NameWheel,
         SdImage,
         LiveTv,
         Time,
@@ -150,6 +155,7 @@ private:
     lv_timer_t* info_shuttle_timer_ = nullptr;
     lv_timer_t* info_shuttle_notification_timer_ = nullptr;
     std::unique_ptr<kynangso::RobotInfoShuttleView> info_shuttle_view_;
+    std::unique_ptr<kynangso::RobotNameWheelView> name_wheel_view_;
     std::function<kynangso::UpcomingScheduleList()> upcoming_schedule_provider_;
     std::string info_shuttle_weather_;
     int info_shuttle_weather_icon_ = -1;
@@ -180,6 +186,7 @@ private:
     void RenderMusicInfo();
     void AdvanceInfoShuttle();
     void RenderInfoShuttleCard();
+    void NameWheelFinished();
 };
 
 #endif  // KYNANGSO_ROBOT_DISPLAY_H_

@@ -64,6 +64,7 @@ KyNangSoRobotDisplay::~KyNangSoRobotDisplay() {
         lv_obj_delete(ota_overlay_);
     if (display_ != nullptr)
         lv_display_remove_event_cb_with_user_data(display_, LiveTvRefreshReady, this);
+    name_wheel_view_.reset();
     time_view_.reset();
     info_shuttle_view_.reset();
     if (face_preview_timer_ != nullptr)
@@ -280,6 +281,8 @@ void KyNangSoRobotDisplay::SetupUI() {
         lv_timer_create(OnInfoShuttleTimer, info_shuttle_config_.interval_seconds * 1000, this);
     if (info_shuttle_timer_ != nullptr)
         lv_timer_ready(info_shuttle_timer_);
+    name_wheel_view_ = std::make_unique<kynangso::RobotNameWheelView>(
+        width_, height_, text_font, [this]() { NameWheelFinished(); });
     ApplyUiMode();
 }
 
@@ -305,6 +308,10 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetBaseUiMode() const {
     if (boot_state_ == BootState::Finished &&
         (audio_playback_active_ || music_session_.IsActive())) {
         return UiMode::AudioVisualizer;
+    }
+    if (boot_state_ == BootState::Finished && name_wheel_view_ &&
+        name_wheel_view_->IsActive()) {
+        return UiMode::NameWheel;
     }
     if (sd_image_active_) {
         return UiMode::SdImage;
@@ -366,6 +373,8 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
     }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
+    if (name_wheel_view_)
+        name_wheel_view_->SetVisible(mode == UiMode::NameWheel);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
     set_visible(live_tv_overlay_, mode == UiMode::LiveTv);
     set_visible(payment_qr_overlay_, mode == UiMode::PaymentQr);
@@ -407,6 +416,30 @@ void KyNangSoRobotDisplay::SetLiveTvInterruptedCallback(std::function<void(bool)
 bool KyNangSoRobotDisplay::CanStartLiveTv() {
     DisplayLockGuard lock(this);
     return lock && live_tv_overlay_ && boot_state_ == BootState::Finished && !time_alert_;
+}
+
+bool KyNangSoRobotDisplay::CanStartNameWheel() {
+    DisplayLockGuard lock(this);
+    return lock && name_wheel_view_ && boot_state_ == BootState::Finished &&
+           !payment_qr_active_ && !bluetooth_active_ && !live_tv_active_ && !time_visible_ &&
+           !time_alert_ &&
+           !audio_playback_active_ && !music_session_.IsActive() && !sd_image_active_;
+}
+
+bool KyNangSoRobotDisplay::StartNameWheel(std::vector<std::string> names, std::string winner) {
+    DisplayLockGuard lock(this);
+    if (!lock || !name_wheel_view_ || boot_state_ != BootState::Finished || payment_qr_active_ ||
+        bluetooth_active_ || live_tv_active_ || time_visible_ || time_alert_ ||
+        audio_playback_active_ || music_session_.IsActive() || sd_image_active_)
+        return false;
+    if (!name_wheel_view_->Start(std::move(names), std::move(winner)))
+        return false;
+    ApplyUiMode();
+    return true;
+}
+
+void KyNangSoRobotDisplay::NameWheelFinished() {
+    ApplyUiMode();
 }
 
 bool KyNangSoRobotDisplay::IsLiveTvVisible() {

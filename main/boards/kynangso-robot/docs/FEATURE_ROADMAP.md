@@ -79,7 +79,7 @@ thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
       Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
       có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
 - [ ] Tạm hoãn (pause) bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
-- [ ] Tính năng MCP wheel the names random: input by voice, run wheel, firework who win and read the result...
+- [x] Vòng quay chọn tên qua MCP: kiểm tra 2-16 tên, chọn winner ở backend bằng `secrets.choice`, gửi `wheel.start` tới robot đích và trình chiếu vòng quay giảm tốc/pháo giấy trên TFT; không lưu danh sách, không điều khiển motor. [Workflow firmware](features/name-wheel/README.md); backend xem `docs/features/random-picker/README.md` trong repo `xiaozhi-kynangso-services`.
 - [x] Cấp token WSS theo từng robot qua enrollment/USB UART, cấu hình NVS và registry nhiều thiết bị trên MCP server. Đã deploy, nạp/provision/revoke/reboot một robot và kiểm tra cùng client giả lập; hai robot vật lý còn chờ; [kế hoạch](features/device-bridge/PLAN.md).
 
 ### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
@@ -303,15 +303,13 @@ thị:
 
 Các mục dưới đây xếp theo mức sẵn sàng triển khai, không phải cam kết hoàn thành cùng lúc.
 
-1. **Vòng quay chọn tên**: software-only; nhận danh sách tên qua MCP, chạy animation TFT,
-   chọn kết quả công bằng và để trợ lý đọc tên thắng. Đây là tính năng mới tiếp theo phù hợp.
-2. **Nhật ký chẩn đoán offline**: dùng microSD tùy chọn với dung lượng/tuổi thọ giới hạn;
+1. **Nhật ký chẩn đoán offline**: dùng microSD tùy chọn với dung lượng/tuổi thọ giới hạn;
    chỉ ghi sự kiện hệ thống, không ghi âm hoặc nội dung hội thoại.
-3. **Tin tức và dữ liệu thị trường Việt Nam**: trước khi code cần chốt provider/API, quyền dùng
+2. **Tin tức và dữ liệu thị trường Việt Nam**: trước khi code cần chốt provider/API, quyền dùng
    dữ liệu và attribution; RSS công khai không mặc nhiên cho phép dùng trong sản phẩm thương mại.
-4. **SmartThings**: tích hợp backend-only sau khi tài khoản và TV đã được ghép, API quyền điều
+3. **SmartThings**: tích hợp backend-only sau khi tài khoản và TV đã được ghép, API quyền điều
    khiển được xác minh; không đưa credential lên robot.
-5. **Tính năng phụ thuộc phần cứng**: VL53L1X, đèn Edison, IR, camera IP và Bluetooth cần xác nhận
+4. **Tính năng phụ thuộc phần cứng**: VL53L1X, đèn Edison, IR, camera IP và Bluetooth cần xác nhận
    module/driver, chân GPIO, nguồn và cách điều khiển trước khi triển khai.
 
 Tạm hoãn theo quyết định hiện tại: pause bằng TTP223. Laser chưa đưa vào kế hoạch triển khai;

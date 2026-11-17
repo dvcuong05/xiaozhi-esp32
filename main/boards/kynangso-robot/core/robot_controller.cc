@@ -261,6 +261,26 @@ bool RobotController::SetInfoShuttleWeather(std::string summary, int icon_kind) 
     return true;
 }
 
+bool RobotController::StartNameWheel(std::vector<std::string> names, std::string winner) {
+    if (names.size() < 2 || names.size() > 16 || winner.empty() ||
+        std::find(names.begin(), names.end(), winner) == names.end())
+        return false;
+    for (const auto& name : names) {
+        if (name.empty() || name.size() > 48 ||
+            std::any_of(name.begin(), name.end(), [](unsigned char value) {
+                return value < 0x20 || value == 0x7F;
+            }))
+            return false;
+    }
+    if (!display_.CanStartNameWheel())
+        return false;
+    Application::GetInstance().Schedule(
+        [this, names = std::move(names), winner = std::move(winner)]() mutable {
+            display_.StartNameWheel(std::move(names), std::move(winner));
+        });
+    return true;
+}
+
 bool RobotController::PreviewFace(int emotion) {
     if (emotion < 0 || emotion >= kFaceEmotionCount)
         return false;

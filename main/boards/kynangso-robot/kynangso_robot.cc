@@ -475,12 +475,15 @@ public:
                                 std::strncmp(type->valuestring, "tv.", 3) == 0;
         const bool display_command = cJSON_IsString(type) && type->valuestring &&
                                      std::strncmp(type->valuestring, "display.", 8) == 0;
+        const bool wheel_command = cJSON_IsString(type) && type->valuestring &&
+                                   std::strncmp(type->valuestring, "wheel.", 6) == 0;
         if (tv_command) {
             cJSON_Delete(root);
             return tv_controller_ &&
                    tv_controller_->HandleCommand(payload_json, result_json, error);
         }
-        if (!cJSON_IsObject(root) || (!sd_command && !tv_command && !display_command)) {
+        if (!cJSON_IsObject(root) ||
+            (!sd_command && !tv_command && !display_command && !wheel_command)) {
             cJSON_Delete(root);
             return reject("unsupported board command");
         }
@@ -497,6 +500,32 @@ public:
                 return reject("display.weather requires a summary of at most 192 bytes");
             }
             cJSON_AddStringToObject(response, "status", "queued");
+            accepted = true;
+        } else if (command == "wheel.start") {
+            const cJSON* names_json = cJSON_GetObjectItemCaseSensitive(root, "names");
+            const cJSON* winner_json = cJSON_GetObjectItemCaseSensitive(root, "winner");
+            const char* winner = cJSON_IsString(winner_json) ? winner_json->valuestring : nullptr;
+            std::vector<std::string> names;
+            if (cJSON_IsArray(names_json) && cJSON_GetArraySize(names_json) >= 2 &&
+                cJSON_GetArraySize(names_json) <= 16 && winner != nullptr) {
+                const cJSON* item = nullptr;
+                cJSON_ArrayForEach(item, names_json) {
+                    if (!cJSON_IsString(item) || !item->valuestring ||
+                        std::strlen(item->valuestring) > 48) {
+                        names.clear();
+                        break;
+                    }
+                    names.emplace_back(item->valuestring);
+                }
+            }
+            if (!controller_ || names.size() < 2 || winner == nullptr ||
+                !controller_->StartNameWheel(std::move(names), winner)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("wheel.start requires 2-16 names and an available TFT");
+            }
+            cJSON_AddStringToObject(response, "status", "spinning");
+            cJSON_AddStringToObject(response, "winner", winner_json->valuestring);
             accepted = true;
         } else if (command == "sd.status") {
             const auto status = sd_storage_.GetStatus();

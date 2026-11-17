@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <vector>
 
 class KyNangSoRobotDisplay;
 
@@ -42,6 +43,7 @@ public:
     bool AdvanceInfoShuttle();
     bool RefreshInfoShuttleWeather();
     bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
+    bool StartNameWheel(std::vector<std::string> names, std::string winner);
     bool PreviewEmotion(int preset);
     bool PreviewFace(int emotion);
     SdStorage& Storage() { return storage_; }

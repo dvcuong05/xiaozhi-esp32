@@ -241,6 +241,15 @@ nền khi người dùng yêu cầu, không chặn audio/UI. Điều khiển cò
 `self.robot.dynamic_main_screen.*`.
 Xem [workflow chi tiết](docs/features/info-shuttle/README.md).
 
+## Vòng quay chọn tên qua MCP
+
+Người dùng có thể yêu cầu chọn ngẫu nhiên từ 2-16 tên đã nêu trong hội thoại. MCP backend kiểm tra
+danh sách, chọn một tên bằng bộ sinh ngẫu nhiên hệ thống và gửi lệnh `wheel.start` đến robot đích
+qua Device Bridge WSS. TFT hiển thị vòng quay giảm tốc và hiệu ứng pháo giấy; sau khoảng 7 giây,
+màn hình trở về giao diện trước đó. Tool trả tên thắng để trợ lý đọc kết quả. Danh sách không được
+lưu trên robot; vòng quay không điều khiển motor và không che QR, Live TV, đồng hồ/cảnh báo thời gian,
+Bluetooth hay nội dung audio đang phát. Chi tiết: [workflow MCP và firmware](docs/features/name-wheel/README.md).
+
 ## Xem console log qua webserver
 
 Trình duyệt gửi lệnh `start` sau khi WebSocket mở; firmware chỉ bật thu log

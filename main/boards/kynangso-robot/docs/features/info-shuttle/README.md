@@ -1,5 +1,8 @@
 # Màn hình chính động (Dynamic Main Screen)
 
+Ngày 17/11/2026: người dùng đã thử và xác nhận hài lòng với tính năng thời tiết trên robot thật,
+sau các cập nhật lấy dữ liệu địa điểm, bố cục và glyph tiếng Việt.
+
 Khi robot rảnh, Màn hình chính động luân phiên ba nội dung trên TFT: khuôn mặt robot giữ nguyên
 giao diện gốc, thẻ lịch tiếp theo có giờ và tiêu đề nổi bật, cùng thẻ thời tiết có biểu tượng và
 khu vực nhiệt độ/điều kiện. Lịch và thời tiết có màu nhấn, nền riêng; thẻ khuôn mặt không chèn

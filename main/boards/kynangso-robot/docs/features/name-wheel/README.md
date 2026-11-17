@@ -1,5 +1,8 @@
 # Vòng quay chọn ngẫu nhiên
 
+Ngày 17/11/2026: người dùng đã thử bản sửa tiêu đề `Random Wheel` và góc dừng của kim,
+xác nhận hài lòng với tính năng trên robot thật.
+
 Người dùng nêu danh sách 2-16 lựa chọn trong hội thoại. Mỗi mục có thể là tên người, hoạt động,
 món ăn hay phương án bất kỳ, ví dụ “đọc sách”, “đi dạo”, “nghe nhạc”. MCP backend chuẩn hóa
 khoảng trắng và Unicode, từ chối mục trống/trùng hoặc dài quá 48 byte UTF-8, rồi chọn kết quả

@@ -162,8 +162,23 @@ hoặc ngày nằm ngoài phạm vi năm 1900–2100.
 > toán chuyển đổi [Hồ Ngọc Đức](https://www.xemamlich.uhm.vn/calrules.html), dựa
 > trên các phép tính thiên văn Meeus. Đây là ngày âm dân sự UTC+7, không phải dữ
 > liệu lịch sử hiệu chỉnh theo múi giờ từng thời
-> kỳ. V1 chỉ hiển thị ngày âm hiện tại; ngày lễ, ngày giỗ và nhắc lặp âm lịch
-> chưa được thêm.
+> kỳ. Ngày lễ, ngày giỗ và nhắc lặp âm lịch chưa được thêm.
+
+MCP firmware đăng ký `self.calendar.lunar` để hỏi ngày âm hôm nay và đổi ngày
+hai chiều. Tool chạy hoàn toàn trên robot, dùng cùng thuật toán offline với
+thẻ `/time`; không cần provider hoặc endpoint mới ở MCP server. Thao tác:
+
+| `op` | Dữ liệu | Ví dụ câu lệnh |
+| --- | --- | --- |
+| `today` | Không cần ngày đầu vào; robot phải đồng bộ giờ | “Hôm nay âm lịch ngày mấy?” / “What is today's lunar date?” |
+| `solar_to_lunar` | `day`, `month`, `year` theo dương lịch | “Ngày 25/12/2026 âm lịch là ngày nào?” |
+| `lunar_to_solar` | `day`, `month`, `year` theo âm lịch; `leap_mode` là `auto`, `regular` hoặc `leap` | “Mùng 1 tháng 6 âm lịch năm 2025 rơi vào ngày nào?” |
+
+Khi `leap_mode=auto` và cùng ngày/tháng/năm có cả tháng thường lẫn tháng
+nhuận, tool trả `needs_clarification` cùng hai ngày dương để chatbot hỏi lại.
+Không tự chọn tháng thường hay tháng nhuận thay người dùng. Ngày âm không tồn
+tại (ví dụ ngày 30 trong tháng chỉ có 29 ngày) được từ chối. Phạm vi tra cứu là
+1900–2100; truy vấn “hôm nay” yêu cầu đồng hồ robot đã đồng bộ.
 
 TFT dùng chữ số lớn vẽ bằng hình học, vòng tiến độ và nền gradient; tập trung
 màu tím, nghỉ xanh lá, countdown xanh, báo thức cam, nhắc việc xanh dương.

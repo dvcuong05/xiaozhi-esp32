@@ -19,6 +19,18 @@ int JulianDayNumber(int day, int month, int year) {
     return day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
 }
 
+void JulianDayNumberToDate(int julian_day, int* day, int* month, int* year) {
+    const int a = julian_day + 32044;
+    const int b = (4 * a + 3) / 146097;
+    const int c = a - (146097 * b) / 4;
+    const int d = (4 * c + 3) / 1461;
+    const int e = c - (1461 * d) / 4;
+    const int m = (5 * e + 2) / 153;
+    *day = e - (153 * m + 2) / 5 + 1;
+    *month = m + 3 - 12 * (m / 10);
+    *year = 100 * b + d - 4800 + m / 10;
+}
+
 int NewMoonDay(int k) {
     const double t = k / 1236.85;
     const double t2 = t * t;
@@ -89,6 +101,41 @@ int DaysInMonth(int month, int year) {
         return 29;
     return kDays[month - 1];
 }
+
+bool LunarToSolarDate(int day, int month, int year, bool leap_month, int* solar_day,
+                      int* solar_month, int* solar_year) {
+    if (!solar_day || !solar_month || !solar_year || year < 1900 || year > 2100 || month < 1 ||
+        month > 12 || day < 1 || day > 30)
+        return false;
+
+    const int month_11 = month < 11 ? LunarMonth11(year - 1) : LunarMonth11(year);
+    const int next_month_11 = month < 11 ? LunarMonth11(year) : LunarMonth11(year + 1);
+    int offset = month - 11;
+    if (offset < 0)
+        offset += 12;
+
+    if (next_month_11 - month_11 > 365) {
+        const int leap_offset = LeapMonthOffset(month_11);
+        int leap_month_number = leap_offset - 2;
+        if (leap_month_number < 0)
+            leap_month_number += 12;
+        if (leap_month && month != leap_month_number)
+            return false;
+        if (leap_month || offset >= leap_offset)
+            ++offset;
+    } else if (leap_month) {
+        return false;
+    }
+
+    const int k = FloorToInt((month_11 - 2415021.076998695) / kSynodicMonth + 0.5);
+    const int month_start = NewMoonDay(k + offset);
+    const int next_month_start = NewMoonDay(k + offset + 1);
+    if (day > next_month_start - month_start)
+        return false;
+
+    JulianDayNumberToDate(month_start + day - 1, solar_day, solar_month, solar_year);
+    return *solar_year >= 1900 && *solar_year <= 2100;
+}
 }  // namespace
 
 bool SolarToVietnameseLunarDate(int day, int month, int year, VietnameseLunarDate* result) {
@@ -130,6 +177,11 @@ bool SolarToVietnameseLunarDate(int day, int month, int year, VietnameseLunarDat
 
     *result = {lunar_day, lunar_month, lunar_year, leap_month};
     return true;
+}
+
+bool VietnameseLunarToSolarDate(int day, int month, int year, bool leap_month, int* solar_day,
+                                int* solar_month, int* solar_year) {
+    return LunarToSolarDate(day, month, year, leap_month, solar_day, solar_month, solar_year);
 }
 
 }  // namespace kynangso

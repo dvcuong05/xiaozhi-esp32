@@ -4,9 +4,13 @@
 #include "core/robot_controller.h"
 #include "features/motion/robot_drive.h"
 #include "features/storage/sd_storage.h"
+#include "features/time/vietnamese_lunar_calendar.h"
 #include "mcp_server.h"
 
 #include <esp_log.h>
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
 #include <expected>
 #include <string>
 #include <utility>
@@ -17,6 +21,142 @@
 static const char* TAG = "RobotMCP";
 
 namespace {
+
+static std::string LunarDateJson(cJSON* response) {
+    if (response == nullptr)
+        return "{\"ok\":false,\"error\":\"Không đủ bộ nhớ để tạo kết quả tra cứu âm lịch\"}";
+    char* encoded = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    if (encoded == nullptr)
+        return "{\"ok\":false,\"error\":\"Không đủ bộ nhớ để mã hóa kết quả âm lịch\"}";
+    std::string result(encoded);
+    cJSON_free(encoded);
+    return result;
+}
+
+static std::string FormatCivilDate(int day, int month, int year) {
+    char date[11];
+    snprintf(date, sizeof(date), "%04d-%02d-%02d", year, month, day);
+    return date;
+}
+
+static ToolResult QueryVietnameseLunarDate(kynangso::RobotController& controller,
+                                           const PropertyList& properties) {
+    const std::string operation = properties["op"].value<std::string>();
+    if (operation == "today") {
+        cJSON* request = cJSON_CreateObject();
+        if (request == nullptr)
+            return std::unexpected("Không đủ bộ nhớ để đọc ngày âm hôm nay");
+        cJSON_AddStringToObject(request, "op", "status");
+        const std::string status_json = controller.TimeService().Command(request);
+        cJSON_Delete(request);
+        cJSON* status = cJSON_Parse(status_json.c_str());
+        if (status == nullptr)
+            return std::unexpected("Không đọc được đồng hồ của robot");
+
+        const cJSON* ready = cJSON_GetObjectItemCaseSensitive(status, "clock_ready");
+        const cJSON* now = cJSON_GetObjectItemCaseSensitive(status, "now");
+        const cJSON* lunar = cJSON_GetObjectItemCaseSensitive(status, "lunar");
+        if (!cJSON_IsTrue(ready) || !cJSON_IsString(now) || !cJSON_IsObject(lunar) ||
+            !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(lunar, "available"))) {
+            cJSON_Delete(status);
+            cJSON* response = cJSON_CreateObject();
+            cJSON_AddBoolToObject(response, "ok", false);
+            cJSON_AddStringToObject(response, "error",
+                                    "Robot chưa đồng bộ giờ; chưa thể xác định ngày âm hôm nay.");
+            return LunarDateJson(response);
+        }
+
+        cJSON* response = cJSON_CreateObject();
+        cJSON_AddBoolToObject(response, "ok", true);
+        cJSON_AddStringToObject(response, "operation", "today");
+        cJSON_AddStringToObject(response, "timezone", "Asia/Ho_Chi_Minh (UTC+07:00)");
+        cJSON_AddStringToObject(response, "solar_datetime", now->valuestring);
+        cJSON_AddItemToObject(response, "lunar", cJSON_Duplicate(lunar, true));
+        cJSON_Delete(status);
+        return LunarDateJson(response);
+    }
+
+    if (operation != "solar_to_lunar" && operation != "lunar_to_solar")
+        return std::unexpected("op chỉ nhận today, solar_to_lunar hoặc lunar_to_solar.");
+
+    const int day = properties["day"].value<int>();
+    const int month = properties["month"].value<int>();
+    const int year = properties["year"].value<int>();
+    const int maximum_day = operation == "solar_to_lunar" ? 31 : 30;
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > maximum_day)
+        return std::unexpected(
+            "Ngày/tháng/năm không hợp lệ; phạm vi năm được hỗ trợ là 1900–2100.");
+
+    if (operation == "solar_to_lunar") {
+        kynangso::VietnameseLunarDate lunar;
+        if (!kynangso::SolarToVietnameseLunarDate(day, month, year, &lunar))
+            return std::unexpected("Ngày dương lịch không hợp lệ hoặc nằm ngoài phạm vi hỗ trợ.");
+        cJSON* response = cJSON_CreateObject();
+        cJSON_AddBoolToObject(response, "ok", true);
+        cJSON_AddStringToObject(response, "operation", "solar_to_lunar");
+        cJSON_AddStringToObject(response, "timezone", "Asia/Ho_Chi_Minh (UTC+07:00)");
+        cJSON_AddStringToObject(response, "solar_date", FormatCivilDate(day, month, year).c_str());
+        cJSON_AddNumberToObject(response, "lunar_day", lunar.day);
+        cJSON_AddNumberToObject(response, "lunar_month", lunar.month);
+        cJSON_AddNumberToObject(response, "lunar_year", lunar.year);
+        cJSON_AddBoolToObject(response, "leap_month", lunar.leap_month);
+        char label[96];
+        snprintf(label, sizeof(label), "Ngày %d tháng %d%s năm %d âm lịch", lunar.day, lunar.month,
+                 lunar.leap_month ? " nhuận" : "", lunar.year);
+        cJSON_AddStringToObject(response, "label", label);
+        return LunarDateJson(response);
+    }
+
+    std::string leap_mode = properties["leap_mode"].value<std::string>();
+    std::transform(
+        leap_mode.begin(), leap_mode.end(), leap_mode.begin(),
+        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    if (leap_mode != "auto" && leap_mode != "regular" && leap_mode != "leap")
+        return std::unexpected("leap_mode chỉ nhận auto, regular hoặc leap.");
+
+    int regular_day = 0, regular_month = 0, regular_year = 0;
+    int leap_day = 0, leap_month = 0, leap_year = 0;
+    const bool regular_valid = kynangso::VietnameseLunarToSolarDate(
+        day, month, year, false, &regular_day, &regular_month, &regular_year);
+    const bool leap_valid = kynangso::VietnameseLunarToSolarDate(day, month, year, true, &leap_day,
+                                                                 &leap_month, &leap_year);
+
+    if (leap_mode == "auto" && regular_valid && leap_valid) {
+        cJSON* response = cJSON_CreateObject();
+        cJSON_AddBoolToObject(response, "ok", false);
+        cJSON_AddBoolToObject(response, "needs_clarification", true);
+        cJSON_AddStringToObject(response, "question",
+                                "Tháng âm này có cả tháng thường và tháng nhuận. Người dùng muốn "
+                                "tháng thường hay tháng nhuận?");
+        cJSON_AddStringToObject(response, "regular_date",
+                                FormatCivilDate(regular_day, regular_month, regular_year).c_str());
+        cJSON_AddStringToObject(response, "leap_date",
+                                FormatCivilDate(leap_day, leap_month, leap_year).c_str());
+        return LunarDateJson(response);
+    }
+
+    const bool use_leap = leap_mode == "leap" || (leap_mode == "auto" && leap_valid);
+    const bool valid = use_leap ? leap_valid : regular_valid;
+    if (!valid)
+        return std::unexpected(
+            "Ngày âm lịch không tồn tại hoặc lựa chọn tháng nhuận không hợp lệ.");
+
+    const int solar_day = use_leap ? leap_day : regular_day;
+    const int solar_month = use_leap ? leap_month : regular_month;
+    const int solar_year = use_leap ? leap_year : regular_year;
+    cJSON* response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "ok", true);
+    cJSON_AddStringToObject(response, "operation", "lunar_to_solar");
+    cJSON_AddStringToObject(response, "timezone", "Asia/Ho_Chi_Minh (UTC+07:00)");
+    cJSON_AddNumberToObject(response, "lunar_day", day);
+    cJSON_AddNumberToObject(response, "lunar_month", month);
+    cJSON_AddNumberToObject(response, "lunar_year", year);
+    cJSON_AddBoolToObject(response, "leap_month", use_leap);
+    cJSON_AddStringToObject(response, "solar_date",
+                            FormatCivilDate(solar_day, solar_month, solar_year).c_str());
+    return LunarDateJson(response);
+}
 
 // Legacy signed steps select forward/backward; each unit lasts delay_ms milliseconds.
 static ToolResult MoveMotor(kynangso::RobotController& controller, const PropertyList& properties) {
@@ -409,6 +549,25 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
             auto result = controller.TimeService().Command(j);
             cJSON_Delete(j);
             return result;
+        });
+    auto lunar_leap_mode = Property("leap_mode", kPropertyTypeString, std::string("auto"));
+    lunar_leap_mode.SetMaxLength(8);
+    mcp.AddTool(
+        "self.calendar.lunar",
+        "Tra cứu âm lịch Việt Nam offline theo UTC+7, không cần Internet. Hỗ trợ tiếng Việt và "
+        "English: hỏi 'hôm nay âm lịch ngày mấy' / 'What is today's lunar date?' dùng op=today; "
+        "hỏi 'âm lịch của ngày 25/12/2026' / 'What is the lunar date for 2026-12-25?' dùng "
+        "op=solar_to_lunar với day/month/year theo dương lịch; hỏi 'ngày dương của mùng 1 tháng "
+        "6 âm lịch năm 2025' / 'What Gregorian date is lunar 1/6/2025?' dùng op=lunar_to_solar "
+        "với day/month/year theo âm lịch. Với lunar_to_solar, leap_mode nhận auto, regular hoặc "
+        "leap. Dùng auto nếu chưa biết; nếu tháng có cả tháng thường và tháng nhuận, kết quả sẽ "
+        "đánh dấu needs_clarification và đưa hai ngày để hỏi lại, không được tự đoán. Năm hỗ trợ "
+        "1900–2100. Ngày âm không hợp lệ sẽ được báo rõ.",
+        PropertyList({Property("op", kPropertyTypeString), Property("day", kPropertyTypeInteger, 0),
+                      Property("month", kPropertyTypeInteger, 0),
+                      Property("year", kPropertyTypeInteger, 0), lunar_leap_mode}),
+        [&controller](const PropertyList& properties) {
+            return QueryVietnameseLunarDate(controller, properties);
         });
     mcp.AddTool(
         "self.time.timer",

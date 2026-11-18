@@ -181,9 +181,11 @@ cứng/nguồn dữ liệu đều đã được kiểm thử.
 
 - **Lịch cá nhân** — báo thức, nhắc việc lặp, countdown, Pomodoro; trang `/time`,
   API/MCP và UI TFT theo từng mode. [README board](../readme.md)
-- **Ngày âm lịch V1** — hiển thị ngày âm Việt Nam ngay trên `/time`, tính offline
-  theo giờ UTC+7; không thêm worker, dịch vụ ngoài hay dữ liệu lưu trên robot.
-  Thuật toán chuyển đổi và giới hạn năm được ghi tại [README board](../readme.md).
+- **Ngày âm lịch V1** — hiển thị ngày âm Việt Nam trên `/time` và MCP
+  `self.calendar.lunar` hỗ trợ ngày âm hôm nay, đổi dương → âm, âm → dương
+  offline theo UTC+7; phát hiện tháng nhuận để hỏi lại thay vì đoán. Không cần
+  worker, dịch vụ ngoài hay dữ liệu lưu trên robot. Thuật toán, ví dụ và giới
+  hạn năm được ghi tại [README board](../readme.md).
 - **Thời tiết và Random Wheel** — Open-Meteo qua MCP/WSS, làm mới theo yêu cầu;
   vòng quay 2–16 lựa chọn, tiếng Việt/English, giữ nhãn và hiệu ứng pháo giấy.
   [Màn hình thông tin](features/info-shuttle/README.md) ·

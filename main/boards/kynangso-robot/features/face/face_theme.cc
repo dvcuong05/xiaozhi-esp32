@@ -71,7 +71,7 @@ int CanonicalFaceGifExpression(const char* name) {
 }
 
 bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& error) {
-    error = "Gói theme không hợp lệ: cần JSON phẳng version 1, tên, style và bốn màu #RRGGBB.";
+    error = "Gói theme không hợp lệ: cần manifest version 1 hoặc 2 với tên, style và bốn màu #RRGGBB.";
     if (json.empty() || json.size() > 2048 || json.find('\0') != std::string::npos)
         return false;
     // Bound parser recursion before calling cJSON, including on the worker's small stack.
@@ -88,7 +88,8 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
         } else if (c == '"')
             quoted = true;
         else if (c == '{' || c == '[') {
-            if (++depth > 1)
+            // Version 2 contains one bounded array of expression keys inside the root object.
+            if (++depth > 2)
                 return false;
         } else if (c == '}' || c == ']') {
             if (--depth < 0)

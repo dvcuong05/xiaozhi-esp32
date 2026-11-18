@@ -115,9 +115,7 @@ nguồn cấp và cách điều khiển để kiểm tra trên robot.
 - [ ] **Tránh vật cản VL53L1X**: module hiện chưa lắp. Xác nhận giao tiếp, vị trí,
   ngưỡng khoảng cách và phản ứng an toàn; lỗi hoặc dữ liệu cũ phải dừng chuyển
   động thay vì tiếp tục routine.
-- [ ] **Đèn Edison phía sau**: xác nhận loại đèn, driver và dòng tải. GPIO19 theo
-  sơ đồ không được cấp tải trực tiếp; kiểm tra xung đột USB D− và hiệu quả với
-  nguồn thực tế trước khi định nghĩa hiệu ứng.
+- [ ] **Đèn Edison trái phải hoặc phía sau**: led sẽ như là hơi thở, biểu cảm, chuẩn đoán, signal của robot. Có các mcp đều khiển riêng hoặc tùy kich bản mà các đèn được hiệu chỉnh, animation phù hợp. Ngôn ngữ ánh sáng cho các đèn quy ước trạng thái khởi động, ready/listening/processing/speaking, vui khi chạm, di chuyển/rẽ, vật cản,  dừng khẩn cấp, pin yếu và lỗi. Tách hiệu ứng khỏi state machine; xác nhận driver, PWM và tổng dòng trước khi bật hiệu ứng dài hoặc theo nhạc. Hỗ trợ bật tắt hoàn toàn tiết kiệm pin.
 - [ ] **Điều khiển hồng ngoại**: xác nhận module phát; nếu cần học remote thì
   chọn thêm module thu. Bắt đầu với tập lệnh và model TV/điều hòa cụ thể.
 - [ ] **Camera giao thông TP.HCM và camera IP gia đình**: hai use case riêng;

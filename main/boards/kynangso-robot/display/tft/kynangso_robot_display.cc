@@ -81,6 +81,11 @@ KyNangSoRobotDisplay::~KyNangSoRobotDisplay() {
         lv_timer_delete(payment_qr_timer_);
         payment_qr_timer_ = nullptr;
     }
+    if (lunar_calendar_timer_ != nullptr) {
+        lv_timer_delete(lunar_calendar_timer_);
+        lunar_calendar_timer_ = nullptr;
+    }
+    lunar_calendar_view_.reset();
     if (sd_image_timer_ != nullptr) {
         lv_timer_delete(sd_image_timer_);
         sd_image_timer_ = nullptr;
@@ -286,6 +291,8 @@ void KyNangSoRobotDisplay::SetupUI() {
         lv_timer_ready(info_shuttle_timer_);
     name_wheel_view_ = std::make_unique<kynangso::RobotNameWheelView>(
         width_, height_, text_font, [this]() { NameWheelFinished(); });
+    lunar_calendar_view_ = std::make_unique<kynangso::RobotLunarCalendarView>(
+        width_, height_, text_font);
     ApplyUiMode();
 }
 
@@ -324,6 +331,8 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetBaseUiMode() const {
 
 KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
     const UiMode base_mode = GetBaseUiMode();
+    if (base_mode == UiMode::NormalFace && lunar_calendar_active_)
+        return UiMode::LunarCalendar;
     if (base_mode == UiMode::NormalFace && info_shuttle_active_)
         return UiMode::InfoShuttle;
     return base_mode;
@@ -331,7 +340,7 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
 
 bool KyNangSoRobotDisplay::CanPresentInfoShuttle(UiMode base_mode) const {
     return info_shuttle_config_.enabled && boot_state_ == BootState::Finished &&
-           base_mode == UiMode::NormalFace && !conversation_active_ &&
+           base_mode == UiMode::NormalFace && !lunar_calendar_active_ && !conversation_active_ &&
            face_preview_timer_ == nullptr && info_shuttle_view_ != nullptr &&
            screen_layout_ != nullptr && screen_layout_->CanShowInfoShuttle() &&
            (notification_label_ == nullptr ||
@@ -340,6 +349,8 @@ bool KyNangSoRobotDisplay::CanPresentInfoShuttle(UiMode base_mode) const {
 
 void KyNangSoRobotDisplay::ApplyUiMode() {
     const UiMode base_mode = GetBaseUiMode();
+    if (lunar_calendar_active_ && base_mode != UiMode::NormalFace)
+        HideLunarCalendar();
     const bool can_present_shuttle = CanPresentInfoShuttle(base_mode);
     if (!can_present_shuttle) {
         info_shuttle_active_ = false;
@@ -380,6 +391,8 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
     }
     set_visible(boot_console_, mode == UiMode::BootConsole);
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
+    if (lunar_calendar_view_ != nullptr)
+        lunar_calendar_view_->SetVisible(mode == UiMode::LunarCalendar);
     if (name_wheel_view_)
         name_wheel_view_->SetVisible(mode == UiMode::NameWheel);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
@@ -514,6 +527,54 @@ void KyNangSoRobotDisplay::SetTimeView(const kynangso::TimeView& view) {
     time_visible_ = view.visible;
     time_alert_ = view.alert;
     ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::ShowLunarCalendarResult(
+    int solar_day, int solar_month, int solar_year, const kynangso::VietnameseLunarDate& lunar) {
+    DisplayLockGuard lock(this);
+    if (!lock || !setup_ui_called_ || lunar_calendar_view_ == nullptr ||
+        GetBaseUiMode() != UiMode::NormalFace)
+        return;
+
+    if (lunar_calendar_timer_ != nullptr) {
+        lv_timer_delete(lunar_calendar_timer_);
+        lunar_calendar_timer_ = nullptr;
+    }
+    lunar_calendar_view_->Show(solar_day, solar_month, solar_year, lunar);
+    lunar_calendar_active_ = true;
+    ApplyUiMode();
+    lunar_calendar_timer_ = lv_timer_create(OnLunarCalendarTimer, 5000, this);
+    if (lunar_calendar_timer_ == nullptr) {
+        HideLunarCalendar();
+        ApplyUiMode();
+        return;
+    }
+    lv_timer_set_repeat_count(lunar_calendar_timer_, 1);
+}
+
+void KyNangSoRobotDisplay::HideLunarCalendar() {
+    lunar_calendar_active_ = false;
+    if (lunar_calendar_timer_ != nullptr) {
+        lv_timer_delete(lunar_calendar_timer_);
+        lunar_calendar_timer_ = nullptr;
+    }
+}
+
+void KyNangSoRobotDisplay::OnLunarCalendarTimer(lv_timer_t* timer) {
+    auto* display = static_cast<KyNangSoRobotDisplay*>(lv_timer_get_user_data(timer));
+    if (display == nullptr || display->lunar_calendar_timer_ != timer)
+        return;
+    display->lunar_calendar_timer_ = nullptr;
+    display->lunar_calendar_active_ = false;
+    if (display->info_shuttle_timer_ != nullptr && display->info_shuttle_timer_paused_) {
+        lv_timer_set_period(display->info_shuttle_timer_,
+                            display->info_shuttle_config_.interval_seconds * 1000);
+        lv_timer_reset(display->info_shuttle_timer_);
+        lv_timer_resume(display->info_shuttle_timer_);
+        display->info_shuttle_timer_paused_ = false;
+    }
+    display->ApplyUiMode();
+    lv_timer_delete(timer);
 }
 
 void KyNangSoRobotDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image, uint32_t duration_ms) {
@@ -1260,6 +1321,8 @@ void KyNangSoRobotDisplay::OnThemeTextFontChanged(const lv_font_t* text_font) {
     }
     if (info_shuttle_view_ != nullptr)
         info_shuttle_view_->SetFont(text_font);
+    if (lunar_calendar_view_ != nullptr)
+        lunar_calendar_view_->SetFont(text_font);
     if (name_wheel_view_ != nullptr)
         name_wheel_view_->SetFont(text_font);
     for (auto* label : {music_title_, music_artist_, music_progress_time_, music_previous_lyric_,

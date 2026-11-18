@@ -299,6 +299,13 @@ bool RobotController::SetInfoShuttleWeather(std::string summary, int icon_kind) 
     return true;
 }
 
+void RobotController::ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
+                                              const VietnameseLunarDate& lunar) {
+    Application::GetInstance().Schedule([this, solar_day, solar_month, solar_year, lunar]() {
+        display_.ShowLunarCalendarResult(solar_day, solar_month, solar_year, lunar);
+    });
+}
+
 bool RobotController::ShowNews(std::string headline, std::string source) {
     const auto has_control = [](const std::string& text) {
         return std::any_of(text.begin(), text.end(), [](unsigned char value) {

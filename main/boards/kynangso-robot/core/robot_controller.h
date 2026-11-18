@@ -45,6 +45,8 @@ public:
     bool AdvanceInfoShuttle();
     bool RefreshInfoShuttleWeather();
     bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
+    void ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
+                                 const VietnameseLunarDate& lunar);
     bool OfflineDiagnosticsEnabled() const;
     bool ConfigureOfflineDiagnostics(bool enabled);
     bool ShowNews(std::string headline, std::string source);

@@ -184,8 +184,10 @@ cứng/nguồn dữ liệu đều đã được kiểm thử.
 - **Ngày âm lịch V1** — hiển thị ngày âm Việt Nam trên `/time` và MCP
   `self.calendar.lunar` hỗ trợ ngày âm hôm nay, đổi dương → âm, âm → dương
   offline theo UTC+7; phát hiện tháng nhuận để hỏi lại thay vì đoán. Không cần
-  worker, dịch vụ ngoài hay dữ liệu lưu trên robot. Thuật toán, ví dụ và giới
-  hạn năm được ghi tại [README board](../readme.md).
+  worker, dịch vụ ngoài hay dữ liệu lưu trên robot. Kết quả MCP hiện thành tờ
+  lịch toàn màn hình trên TFT trong 5 giây; form nhắc việc hiển thị ngày âm ngay
+  dưới trường chọn ngày. Thuật toán, luồng hiển thị và giới hạn năm được ghi tại
+  [README board](../readme.md).
 - **Thời tiết và Random Wheel** — Open-Meteo qua MCP/WSS, làm mới theo yêu cầu;
   vòng quay 2–16 lựa chọn, tiếng Việt/English, giữ nhãn và hiệu ứng pháo giấy.
   [Màn hình thông tin](features/info-shuttle/README.md) ·

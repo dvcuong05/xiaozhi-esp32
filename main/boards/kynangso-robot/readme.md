@@ -180,6 +180,14 @@ Không tự chọn tháng thường hay tháng nhuận thay người dùng. Ngà
 tại (ví dụ ngày 30 trong tháng chỉ có 29 ngày) được từ chối. Phạm vi tra cứu là
 1900–2100; truy vấn “hôm nay” yêu cầu đồng hồ robot đã đồng bộ.
 
+Khi MCP trả kết quả tra cứu thành công, TFT hiện một tờ lịch âm toàn màn hình
+trong 5 giây rồi trở về khuôn mặt robot. Màn hình này nhường quyền cho các chế
+độ ưu tiên như báo thức, TV, nhạc, ảnh và QR; nếu một chế độ đó bắt đầu trong
+lúc tờ lịch đang hiện, kết quả sẽ đóng và không bật lại sau đó. Trên trang `/time`,
+khi chọn ngày giờ nhắc việc, nhãn ngay dưới ô ngày giờ tự tính và hiển thị ngày
+âm tương ứng. Trang dùng `POST /api/time` với `op=lunar_date`; cùng bộ chuyển đổi
+offline trên firmware bảo đảm kết quả nhất quán, không cần mạng hoặc microSD.
+
 TFT dùng chữ số lớn vẽ bằng hình học, vòng tiến độ và nền gradient; tập trung
 màu tím, nghỉ xanh lá, countdown xanh, báo thức cam, nhắc việc xanh dương.
 Các nhãn dùng Noto Sans 14 px, bitmap 1-bit riêng trong board với đủ chữ Việt

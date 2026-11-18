@@ -378,6 +378,37 @@ std::string RobotTimeService::Command(const cJSON* j) {
     const auto op = Text(j, "op");
     if (op == "status" || op == "list")
         return Status();
+    if (op == "lunar_date") {
+        const int day = Number(j, "day", -1, 1, 31);
+        const int month = Number(j, "month", -1, 1, 12);
+        const int year = Number(j, "year", -1, 1900, 2100);
+        VietnameseLunarDate lunar;
+        if (day < 1 || month < 1 || year < 1900 ||
+            !SolarToVietnameseLunarDate(day, month, year, &lunar)) {
+            auto* response = cJSON_CreateObject();
+            cJSON_AddBoolToObject(response, "ok", false);
+            cJSON_AddStringToObject(response, "error",
+                                    "Ngày dương lịch không hợp lệ hoặc nằm ngoài phạm vi 1900–2100.");
+            return Print(response);
+        }
+        auto* response = cJSON_CreateObject();
+        cJSON_AddBoolToObject(response, "ok", true);
+        char solar_date[40];
+        snprintf(solar_date, sizeof(solar_date), "%04d-%02d-%02d", year, month, day);
+        cJSON_AddStringToObject(response, "solar_date", solar_date);
+        auto* lunar_json = cJSON_CreateObject();
+        cJSON_AddBoolToObject(lunar_json, "available", true);
+        cJSON_AddNumberToObject(lunar_json, "day", lunar.day);
+        cJSON_AddNumberToObject(lunar_json, "month", lunar.month);
+        cJSON_AddNumberToObject(lunar_json, "year", lunar.year);
+        cJSON_AddBoolToObject(lunar_json, "leap_month", lunar.leap_month);
+        char label[64];
+        snprintf(label, sizeof(label), "Ngày %d tháng %d%s năm %d âm lịch", lunar.day, lunar.month,
+                 lunar.leap_month ? " nhuận" : "", lunar.year);
+        cJSON_AddStringToObject(lunar_json, "label", label);
+        cJSON_AddItemToObject(response, "lunar", lunar_json);
+        return Print(response);
+    }
     if (op == "today" || op == "next") {
         if (ClockNow() < kValidTime)
             return Status("Chưa đồng bộ giờ mạng", op == "today" ? "today" : "next");

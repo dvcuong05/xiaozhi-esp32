@@ -73,6 +73,19 @@ static ToolResult QueryVietnameseLunarDate(kynangso::RobotController& controller
         cJSON_AddStringToObject(response, "timezone", "Asia/Ho_Chi_Minh (UTC+07:00)");
         cJSON_AddStringToObject(response, "solar_datetime", now->valuestring);
         cJSON_AddItemToObject(response, "lunar", cJSON_Duplicate(lunar, true));
+        int solar_year = 0, solar_month = 0, solar_day = 0;
+        const auto* lunar_day = cJSON_GetObjectItemCaseSensitive(lunar, "day");
+        const auto* lunar_month = cJSON_GetObjectItemCaseSensitive(lunar, "month");
+        const auto* lunar_year = cJSON_GetObjectItemCaseSensitive(lunar, "year");
+        const auto* leap_month = cJSON_GetObjectItemCaseSensitive(lunar, "leap_month");
+        if (sscanf(now->valuestring, "%d-%d-%d", &solar_year, &solar_month, &solar_day) == 3 &&
+            cJSON_IsNumber(lunar_day) && cJSON_IsNumber(lunar_month) &&
+            cJSON_IsNumber(lunar_year)) {
+            controller.ShowLunarCalendarResult(
+                solar_day, solar_month, solar_year,
+                {lunar_day->valueint, lunar_month->valueint, lunar_year->valueint,
+                 cJSON_IsTrue(leap_month) != 0});
+        }
         cJSON_Delete(status);
         return LunarDateJson(response);
     }
@@ -92,6 +105,7 @@ static ToolResult QueryVietnameseLunarDate(kynangso::RobotController& controller
         kynangso::VietnameseLunarDate lunar;
         if (!kynangso::SolarToVietnameseLunarDate(day, month, year, &lunar))
             return std::unexpected("Ngày dương lịch không hợp lệ hoặc nằm ngoài phạm vi hỗ trợ.");
+        controller.ShowLunarCalendarResult(day, month, year, lunar);
         cJSON* response = cJSON_CreateObject();
         cJSON_AddBoolToObject(response, "ok", true);
         cJSON_AddStringToObject(response, "operation", "solar_to_lunar");
@@ -145,6 +159,8 @@ static ToolResult QueryVietnameseLunarDate(kynangso::RobotController& controller
     const int solar_day = use_leap ? leap_day : regular_day;
     const int solar_month = use_leap ? leap_month : regular_month;
     const int solar_year = use_leap ? leap_year : regular_year;
+    controller.ShowLunarCalendarResult(solar_day, solar_month, solar_year,
+                                       {day, month, year, use_leap});
     cJSON* response = cJSON_CreateObject();
     cJSON_AddBoolToObject(response, "ok", true);
     cJSON_AddStringToObject(response, "operation", "lunar_to_solar");

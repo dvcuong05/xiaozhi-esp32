@@ -59,6 +59,10 @@ inline constexpr char kRobotTimePage[] =
     .lunar-date { display: flex; align-items: center; gap: 8px; width: fit-content; margin-top: 12px; padding: 7px 10px; border: 1px solid rgba(183,161,255,.2); border-radius: 999px; background: rgba(183,161,255,.08); color: #d8ceff; font-size: 12px; line-height: 1.35; }
     .lunar-date[hidden] { display: none; }
     .lunar-mark { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border-radius: 50%; background: rgba(183,161,255,.15); color: #c5aeff; font-size: 14px; }
+    .lunar-preview { display: block; margin: 8px 0 0; padding: 9px 12px; border: 1px solid rgba(183,161,255,.2); border-radius: 12px; background: linear-gradient(100deg, rgba(124,92,213,.12), rgba(69,119,177,.08)); color: #d8ceff; line-height: 1.45; }
+    .lunar-preview[hidden] { display: none; }
+    .lunar-preview.pending { color: #9ca9c2; }
+    .lunar-preview.error { border-color: rgba(255,130,150,.24); color: #ff9aaa; }
     #msg { min-height: 20px; margin: 0 0 10px; color: var(--green); font-size: 13px; }
     .panel { border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(145deg, var(--panel-light), var(--panel)); box-shadow: 0 20px 55px rgba(0,0,0,.14); }
     #alert { margin-bottom: 18px; padding: 18px 20px; border-color: rgba(255,204,122,.45); background: linear-gradient(110deg, rgba(92,58,27,.9), rgba(35,31,39,.95)); }
@@ -233,6 +237,7 @@ inline constexpr char kRobotTimePage[] =
       <form id="reminderForm">
         <label class="field">Việc cần nhớ<input name="title" maxlength="60" placeholder="Uống nước, gọi điện…" required></label>
         <label class="field">Ngày giờ bắt đầu · Việt Nam<input name="at" type="datetime-local" required></label>
+        <small class="lunar-preview" id="reminderLunarPreview" aria-live="polite" hidden></small>
         <div class="days" id="reminderDays" aria-label="Ngày lặp nhắc việc"></div>
         <small class="hint">Không chọn ngày để nhắc một lần. Chọn ngày để lặp hằng tuần.</small>
         <button class="primary" type="submit">Tạo nhắc việc</button>
@@ -499,6 +504,44 @@ inline constexpr char kRobotTimePage[] =
     function selectedDays(selector) {
       return [...$(selector).querySelectorAll('input:checked')].reduce((mask, input) => mask + Number(input.value), 0);
     }
+    let lunarPreviewRequest = 0;
+    let lunarPreviewTimer = 0;
+    async function updateReminderLunarPreview() {
+      const output = $('#reminderLunarPreview');
+      const solarDate = $('#reminderForm [name="at"]').value.slice(0, 10);
+      const requestId = ++lunarPreviewRequest;
+      if (!solarDate) {
+        output.hidden = true;
+        return;
+      }
+      const [year, month, day] = solarDate.split('-').map(Number);
+      output.hidden = false;
+      output.className = 'lunar-preview pending';
+      output.textContent = '☾ Đang tính ngày âm…';
+      try {
+        const response = await fetch('/api/time', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ op: 'lunar_date', day, month, year })
+        });
+        const result = await response.json();
+        if (requestId !== lunarPreviewRequest) return;
+        if (!response.ok || !result.ok || !result.lunar?.available)
+          throw new Error(result.error || 'Không xác định được ngày âm cho ngày đã chọn.');
+        output.className = 'lunar-preview';
+        output.textContent = '☾ ' + result.lunar.label;
+      } catch (error) {
+        if (requestId !== lunarPreviewRequest) return;
+        output.className = 'lunar-preview error';
+        output.textContent = error.message || 'Chưa tính được ngày âm.';
+      }
+    }
+    const reminderDateInput = $('#reminderForm [name="at"]');
+    const scheduleLunarPreview = () => {
+      clearTimeout(lunarPreviewTimer);
+      lunarPreviewTimer = setTimeout(updateReminderLunarPreview, 160);
+    };
+    reminderDateInput.addEventListener('input', scheduleLunarPreview);
+    reminderDateInput.addEventListener('change', scheduleLunarPreview);
     form('#alarmForm', values => ({
       op: 'add', kind: 'alarm', title: values.title,
       hour: Number(values.time.split(':')[0]), minute: Number(values.time.split(':')[1]), days: selectedDays('#days')

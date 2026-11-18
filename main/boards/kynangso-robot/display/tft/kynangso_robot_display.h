@@ -8,6 +8,7 @@
 #include "display/lcd_display.h"
 #include "display/tft/robot_eyes.h"
 #include "display/tft/robot_info_shuttle_view.h"
+#include "display/tft/robot_lunar_calendar_view.h"
 #include "display/tft/robot_name_wheel_view.h"
 #include "display/tft/robot_screen_layout.h"
 #include "display/tft/robot_spectrum.h"
@@ -75,6 +76,8 @@ public:
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const kynangso::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
+    void ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
+                                 const kynangso::VietnameseLunarDate& lunar);
 
 protected:
     void OnThemeTextFontChanged(const lv_font_t* text_font) override;
@@ -86,6 +89,7 @@ private:
         Bluetooth,
         BootConsole,
         PaymentQr,
+        LunarCalendar,
         AudioVisualizer,
         NameWheel,
         SdImage,
@@ -124,6 +128,9 @@ private:
     lv_obj_t* payment_qr_caption_ = nullptr;
     std::shared_ptr<const kynangso::RobotQrCode> payment_qr_code_;
     lv_timer_t* payment_qr_timer_ = nullptr;
+    lv_timer_t* lunar_calendar_timer_ = nullptr;
+    std::unique_ptr<kynangso::RobotLunarCalendarView> lunar_calendar_view_;
+    bool lunar_calendar_active_ = false;
     lv_obj_t* audio_visualizer_ = nullptr;
     lv_obj_t* sd_image_overlay_ = nullptr;
     lv_obj_t* sd_image_view_ = nullptr;
@@ -175,6 +182,7 @@ private:
 
     static void OnBootConsoleTimer(lv_timer_t* timer);
     static void OnPaymentQrTimer(lv_timer_t* timer);
+    static void OnLunarCalendarTimer(lv_timer_t* timer);
     static void OnSdImageTimer(lv_timer_t* timer);
     static void OnInfoShuttleTimer(lv_timer_t* timer);
     static void OnInfoShuttleNotificationTimer(lv_timer_t* timer);
@@ -185,6 +193,7 @@ private:
     bool CanPresentInfoShuttle(UiMode base_mode) const;
     void ApplyUiMode();
     void HidePaymentQr();
+    void HideLunarCalendar();
     void AppendBootConsoleLine(const char* text);
     void HideLegacyEmoji();
     void RenderBootConsole();

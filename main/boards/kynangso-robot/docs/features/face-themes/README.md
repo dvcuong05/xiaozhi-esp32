@@ -35,7 +35,7 @@ Có thể hỏi robot:
 - “Chuyển sang Prism Reactor.”
 - “Switch the robot face theme to Quantum Orbit.”
 
-Theme và biểu cảm mặc định là hai thiết lập riêng. Các cảm xúc happy, surprised, sad, angry, listening, speaking và miệng theo biên độ âm thanh tiếp tục hoạt động với mọi theme.
+Theme và biểu cảm mặc định là hai thiết lập riêng. Cả 21 biểu cảm (gồm happy, sad, crying, delicious, embarrassed và cool) cùng miệng theo biên độ âm thanh hoạt động với mọi theme.
 
 ## Gói theme tùy chỉnh
 
@@ -62,16 +62,20 @@ Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/
 
 ## Nghiệm thu
 
-Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra theme tích hợp và bốn gói tải thêm với idle, happy, surprised, listening và speaking; quan sát phụ kiện, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.
+Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra theme tích hợp và bốn gói tải thêm với idle, happy, sad, crying, delicious, embarrassed, cool, listening và speaking; quan sát phụ kiện, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.
 
 
 ## Theme GIF biểu cảm từ thẻ nhớ
 
-Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép đặt tên, chọn kiểu/màu dự phòng và gán GIF cho từng trạng thái. Có thể chọn nhiều file cùng lúc nếu tên file là tên biểu cảm như `Happy.gif`, `Angry.gif`, `Neutral.gif`; các tên tiếng Việt và bí danh phổ biến cũng được chuẩn hóa. File chưa nhận diện có thể gán thủ công tại ô của từng trạng thái. Có thể chỉ tải một vài trạng thái; trạng thái chưa có GIF dùng renderer vẽ sẵn. Hiện hỗ trợ 17 khóa: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`. Các bí danh như `idle`, `talking`, `crying`, `wink` được chuẩn hóa về khóa tương ứng.
+Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép tạo theme GIF nhiều biểu cảm. Có thể chọn nhiều file cùng lúc; tên tiếng Việt không dấu/dấu, khoảng trắng và gạch nối đều được chuẩn hóa. File lạ có thể gán thủ công trong danh sách rồi bấm **Ghi**. Biểu cảm chưa có GIF dùng renderer vẽ sẵn, nên không cần cung cấp đủ file mới cài được theme.
 
-Chọn toàn bộ GIF trong bộ chọn nhiều file. Tên khớp khóa/biệt danh như `Happy.gif`, `Bình thường.gif`, `Đang nghe.gif` được tự gán; không phân biệt hoa/thường, dấu tiếng Việt, khoảng trắng hoặc dấu gạch nối. Tên chưa nhận diện được hoặc cần chỉnh có thể gán bằng danh sách thả xuống ngay trên dòng file rồi bấm **Ghi**. Tên có hậu tố như `Happy-v2.gif` không tự ánh xạ. Khi cài, robot lưu theo tên khóa chuẩn như `happy.gif`.
+Firmware hỗ trợ 21 khóa GIF: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`, `delicious`, `crying`, `embarrassed`, `cool`. `speaking` là trạng thái hội thoại; 20 khóa còn lại cũng có thể chọn làm biểu cảm nghỉ. Bốn khóa mới `delicious`, `crying`, `embarrassed`, `cool` được thêm vào cuối danh sách NVS để giữ nguyên các lựa chọn đã lưu trước đó.
 
-Danh sách file đã chọn hiển thị tên, biểu cảm được ánh xạ và trạng thái. “Trùng” nghĩa là nhiều bí danh cùng ánh xạ tới một biểu cảm, không phải tên file giống nhau; ví dụ `Sad.gif` và `Buồn.gif` đều trỏ tới `sad`. Các file này được tô đỏ và chỉ rõ file đối ứng. Có thể đổi biểu cảm trong danh sách thả xuống rồi bấm **Ghi**, hoặc bỏ file. Tên lạ cũng có thể được gán thủ công như vậy. Khi cài, hệ thống chuẩn hóa và lưu theo tên khóa, ví dụ `sad.gif`; mỗi biểu cảm chỉ nhận một GIF.
+Tên trong bộ GIF tham khảo được chuẩn hóa như sau: `Delicious` → `delicious`, `Crying` → `crying`, `Embarrassed` → `embarrassed`, `Cool` → `cool`; các tên còn lại cũng được nhận diện. `Sad` là buồn, khác `Crying` là khóc; `Delicious` khác `Happy`; `Cool` khác `Confident`. Các tên đồng nghĩa vẫn dùng chung khóa: `Relaxed` → `neutral`, `Funny`/`Laughing` → `laugh`, `Kiss`/`Loving` → `love`, `Shocked` → `surprised`, `Silly` → `devil`, `Thinking` → `confused`, `Winking` → `playful`. Nếu chọn nhiều tên đồng nghĩa cùng lúc, uploader sẽ báo trùng khóa; giữ một file hoặc đổi mapping thủ công.
+
+Chọn toàn bộ GIF trong bộ chọn nhiều file. Tên được nhận diện sẽ tự gán; tên thêm hậu tố như `Happy-v2.gif` không tự ánh xạ và cần chọn thủ công. Khi cài, robot đổi tên theo khóa chuẩn như `crying.gif` hoặc `delicious.gif`. Danh sách upload cho phép xem rõ file nào cùng khóa, chỉnh mapping và bỏ file trước khi cài.
+
+Danh sách file đã chọn hiển thị tên, biểu cảm được ánh xạ và trạng thái. “Trùng” nghĩa là nhiều bí danh cùng ánh xạ tới một biểu cảm, không phải tên file giống nhau; ví dụ `Sad.gif` và `Buồn.gif` đều trỏ tới `sad`. Các file trùng khóa được tô vàng hổ phách để báo cần xử lý; file chưa gán được tô xanh. Màu đỏ chỉ dành cho lỗi thao tác thực sự. Có thể đổi biểu cảm trong danh sách thả xuống rồi bấm **Ghi**, hoặc bỏ file. Tên lạ cũng có thể được gán thủ công như vậy. Khi cài, hệ thống chuẩn hóa và lưu theo tên khóa, ví dụ `sad.gif`; mỗi biểu cảm chỉ nhận một GIF.
 
 ### Chuẩn hóa và lưu
 
@@ -106,4 +110,4 @@ Ngày 17/11/2026, hai GIF Cherry mẫu (160×160, khoảng 12,5 fps) được l�
 
 Trên firmware cuối có AES phần cứng bật, lệnh chat MQTT hoàn tất. Lượt TV tiếp theo giữ trạng thái `playing` khoảng 21,6 giây; bộ đếm lên 215 frame, audio position lên 21.580 ms và tốc độ báo cáo xấp xỉ 9–11 fps. Lệnh dừng trả `stopped`, sau đó API báo robot `idle`, Wi-Fi còn kết nối và theme `gif-poc` vẫn active. Đây là telemetry của phiên chạy ngắn; chưa xác nhận bằng tai hình/tiếng đồng bộ trong lượt này và chưa thay thế nghiệm thu dài.
 
-PoC ban đầu chỉ chuyển GIF `idle`/`talking`. Tính năng theme GIF 17 trạng thái hiện đã thay thế định dạng PoC; cần xác nhận riêng các biểu cảm mới trên firmware sau khi nạp. GIF `speaking` là ảnh động theo trạng thái, không lip-sync theo âm thanh.
+PoC ban đầu chỉ chuyển GIF `idle`/`talking`. Tính năng theme GIF 21 trạng thái hiện thay thế định dạng đó. Theme tích hợp cũ `gif-poc` vẫn phát hai GIF này ở trạng thái neutral/speaking; các cảm xúc còn lại dùng renderer vẽ sẵn. GIF `speaking` là ảnh động theo trạng thái, không lip-sync theo âm thanh.

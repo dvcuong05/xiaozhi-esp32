@@ -22,6 +22,10 @@ enum class RobotEyesMode : unsigned char {
     Confident,
     Yawn,
     Playful,
+    Delicious,
+    Crying,
+    Embarrassed,
+    Cool,
 };
 
 namespace kynangso::face_art {
@@ -164,6 +168,15 @@ void Draw(Canvas& c, RobotEyesMode mode, unsigned frame, bool speaking) {
                 c.Line(x - 6, 92, x, 88, 3, kPink);
             }
             break;
+        case RobotEyesMode::Delicious:
+            panels = false;
+            for (int side = 0; side < 2; ++side) {
+                const float x = 69.0f + side * 102;
+                Curve(c, x - 24, 67 + wave * 1.5f, 48, -17, kCyan, 7);
+                c.Line(x - 16, 91, x - 10, 87, 3, kPink);
+                c.Line(x - 5, 92, x + 1, 88, 3, kPink);
+            }
+            break;
         case RobotEyesMode::Sad:
             eye_h = 26;
             left_y = right_y = 63;
@@ -171,6 +184,42 @@ void Draw(Canvas& c, RobotEyesMode mode, unsigned frame, bool speaking) {
             c.Line(155, 36, 196, 49, 5, kCyan);
             // One tear travels slowly down the cheek, then forms again.
             c.Box(87, 87 + (frame % 70) * 0.35f, 6, 11, 3, kTear);
+            break;
+        case RobotEyesMode::Crying: {
+            panels = false;
+            const float wobble = std::sin(t * 8) * 2;
+            c.Line(42, 42, 87, 55, 5, kCyan);
+            c.Line(153, 55, 198, 42, 5, kCyan);
+            Curve(c, 44, 57, 48, 11, kCyan, 7);
+            Curve(c, 148, 57, 48, 11, kCyan, 7);
+            c.Box(62, 77 + (frame % 34) * 0.42f, 6, 14, 3, kTear);
+            c.Box(172, 77 + ((frame + 17) % 34) * 0.42f, 6, 14, 3, kTear);
+            c.Box(105, 100 + wobble, 30, 24, 14, kCyan);
+            c.Box(112, 102 + wobble, 16, 15, 8, kBlack);
+            break;
+        }
+        case RobotEyesMode::Embarrassed:
+            left_y = 49;
+            right_y = 53;
+            eye_h = 30;
+            gaze = 10;
+            c.Line(43, 36, 85, 41, 4, kCyan);
+            c.Line(155, 41, 195, 35, 4, kCyan);
+            c.Line(38, 91, 59, 88, 4, kPink);
+            c.Line(64, 90, 85, 94, 4, kPink);
+            c.Line(155, 94, 176, 90, 4, kPink);
+            c.Line(181, 88, 202, 91, 4, kPink);
+            c.Box(202, 28 + (frame % 28) * 0.12f, 5, 8, 2, kTear);
+            break;
+        case RobotEyesMode::Cool:
+            panels = false;
+            c.Box(34, 45, 72, 42, 12, kCyan);
+            c.Box(41, 52, 58, 28, 9, kBlack);
+            c.Box(134, 45, 72, 42, 12, kCyan);
+            c.Box(141, 52, 58, 28, 9, kBlack);
+            c.Line(103, 57, 137, 57, 6, kCyan);
+            c.Line(47, 56, 66, 74, 2, kTear);
+            c.Line(147, 56, 166, 74, 2, kTear);
             break;
         case RobotEyesMode::Angry:
         case RobotEyesMode::Devil:
@@ -275,6 +324,20 @@ void Draw(Canvas& c, RobotEyesMode mode, unsigned frame, bool speaking) {
         case RobotEyesMode::Laugh:
             c.Box(101, 100, 38, 22 + wave * 3, 10, kCyan);
             c.Box(108, 101, 24, 5, 2, kBlack);
+            break;
+        case RobotEyesMode::Delicious:
+            c.Box(103, 98, 34, 28, 15, kCyan);
+            c.Box(110, 100, 20, 17, 9, kBlack);
+            c.Box(111, 111 + wave, 18, 9, 5, kPink);
+            break;
+        case RobotEyesMode::Crying:
+            c.Box(107, 120, 26, 7, 4, kTear);
+            break;
+        case RobotEyesMode::Embarrassed:
+            Curve(c, 106, 111, 28, -5, kCyan, 3);
+            break;
+        case RobotEyesMode::Cool:
+            Curve(c, 101, 108, 38, 10, kCyan, 5);
             break;
         case RobotEyesMode::Yawn: {
             const unsigned phase = frame % 125;

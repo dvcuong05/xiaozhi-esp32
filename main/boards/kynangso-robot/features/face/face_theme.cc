@@ -14,7 +14,8 @@ namespace {
 constexpr const char* kGifExpressions[] = {
     "neutral",  "happy",     "sad",   "angry",   "surprised", "sleepy",
     "confused", "listening", "laugh", "love",    "dizzy",     "distracted",
-    "devil",    "confident", "yawn",  "playful", "speaking"};
+    "devil",    "confident", "yawn",  "playful", "speaking",  "delicious",
+    "crying",   "embarrassed", "cool"};
 constexpr size_t kExpressionCount = sizeof(kGifExpressions) / sizeof(kGifExpressions[0]);
 
 struct EmotionAlias {
@@ -24,13 +25,19 @@ struct EmotionAlias {
 constexpr EmotionAlias kEmotionAliases[] = {{"idle", "neutral"},      {"smile", "happy"},
                                             {"joy", "laugh"},         {"astonished", "surprised"},
                                             {"wow", "surprised"},     {"panic", "surprised"},
-                                            {"cry", "sad"},           {"crying", "sad"},
-                                            {"disappointed", "sad"},  {"anger", "angry"},
+                                            {"cry", "crying"},        {"disappointed", "sad"},
+                                            {"anger", "angry"},
                                             {"sleep", "sleepy"},      {"thinking", "confused"},
+                                            {"shocked", "surprised"}, {"relaxed", "neutral"},
+                                            {"funny", "laugh"},       {"laughing", "laugh"},
+                                            {"kiss", "love"},         {"silly", "devil"},
+                                            {"winking", "playful"},
                                             {"loving", "love"},       {"heart", "love"},
-                                            {"mischievous", "devil"}, {"cool", "confident"},
+                                            {"mischievous", "devil"},
                                             {"wink", "playful"},      {"action_yawn", "yawn"},
-                                            {"talk", "speaking"},     {"talking", "speaking"}};
+                                            {"talk", "speaking"},     {"talking", "speaking"},
+                                            {"yummy", "delicious"},   {"shy", "embarrassed"},
+                                            {"blushing", "embarrassed"}};
 }  // namespace
 
 const char* FaceGifExpressionName(size_t index) {

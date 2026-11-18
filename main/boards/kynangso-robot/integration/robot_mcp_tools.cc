@@ -523,11 +523,12 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
     emotion.SetMaxLength(32);
     mcp.AddTool(
         "self.robot.set_emotion",
-        "Đổi biểu cảm khuôn mặt robot trên TFT theo yêu cầu như vui, cười, ngạc nhiên, buồn, "
-        "giận, buồn ngủ, bối rối, yêu thích, chóng mặt, mất tập trung, tự tin, ngáp hoặc tinh "
-        "nghịch. "
-        "emotion phải là một mã hỗ trợ: neutral, happy, laugh, surprised, sad, angry, sleepy, "
-        "confused, love, dizzy, distracted, devil, confident, yawn, playful, listening, speaking. "
+        "Đổi biểu cảm khuôn mặt robot trên TFT theo yêu cầu như vui, ăn ngon, buồn, khóc, ngại "
+        "ngùng, ngầu, cười, ngạc nhiên, giận, buồn ngủ, bối rối, yêu thích, chóng mặt, mất tập "
+        "trung, tự tin, ngáp hoặc tinh nghịch. "
+        "emotion phải là một mã hỗ trợ: neutral, happy, delicious, sad, crying, embarrassed, angry, "
+        "surprised, sleepy, confused, love, laugh, dizzy, distracted, devil, confident, cool, yawn, "
+        "playful, listening, speaking. Sad là buồn; crying là khóc. "
         "Không dùng công cụ này để đổi trạng thái hội thoại; listening/speaking chỉ đổi khuôn mặt.",
         PropertyList({emotion}), [&controller](const PropertyList& properties) {
             return SetRobotEmotion(controller, properties);

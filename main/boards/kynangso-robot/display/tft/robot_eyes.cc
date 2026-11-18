@@ -435,6 +435,10 @@ void RobotEyesView::SetMode(RobotEyesMode mode) {
         mode_ = mode;
         frame_ = 0;
     }
+#if CONFIG_LV_USE_GIF
+    if (gif_ != nullptr && !gif_single_active_)
+        UpdateGif();
+#endif
     Render();
 }
 
@@ -470,9 +474,11 @@ void RobotEyesView::SetSpeechLevel(uint8_t level) {
 
 #if CONFIG_LV_USE_GIF
 void RobotEyesView::UpdateGif() {
-    if (gif_ == nullptr || !gif_loaded_)
+    if (gif_ == nullptr)
         return;
     if (gif_single_active_) {
+        if (!gif_loaded_)
+            return;
         if (!theme_.active_gif || theme_.active_gif->width == 0 || theme_.active_gif->height == 0)
             return;
         const auto& data = *theme_.active_gif;
@@ -486,17 +492,35 @@ void RobotEyesView::UpdateGif() {
     }
     if (!theme_.gifs)
         return;
-    const bool talking = status_mode_ == RobotEyesMode::Speaking;
-    if (talking != gif_talking_active_) {
-        lv_gif_set_src(gif_, talking ? &gif_talking_ : &gif_idle_);
-        gif_talking_active_ = talking;
-        if (!lv_gif_is_loaded(gif_)) {
+
+    // The legacy two-GIF theme only has neutral/talking artwork. Show the
+    // procedural renderer for every other emotion instead of masking it.
+    const bool use_legacy_gif = mode_ == RobotEyesMode::Neutral || mode_ == RobotEyesMode::Speaking;
+    if (!use_legacy_gif) {
+        if (gif_loaded_) {
             lv_obj_add_flag(gif_, LV_OBJ_FLAG_HIDDEN);
             gif_loaded_ = false;
-            SetAnimation(animation_enabled_);
-            return;
+            if (timer_ != nullptr && animation_enabled_ && visible_)
+                lv_timer_resume(timer_);
         }
+        return;
     }
+
+    const bool talking = status_mode_ == RobotEyesMode::Speaking;
+    if (!gif_loaded_ || talking != gif_talking_active_) {
+        lv_gif_set_src(gif_, talking ? &gif_talking_ : &gif_idle_);
+        gif_talking_active_ = talking;
+        gif_loaded_ = lv_gif_is_loaded(gif_);
+    }
+    if (!gif_loaded_) {
+        lv_obj_add_flag(gif_, LV_OBJ_FLAG_HIDDEN);
+        if (timer_ != nullptr && animation_enabled_ && visible_)
+            lv_timer_resume(timer_);
+        return;
+    }
+    lv_obj_clear_flag(gif_, LV_OBJ_FLAG_HIDDEN);
+    if (timer_ != nullptr)
+        lv_timer_pause(timer_);
     const auto& data = talking ? theme_.gifs->talking : theme_.gifs->idle;
     const int scale = std::min(256, std::min(static_cast<int>(width_) * 256 / data.width,
                                              static_cast<int>(height_) * 256 / data.height));
@@ -551,16 +575,24 @@ bool RobotEyesView::MapEmotion(const char* emotion, RobotEyesMode& mode) {
         {"robot_2", RobotEyesMode::Boot},
         {"happy", RobotEyesMode::Happy},
         {"smile", RobotEyesMode::Happy},
+        {"relaxed", RobotEyesMode::Neutral},
+        {"delicious", RobotEyesMode::Delicious},
+        {"yummy", RobotEyesMode::Delicious},
         {"laugh", RobotEyesMode::Laugh},
+        {"funny", RobotEyesMode::Laugh},
+        {"laughing", RobotEyesMode::Laugh},
         {"joy", RobotEyesMode::Laugh},
         {"surprised", RobotEyesMode::Surprised},
+        {"shocked", RobotEyesMode::Surprised},
         {"astonished", RobotEyesMode::Surprised},
         {"wow", RobotEyesMode::Surprised},
         {"panic", RobotEyesMode::Surprised},
         {"sad", RobotEyesMode::Sad},
-        {"cry", RobotEyesMode::Sad},
-        {"crying", RobotEyesMode::Sad},
+        {"cry", RobotEyesMode::Crying},
+        {"crying", RobotEyesMode::Crying},
         {"disappointed", RobotEyesMode::Sad},
+        {"embarrassed", RobotEyesMode::Embarrassed},
+        {"shy", RobotEyesMode::Embarrassed},
         {"angry", RobotEyesMode::Angry},
         {"anger", RobotEyesMode::Angry},
         {"sleepy", RobotEyesMode::Sleepy},
@@ -573,13 +605,16 @@ bool RobotEyesView::MapEmotion(const char* emotion, RobotEyesMode& mode) {
         {"dizzy", RobotEyesMode::Dizzy},
         {"love", RobotEyesMode::Love},
         {"loving", RobotEyesMode::Love},
+        {"kiss", RobotEyesMode::Love},
         {"heart", RobotEyesMode::Love},
         {"devil", RobotEyesMode::Devil},
         {"mischievous", RobotEyesMode::Devil},
+        {"silly", RobotEyesMode::Devil},
         {"confident", RobotEyesMode::Confident},
-        {"cool", RobotEyesMode::Confident},
+        {"cool", RobotEyesMode::Cool},
         {"playful", RobotEyesMode::Playful},
         {"wink", RobotEyesMode::Playful},
+        {"winking", RobotEyesMode::Playful},
         {"listening", RobotEyesMode::Listening},
         {"speaking", RobotEyesMode::Speaking},
     };

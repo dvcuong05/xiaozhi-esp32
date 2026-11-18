@@ -16,7 +16,8 @@ namespace kynangso {
 // Append only: the index is persisted in the existing version-1 NVS record.
 inline constexpr const char* kFaceEmotions[] = {
     "neutral", "happy", "sad",   "angry",      "surprised", "sleepy",    "confused", "listening",
-    "laugh",   "love",  "dizzy", "distracted", "devil",     "confident", "yawn",     "playful"};
+    "laugh",   "love",  "dizzy", "distracted", "devil",     "confident", "yawn",     "playful",
+    "delicious", "crying", "embarrassed", "cool"};
 inline constexpr int kFaceEmotionCount = sizeof(kFaceEmotions) / sizeof(kFaceEmotions[0]);
 
 struct ExtensionConfig {

@@ -7,7 +7,7 @@
 #include <string>
 
 namespace kynangso {
-inline constexpr size_t kFaceGifExpressionCount = 17;
+inline constexpr size_t kFaceGifExpressionCount = 21;
 const char* FaceGifExpressionName(size_t index);
 int FaceGifExpressionIndex(const char* name);
 int CanonicalFaceGifExpression(const char* name);

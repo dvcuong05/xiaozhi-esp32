@@ -1,19 +1,22 @@
 #pragma once
 
+#include "web/ui/face_theme_simple_ui.h"
 #include "web/ui/face_theme_gif_ui.h"
 
 #define ROBOT_FACE_THEME_CSS \
     R"THEME(.face-theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}.face-theme-card{border:1px solid var(--line);border-radius:16px;padding:14px;background:#0b1728}.face-theme-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.face-theme-preview{height:86px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:10px;overflow:hidden}.face-theme-eye{width:35px;height:36px;border-radius:9px;position:relative}.face-theme-preview.soft .face-theme-eye{border-radius:50%}.face-theme-preview.pixel .face-theme-eye{border-radius:0}.face-theme-card strong{display:block}.face-theme-card small{display:block;color:var(--muted);margin:5px 0 10px}.face-theme-card button{width:100%})THEME" \
     R"THEME(.face-theme-preview.holo .face-theme-eye{overflow:hidden;box-shadow:0 0 16px var(--theme-accent),inset 0 4px 5px #ffffff99,inset 0 -7px 10px #0008;animation:face-float 2s ease-in-out infinite alternate}.face-theme-preview.holo .face-theme-eye:after{content:"";position:absolute;top:5px;bottom:5px;left:-65%;width:30%;background:linear-gradient(90deg,transparent,#fff9,transparent);transform:skewX(-24deg);animation:face-sweep 2.4s linear infinite}.face-theme-preview.orbital .face-theme-eye{box-shadow:0 0 14px var(--theme-accent),inset 0 0 8px #fff8;transform:perspective(40px) rotateX(8deg)}.face-theme-preview.orbital .face-theme-eye:after{content:"";position:absolute;inset:-10px -8px;border:1px solid var(--theme-accent);border-left-color:transparent;border-radius:50%;animation:face-orbit 2.8s linear infinite}.face-theme-preview.plasma .face-theme-eye,.face-theme-preview.demon .face-theme-eye{box-shadow:0 0 18px var(--theme-accent),inset 0 -8px 10px #0008,inset 0 5px 8px #fff9;animation:face-pulse 1.8s ease-in-out infinite}.face-theme-preview.plasma .face-theme-eye:after,.face-theme-preview.demon .face-theme-eye:after{content:"";position:absolute;left:15%;right:15%;bottom:5px;height:4px;border-radius:50%;background:var(--theme-accent);filter:blur(2px)}.face-theme-preview.capybara .face-theme-eye,.face-theme-preview.mochi .face-theme-eye{border-radius:50%;box-shadow:0 0 12px var(--theme-accent),inset 0 3px 6px #fff8}.face-theme-preview.shiba .face-theme-eye{border-radius:45% 45% 30% 30%;box-shadow:0 0 12px var(--theme-accent)})THEME" \
     R"THEME(@keyframes face-sweep{to{left:140%}}@keyframes face-orbit{to{transform:rotate(360deg)}}@keyframes face-pulse{50%{transform:scale(1.08);filter:brightness(1.28)}}@keyframes face-float{to{transform:translateY(-3px)}}@media(prefers-reduced-motion:reduce){.face-theme-eye,.face-theme-eye:after{animation:none!important}})THEME" \
+    ROBOT_FACE_THEME_SIMPLE_CSS \
     ROBOT_FACE_THEME_GIF_CSS
 
 #define ROBOT_FACE_THEME_HTML \
-    R"THEME(<article class="card wide"><div class="card-head"><div><h2>Kho theme khuôn mặt</h2><p>Chọn phong cách cho tất cả biểu cảm. Hình bên dưới minh họa màu và dáng mắt.</p></div><span class="tag">FACE THEMES</span></div>)THEME" \
-    R"THEME(<div id="faceThemeActive" class="hint">Đang đọc theme hiện tại…</div><div id="faceThemeGrid" class="face-theme-grid"></div>)THEME" \
-    R"THEME(<div class="row"><button class="ghost" onclick="faceThemeAction('refresh')">Tải lại danh sách</button><button class="ghost" onclick="downloadFaceTheme()">Tải gói mẫu</button><label class="ghost" for="faceThemeFile">Nhập theme vào SD</label><input id="faceThemeFile" type="file" accept=".json,application/json" onchange="importFaceTheme(this)" style="max-width:220px"></div>)THEME" \
-    R"THEME(<p class="mini-note">Theme vẽ sẵn dùng được khi không có thẻ. Gói JSON từ <a href="https://myrobot.kynangso.com/my/themes" target="_blank" rel="noopener">Kho theme KyNangSo</a> chỉ lưu kiểu và màu; GIF tùy chỉnh được chuẩn hóa trên trình duyệt rồi lưu trực tiếp vào microSD.</p><div id="faceThemeStatus" class="statusline" role="status" aria-live="polite"></div></article>)THEME" \
-    ROBOT_FACE_THEME_GIF_HTML
+    R"THEME(<article class="card wide"><div class="card-head"><div><h2>Thiết kế theme khuôn mặt</h2><p>Tạo theme JSON nhẹ hoặc cài theme GIF; cả hai luồng đều giữ preview trên trình duyệt.</p></div><span class="tag">FACE THEMES</span></div>)THEME" \
+    R"THEME(<div class="face-theme-tabs" role="tablist" aria-label="Loại theme khuôn mặt"><button id="faceThemeTabSimple" class="face-theme-tab" type="button" role="tab" aria-selected="true" aria-controls="faceThemeSimplePanel" data-face-theme-tab="simple">Theme JSON · Tạo nhanh</button><button id="faceThemeTabGif" class="face-theme-tab" type="button" role="tab" aria-selected="false" aria-controls="faceThemeGifPanel" data-face-theme-tab="gif">Theme GIF · Biểu cảm động</button></div>)THEME" \
+    ROBOT_FACE_THEME_SIMPLE_HTML \
+    R"THEME(<section class="face-theme-tabpanel" id="faceThemeGifPanel" role="tabpanel" aria-labelledby="faceThemeTabGif" hidden>)THEME" \
+    ROBOT_FACE_THEME_GIF_HTML \
+    R"THEME(</section><section class="face-theme-list" aria-label="Theme đã cài"><div class="card-head"><div><h2>Theme đã cài</h2><p>Chọn theme đang hoạt động hoặc quản lý các gói trên thẻ.</p></div></div><div id="faceThemeActive" class="hint">Đang đọc theme hiện tại…</div><div id="faceThemeGrid" class="face-theme-grid"></div><div class="row"><button class="ghost" onclick="faceThemeAction('refresh')">Tải lại danh sách</button><button class="ghost" onclick="downloadFaceTheme()">Tải gói mẫu</button><label class="ghost" for="faceThemeFile">Nhập file JSON</label><input id="faceThemeFile" type="file" accept=".json,application/json" onchange="importFaceTheme(this)" style="max-width:220px"></div><p class="mini-note">Theme vẽ sẵn không cần thẻ. Gói JSON chỉ chứa kiểu vẽ và màu; robot dùng firmware để vẽ.</p></section><div id="faceThemeStatus" class="statusline" role="status" aria-live="polite"></div></article>)THEME"
 
 #define ROBOT_FACE_THEME_SCRIPT \
     R"THEME(let faceThemeCatalog=[], faceThemePending=false, faceThemePoll=0;)THEME" \
@@ -42,5 +45,7 @@
     R"THEME(})THEME" \
     R"THEME(async function importFaceTheme(input){const file=input.files[0];if(!file)return;try{if(file.size>2048)throw Error('Gói theme tối đa 2 KiB.');const text=await file.text();JSON.parse(text);await faceThemeAction('install','',text)}catch(e){say('faceThemeStatus',e.message)}finally{input.value=''}})THEME" \
     R"THEME(function downloadFaceTheme(){const t={version:1,id:'my-theme',name:'My Theme',style:'soft',primary:'#FF8AC6',accent:'#FFD166',tear:'#92E7FF',background:'#140D22'};const url=URL.createObjectURL(new Blob([JSON.stringify(t,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=t.id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)})THEME" \
-    R"THEME(loadFaceThemes().catch(()=>{});)THEME" \
-    ROBOT_FACE_THEME_GIF_SCRIPT
+    R"THEME(function faceThemeSetTab(name){document.querySelectorAll('[data-face-theme-tab]').forEach(tab=>{const active=tab.dataset.faceThemeTab===name;tab.setAttribute('aria-selected',String(active));document.getElementById(tab.getAttribute('aria-controls')).hidden=!active})}document.querySelectorAll('[data-face-theme-tab]').forEach(tab=>tab.addEventListener('click',()=>faceThemeSetTab(tab.dataset.faceThemeTab)));)THEME" \
+    ROBOT_FACE_THEME_SIMPLE_SCRIPT \
+    ROBOT_FACE_THEME_GIF_SCRIPT \
+    R"THEME(loadFaceThemes().catch(()=>{});)THEME"

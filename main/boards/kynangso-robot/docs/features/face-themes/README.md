@@ -18,7 +18,7 @@ Các trang theme và video đã cung cấp được dùng làm nguồn cảm h�
 
 Kho theme công khai: https://myrobot.kynangso.com/my/themes. Bốn gói đầu tiên gồm Red Devil, Capybara thư thái, Shiba vàng và Mochi Heart. Đây là gói JSON nhỏ, lưu màu và một kiểu vẽ đã có trong firmware; không mang ảnh, GIF, mã thực thi hay thư viện mới.
 
-Để cài, tải gói JSON, mở **Dashboard → Biểu cảm robot → Kho theme khuôn mặt → Nhập theme vào SD**. Firmware tự lưu file tại `/robot/themes/<id>.json`; sau đó chọn **Tải lại danh sách** và bấm **Chọn theme**. Có thể chép file vào thư mục đó bằng trang microSD thay cho nút nhập. Tối đa 16 theme tùy chỉnh được lưu trên robot; các gói khác vẫn có thể tải từ kho MyRobot khi cần.
+Để cài, tải gói JSON, mở **Dashboard → Biểu cảm robot → Kho theme khuôn mặt → Theme đã cài → Nhập file JSON**. Firmware tự lưu file tại `/robot/themes/<id>.json`; sau đó chọn **Tải lại danh sách** và bấm **Chọn theme**. Có thể chép file vào thư mục đó bằng trang microSD thay cho nút nhập. Tối đa 16 theme tùy chỉnh được lưu trên robot; các gói khác vẫn có thể tải từ kho MyRobot khi cần.
 
 Các gói Red Devil, Capybara, Shiba và Mochi cần firmware có renderer tương ứng. Sau khi cài firmware hỗ trợ các style này, có thể tải thêm gói JSON cùng style mà không cần nạp lại firmware.
 
@@ -67,9 +67,15 @@ Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/
 Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm tra theme tích hợp và bốn gói tải thêm với idle, happy, sad, crying, delicious, embarrassed, cool, listening và speaking; quan sát phụ kiện, màu chữ bên dưới, tắt/bật animation, rồi đổi theme trong lúc TV hoặc QR đang hoạt động.
 
 
+## Quản lý theme trên webserver robot
+
+Trang **Dashboard → Biểu cảm robot → Kho theme khuôn mặt** có hai tab. **Theme JSON · Tạo nhanh** cho phép đặt tên/mã, chọn style có sẵn, chỉnh bốn màu và xem preview trực tiếp của cả 21 biểu cảm. Nút **Lưu theme vào thẻ nhớ** gửi manifest version 1 qua API theme hiện có; firmware xác thực rồi ghi `/robot/themes/<id>.json`. Mã bị trùng sẽ bị từ chối, không ghi đè theme đang có. Danh sách theme đang cài nằm bên dưới hai tab và vẫn dùng chung cho thao tác chọn/xóa.
+
+Tab **Theme GIF · Biểu cảm động** giữ quy trình upload nhiều file và mapping thủ công. Mỗi dòng hiển thị ảnh GIF động từ `URL.createObjectURL(File)` trong trình duyệt. Đây là preview cục bộ; file nguồn không được gửi tới robot cho tới khi người dùng bấm cài. Khi chuẩn hóa, web worker xử lý tuần tự từng file rồi gửi từng chunk đã thu nhỏ lên SD; không gom cả bộ GIF vào RAM ESP32. Firmware tiếp tục chỉ nạp GIF cần hiển thị, với cache tối đa hai ảnh theo giới hạn hiện hành.
+
 ## Theme GIF biểu cảm từ thẻ nhớ
 
-Dashboard → **Biểu cảm robot** → **Tạo theme biểu cảm động** cho phép tạo theme GIF nhiều biểu cảm. Có thể chọn nhiều file cùng lúc; tên tiếng Việt không dấu/dấu, khoảng trắng và gạch nối đều được chuẩn hóa. File lạ có thể gán thủ công trong danh sách rồi bấm **Ghi**. Biểu cảm chưa có GIF dùng renderer vẽ sẵn, nên không cần cung cấp đủ file mới cài được theme.
+Dashboard → **Biểu cảm robot → Kho theme khuôn mặt → Theme GIF · Biểu cảm động** cho phép tạo theme GIF nhiều biểu cảm. Có thể chọn nhiều file cùng lúc; tên tiếng Việt không dấu/dấu, khoảng trắng và gạch nối đều được chuẩn hóa. File lạ có thể gán thủ công trong danh sách rồi bấm **Ghi**. Biểu cảm chưa có GIF dùng renderer vẽ sẵn, nên không cần cung cấp đủ file mới cài được theme.
 
 Firmware hỗ trợ 21 khóa GIF: `neutral`, `happy`, `sad`, `angry`, `surprised`, `sleepy`, `confused`, `listening`, `laugh`, `love`, `dizzy`, `distracted`, `devil`, `confident`, `yawn`, `playful`, `speaking`, `delicious`, `crying`, `embarrassed`, `cool`. `speaking` là trạng thái hội thoại; 20 khóa còn lại cũng có thể chọn làm biểu cảm nghỉ. Bốn khóa mới `delicious`, `crying`, `embarrassed`, `cool` được thêm vào cuối danh sách NVS để giữ nguyên các lựa chọn đã lưu trước đó.
 

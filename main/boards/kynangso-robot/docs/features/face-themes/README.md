@@ -51,6 +51,27 @@ Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhậ
 
 ## Luồng và giới hạn kỹ thuật
 
+### Theme hình học V2 (manifest version 3)
+
+MyRobot V2 xuất thêm một object `geometry` có đúng 8 số nguyên. Firmware từ chối khóa thừa/thiếu, số thập phân và giá trị ngoài khoảng; mọi phép biến đổi chỉ chạy trong vùng mặt 240×144. Các trạng thái cảm xúc tiếp tục dùng nét vẽ LVGL hiện có, không nạp ảnh hoặc cấp phát frame buffer mới.
+
+| Khóa | Khoảng hợp lệ | Tác động |
+| --- | ---: | --- |
+| `eye_scale` | 70–130 | Bề rộng cụm mắt |
+| `eye_height` | 70–130 | Chiều cao mắt |
+| `eye_y` | -12–12 | Dịch mắt theo trục dọc, pixel thiết kế |
+| `eye_roundness` | 0–160 | Tăng/giảm độ bo vùng mắt |
+| `mouth_width` | 70–130 | Chiều rộng miệng |
+| `mouth_height` | 70–140 | Độ mở/độ cong miệng |
+| `mouth_y` | -8–8 | Dịch miệng theo trục dọc, pixel thiết kế |
+| `line_weight` | 60–140 | Độ dày nét vector |
+
+Ví dụ manifest V2:
+
+    {"version":3,"id":"aether-custom","name":"Aether tùy chỉnh","style":"holo","primary":"#54E2C0","accent":"#A78BFA","tear":"#64D9FF","background":"#071321","geometry":{"eye_scale":112,"eye_height":105,"eye_y":-2,"eye_roundness":120,"mouth_width":94,"mouth_height":118,"mouth_y":1,"line_weight":110}}
+
+Version 1 (màu) và version 2 (GIF) giữ nguyên ý nghĩa và vẫn được đọc như trước. Khi hình học trở về mặc định, encoder lưu lại version 1; khi có GIF, encoder vẫn dùng version 2. Tùy chọn lưu nội bộ không cần microSD; bộ nhớ NVS giới hạn bốn theme JSON và không chứa pixel/ảnh.
+
 1. Web gọi GET /api/face_themes để đọc catalog; chọn theme qua POST /api/face_themes. MCP dùng self.robot.face_theme với các action list/status/refresh/select.
 2. FaceThemeService đọc catalog trên worker riêng: tối đa 7 theme dựng sẵn, 16 theme trên microSD và 4 theme JSON trong NVS. Khi có thẻ, theme mới được lưu trên thẻ; khi không có thẻ, chỉ manifest JSON nhỏ được lưu vào NVS. Chọn theme lưu snapshot đang dùng vào NVS rồi cập nhật display trên application task.
 3. RobotEyesView vẽ theo design space 240×144 và tự co theo FaceRegion LVGL. Nền theme phủ toàn layout TFT theo kích thước firmware khai báo; vùng thông tin bên dưới chọn màu chữ có tương phản.

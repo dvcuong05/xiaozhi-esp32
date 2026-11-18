@@ -24,6 +24,21 @@ struct FaceGifPair {
     FaceGifData idle;
     FaceGifData talking;
 };
+struct FaceThemeGeometry {
+    uint8_t eye_scale = 100;
+    uint8_t eye_height = 100;
+    int8_t eye_y = 0;
+    uint8_t eye_roundness = 100;
+    uint8_t mouth_width = 100;
+    uint8_t mouth_height = 100;
+    int8_t mouth_y = 0;
+    uint8_t line_weight = 100;
+
+    bool IsDefault() const {
+        return eye_scale == 100 && eye_height == 100 && eye_y == 0 && eye_roundness == 100 &&
+               mouth_width == 100 && mouth_height == 100 && mouth_y == 0 && line_weight == 100;
+    }
+};
 // Small procedural theme: every existing emotion and audio-driven mouth is retained.
 struct FaceTheme {
     std::string id = "classic";
@@ -33,6 +48,7 @@ struct FaceTheme {
     uint32_t accent = 0xFF70AE;
     uint32_t tear = 0x69D9FF;
     uint32_t background = 0x000000;
+    FaceThemeGeometry geometry;
     std::array<bool, kFaceGifExpressionCount> gif_expressions{};
     std::shared_ptr<const FaceGifPair> gifs;
     std::shared_ptr<const FaceGifData> active_gif;

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,10 +13,9 @@
 namespace kynangso {
 namespace {
 constexpr const char* kGifExpressions[] = {
-    "neutral",  "happy",     "sad",   "angry",   "surprised", "sleepy",
-    "confused", "listening", "laugh", "love",    "dizzy",     "distracted",
-    "devil",    "confident", "yawn",  "playful", "speaking",  "delicious",
-    "crying",   "embarrassed", "cool"};
+    "neutral",   "happy",   "sad",      "angry",     "surprised",  "sleepy",      "confused",
+    "listening", "laugh",   "love",     "dizzy",     "distracted", "devil",       "confident",
+    "yawn",      "playful", "speaking", "delicious", "crying",     "embarrassed", "cool"};
 constexpr size_t kExpressionCount = sizeof(kGifExpressions) / sizeof(kGifExpressions[0]);
 
 struct EmotionAlias {
@@ -26,18 +26,16 @@ constexpr EmotionAlias kEmotionAliases[] = {{"idle", "neutral"},      {"smile", 
                                             {"joy", "laugh"},         {"astonished", "surprised"},
                                             {"wow", "surprised"},     {"panic", "surprised"},
                                             {"cry", "crying"},        {"disappointed", "sad"},
-                                            {"anger", "angry"},
-                                            {"sleep", "sleepy"},      {"thinking", "confused"},
-                                            {"shocked", "surprised"}, {"relaxed", "neutral"},
-                                            {"funny", "laugh"},       {"laughing", "laugh"},
-                                            {"kiss", "love"},         {"silly", "devil"},
-                                            {"winking", "playful"},
+                                            {"anger", "angry"},       {"sleep", "sleepy"},
+                                            {"thinking", "confused"}, {"shocked", "surprised"},
+                                            {"relaxed", "neutral"},   {"funny", "laugh"},
+                                            {"laughing", "laugh"},    {"kiss", "love"},
+                                            {"silly", "devil"},       {"winking", "playful"},
                                             {"loving", "love"},       {"heart", "love"},
-                                            {"mischievous", "devil"},
-                                            {"wink", "playful"},      {"action_yawn", "yawn"},
-                                            {"talk", "speaking"},     {"talking", "speaking"},
-                                            {"yummy", "delicious"},   {"shy", "embarrassed"},
-                                            {"blushing", "embarrassed"}};
+                                            {"mischievous", "devil"}, {"wink", "playful"},
+                                            {"action_yawn", "yawn"},  {"talk", "speaking"},
+                                            {"talking", "speaking"},  {"yummy", "delicious"},
+                                            {"shy", "embarrassed"},   {"blushing", "embarrassed"}};
 }  // namespace
 
 const char* FaceGifExpressionName(size_t index) {
@@ -71,7 +69,9 @@ int CanonicalFaceGifExpression(const char* name) {
 }
 
 bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& error) {
-    error = "Gói theme không hợp lệ: cần manifest version 1 hoặc 2 với tên, style và bốn màu #RRGGBB.";
+    error =
+        "Gói theme không hợp lệ: cần manifest version 1, 2 hoặc 3 với tên, style và bốn màu "
+        "#RRGGBB.";
     if (json.empty() || json.size() > 2048 || json.find('\0') != std::string::npos)
         return false;
     // Bound parser recursion before calling cJSON, including on the worker's small stack.
@@ -88,7 +88,7 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
         } else if (c == '"')
             quoted = true;
         else if (c == '{' || c == '[') {
-            // Version 2 contains one bounded array of expression keys inside the root object.
+            // Version 2 or 3 contains one bounded array/object inside the root object.
             if (++depth > 2)
                 return false;
         } else if (c == '}' || c == ']') {
@@ -103,15 +103,20 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
     if (!root || !cJSON_IsObject(root.get()))
         return false;
     const auto* version = cJSON_GetObjectItemCaseSensitive(root.get(), "version");
-    if (!cJSON_IsNumber(version) || (version->valuedouble != 1 && version->valuedouble != 2))
+    if (!cJSON_IsNumber(version) ||
+        (version->valuedouble != 1 && version->valuedouble != 2 && version->valuedouble != 3))
         return false;
-    const bool has_gif_expressions = version->valuedouble == 2;
+    const int manifest_version = static_cast<int>(version->valuedouble);
+    const bool has_gif_expressions = manifest_version == 2;
+    const bool has_geometry = manifest_version == 3;
     const char* keys_v1[] = {"version", "id",     "name", "style",
                              "primary", "accent", "tear", "background"};
     const char* keys_v2[] = {"version", "id",   "name",       "style",      "primary",
                              "accent",  "tear", "background", "expressions"};
-    const auto* keys = has_gif_expressions ? keys_v2 : keys_v1;
-    const size_t expected_keys = has_gif_expressions ? 9 : 8;
+    const char* keys_v3[] = {"version", "id",   "name",       "style",   "primary",
+                             "accent",  "tear", "background", "geometry"};
+    const auto* keys = has_gif_expressions ? keys_v2 : (has_geometry ? keys_v3 : keys_v1);
+    const size_t expected_keys = (has_gif_expressions || has_geometry) ? 9 : 8;
     for (size_t key_index = 0; key_index < expected_keys; ++key_index) {
         const auto* key = keys[key_index];
         unsigned count = 0;
@@ -175,6 +180,54 @@ bool ParseFaceTheme(const std::string& json, FaceTheme& theme, std::string& erro
             candidate.gif_expressions[index] = true;
         }
     }
+    if (has_geometry) {
+        const auto* geometry = cJSON_GetObjectItemCaseSensitive(root.get(), "geometry");
+        static constexpr const char* geometry_keys[] = {
+            "eye_scale",   "eye_height",   "eye_y",   "eye_roundness",
+            "mouth_width", "mouth_height", "mouth_y", "line_weight"};
+        if (!cJSON_IsObject(geometry) || cJSON_GetArraySize(geometry) != 8) {
+            error = "Cấu hình hình học phải có đúng 8 thông số.";
+            return false;
+        }
+        for (const auto* key : geometry_keys) {
+            unsigned count = 0;
+            for (auto* item = geometry->child; item; item = item->next)
+                if (item->string && std::strcmp(item->string, key) == 0)
+                    ++count;
+            if (count != 1) {
+                error = "Cấu hình hình học thiếu khóa bắt buộc hoặc có khóa lặp.";
+                return false;
+            }
+        }
+        auto integer = [&](const char* key, int minimum, int maximum, int& output) {
+            const auto* item = cJSON_GetObjectItemCaseSensitive(geometry, key);
+            if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble) ||
+                std::floor(item->valuedouble) != item->valuedouble || item->valuedouble < minimum ||
+                item->valuedouble > maximum) {
+                error = std::string("Thông số hình học ngoài giới hạn: ") + key;
+                return false;
+            }
+            output = static_cast<int>(item->valuedouble);
+            return true;
+        };
+        int eye_scale, eye_height, eye_y, eye_roundness, mouth_width, mouth_height, mouth_y,
+            line_weight;
+        if (!integer("eye_scale", 70, 130, eye_scale) ||
+            !integer("eye_height", 70, 130, eye_height) || !integer("eye_y", -12, 12, eye_y) ||
+            !integer("eye_roundness", 0, 160, eye_roundness) ||
+            !integer("mouth_width", 70, 130, mouth_width) ||
+            !integer("mouth_height", 70, 140, mouth_height) ||
+            !integer("mouth_y", -8, 8, mouth_y) || !integer("line_weight", 60, 140, line_weight))
+            return false;
+        candidate.geometry.eye_scale = static_cast<uint8_t>(eye_scale);
+        candidate.geometry.eye_height = static_cast<uint8_t>(eye_height);
+        candidate.geometry.eye_y = static_cast<int8_t>(eye_y);
+        candidate.geometry.eye_roundness = static_cast<uint8_t>(eye_roundness);
+        candidate.geometry.mouth_width = static_cast<uint8_t>(mouth_width);
+        candidate.geometry.mouth_height = static_cast<uint8_t>(mouth_height);
+        candidate.geometry.mouth_y = static_cast<int8_t>(mouth_y);
+        candidate.geometry.line_weight = static_cast<uint8_t>(line_weight);
+    }
     auto brightness = [](uint32_t c) {
         return (299 * ((c >> 16) & 255) + 587 * ((c >> 8) & 255) + 114 * (c & 255)) / 1000;
     };
@@ -193,7 +246,8 @@ std::string EncodeFaceTheme(const FaceTheme& theme) {
     if (!root)
         return {};
     const bool has_gif_expressions = theme.HasGifExpressions();
-    cJSON_AddNumberToObject(root, "version", has_gif_expressions ? 2 : 1);
+    const bool has_geometry = !theme.geometry.IsDefault();
+    cJSON_AddNumberToObject(root, "version", has_gif_expressions ? 2 : (has_geometry ? 3 : 1));
     cJSON_AddStringToObject(root, "id", theme.id.c_str());
     cJSON_AddStringToObject(root, "name", theme.name.c_str());
     cJSON_AddStringToObject(root, "style", theme.style.c_str());
@@ -206,6 +260,21 @@ std::string EncodeFaceTheme(const FaceTheme& theme) {
     color("accent", theme.accent);
     color("tear", theme.tear);
     color("background", theme.background);
+    if (has_geometry) {
+        cJSON* geometry = cJSON_AddObjectToObject(root, "geometry");
+        if (!geometry) {
+            cJSON_Delete(root);
+            return {};
+        }
+        cJSON_AddNumberToObject(geometry, "eye_scale", theme.geometry.eye_scale);
+        cJSON_AddNumberToObject(geometry, "eye_height", theme.geometry.eye_height);
+        cJSON_AddNumberToObject(geometry, "eye_y", theme.geometry.eye_y);
+        cJSON_AddNumberToObject(geometry, "eye_roundness", theme.geometry.eye_roundness);
+        cJSON_AddNumberToObject(geometry, "mouth_width", theme.geometry.mouth_width);
+        cJSON_AddNumberToObject(geometry, "mouth_height", theme.geometry.mouth_height);
+        cJSON_AddNumberToObject(geometry, "mouth_y", theme.geometry.mouth_y);
+        cJSON_AddNumberToObject(geometry, "line_weight", theme.geometry.line_weight);
+    }
     if (has_gif_expressions) {
         cJSON* expressions = cJSON_AddArrayToObject(root, "expressions");
         if (!expressions) {

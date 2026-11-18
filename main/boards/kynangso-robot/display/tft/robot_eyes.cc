@@ -32,15 +32,29 @@ public:
         DrawBox(x, y, width, height, radius, color, opacity);
     }
 
+    void SetGeometryEnabled(bool enabled) { geometry_enabled_ = enabled; }
+
     void DrawLine(float x1, float y1, float x2, float y2, float width, unsigned color,
                   lv_opa_t opacity) {
         lv_draw_line_dsc_t dsc;
         lv_draw_line_dsc_init(&dsc);
-        dsc.p1.x = bounds_.x1 + static_cast<int>(x1 * sx_);
-        dsc.p1.y = bounds_.y1 + static_cast<int>(y1 * sy_);
-        dsc.p2.x = bounds_.x1 + static_cast<int>(x2 * sx_);
-        dsc.p2.y = bounds_.y1 + static_cast<int>(y2 * sy_);
-        dsc.width = std::max(1, static_cast<int>(width * std::min(sx_, sy_)));
+        const auto p1 = Point(x1, y1);
+        const auto p2 = Point(x2, y2);
+        dsc.p1.x = p1.x;
+        dsc.p1.y = p1.y;
+        dsc.p2.x = p2.x;
+        dsc.p2.y = p2.y;
+        float stroke_scale = 1.0f;
+        if (geometry_enabled_) {
+            const float line_y = (y1 + y2) / 2.0f;
+            const float shape_scale =
+                line_y < 90.0f
+                    ? std::sqrt(theme_.geometry.eye_scale * theme_.geometry.eye_height) / 100.0f
+                    : std::sqrt(theme_.geometry.mouth_width * theme_.geometry.mouth_height) /
+                          100.0f;
+            stroke_scale = shape_scale * theme_.geometry.line_weight / 100.0f;
+        }
+        dsc.width = std::max(1, static_cast<int>(width * std::min(sx_, sy_) * stroke_scale));
         dsc.color = lv_color_hex(color);
         dsc.opa = opacity;
         dsc.round_start = dsc.round_end = theme_.style != "pixel";
@@ -55,14 +69,14 @@ public:
                     LV_OPA_COVER);
             DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
             const float flicker = static_cast<float>((frame_ * 7) % 17);
-            GlowLine(x + 4, y + height - 4 - flicker * 0.18f,
-                     x + width - 4, y + height - 4, 1.5f, theme_.tear, 180);
+            GlowLine(x + 4, y + height - 4 - flicker * 0.18f, x + width - 4, y + height - 4, 1.5f,
+                     theme_.tear, 180);
             return;
         }
         if (color == kynangso::face_art::kCyan && theme_.style == "holo") {
             DrawBox(x - 4, y - 4, width + 8, height + 8, radius + 4, theme_.accent, 42);
-            DrawBox(x + 2, y + 4, width, height, radius,
-                    Blend(theme_.background, mapped_color, 78), LV_OPA_COVER);
+            DrawBox(x + 2, y + 4, width, height, radius, Blend(theme_.background, mapped_color, 78),
+                    LV_OPA_COVER);
             DrawBox(x, y, width, height, radius, mapped_color, LV_OPA_COVER);
             if (width > 20 && height > 16) {
                 const float sweep_width = std::max(5.0f, width * 0.16f);
@@ -94,8 +108,9 @@ public:
         const float x[] = {x1, x2, x3};
         const float y[] = {y1, y2, y3};
         for (int i = 0; i < 3; ++i) {
-            dsc.p[i].x = bounds_.x1 + static_cast<int>(x[i] * sx_);
-            dsc.p[i].y = bounds_.y1 + static_cast<int>(y[i] * sy_);
+            const auto point = Point(x[i], y[i]);
+            dsc.p[i].x = point.x;
+            dsc.p[i].y = point.y;
         }
         dsc.color = lv_color_hex(Color(color));
         dsc.opa = LV_OPA_COVER;
@@ -111,17 +126,47 @@ private:
         dsc.bg_opa = opacity;
         if (theme_.style == "pixel")
             radius = 0;
-        else if (theme_.style == "soft" || theme_.style == "capybara" ||
-                 theme_.style == "mochi")
+        else if (theme_.style == "soft" || theme_.style == "capybara" || theme_.style == "mochi")
             radius = std::min(width, height) / 2;
-        dsc.radius = static_cast<int>(radius * std::min(sx_, sy_));
+        const float center_y = y + height / 2.0f;
+        float radius_scale = 1.0f;
+        if (geometry_enabled_) {
+            if (center_y < 90) {
+                radius_scale = std::min(theme_.geometry.eye_scale, theme_.geometry.eye_height) /
+                               100.0f * theme_.geometry.eye_roundness / 100.0f;
+            } else {
+                radius_scale =
+                    std::min(theme_.geometry.mouth_width, theme_.geometry.mouth_height) / 100.0f;
+            }
+        }
+        dsc.radius = static_cast<int>(radius * std::min(sx_, sy_) * radius_scale);
+        const bool eye_region = center_y < 90;
+        const auto top_left = Point(x, y, eye_region);
+        const auto bottom_right = Point(x + width, y + height, eye_region);
         const lv_area_t area = {
-            bounds_.x1 + static_cast<int>(x * sx_),
-            bounds_.y1 + static_cast<int>(y * sy_),
-            bounds_.x1 + static_cast<int>((x + width) * sx_) - 1,
-            bounds_.y1 + static_cast<int>((y + height) * sy_) - 1,
+            top_left.x,
+            top_left.y,
+            bottom_right.x - 1,
+            bottom_right.y - 1,
         };
         lv_draw_rect(layer_, &dsc, &area);
+    }
+
+    lv_point_t Point(float x, float y) const { return Point(x, y, y < 90.0f); }
+
+    lv_point_t Point(float x, float y, bool eye_region) const {
+        if (geometry_enabled_) {
+            if (eye_region) {
+                x = 120.0f + (x - 120.0f) * theme_.geometry.eye_scale / 100.0f;
+                y = 66.0f + theme_.geometry.eye_y +
+                    (y - 66.0f) * theme_.geometry.eye_height / 100.0f;
+            } else {
+                x = 120.0f + (x - 120.0f) * theme_.geometry.mouth_width / 100.0f;
+                y = 108.0f + theme_.geometry.mouth_y +
+                    (y - 108.0f) * theme_.geometry.mouth_height / 100.0f;
+            }
+        }
+        return {bounds_.x1 + static_cast<int>(x * sx_), bounds_.y1 + static_cast<int>(y * sy_)};
     }
 
     static unsigned Blend(unsigned from, unsigned to, unsigned amount) {
@@ -154,6 +199,7 @@ private:
     unsigned frame_;
     float sx_;
     float sy_;
+    bool geometry_enabled_ = false;
 };
 
 void DrawThemeBackgroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& theme,
@@ -207,8 +253,8 @@ void DrawThemeBackgroundEffects(FaceCanvas& canvas, const kynangso::FaceTheme& t
                 const float a0 = (i * 2.0f * kynangso::face_art::kPi) / kSegments;
                 const float a1 = ((i + 1) * 2.0f * kynangso::face_art::kPi) / kSegments;
                 canvas.GlowLine(cx + std::cos(a0) * 42, 72 + std::sin(a0) * 34,
-                                cx + std::cos(a1) * 42, 72 + std::sin(a1) * 34, 1.5f,
-                                theme.accent, 100);
+                                cx + std::cos(a1) * 42, 72 + std::sin(a1) * 34, 1.5f, theme.accent,
+                                100);
             }
         }
     } else if (theme.style == "plasma") {
@@ -309,8 +355,10 @@ void RobotEyesView::DrawFace(lv_event_t* event) {
         view->animation_enabled_ ? view->frame_ : (view->mode_ == RobotEyesMode::Boot ? 36 : 40);
     FaceCanvas canvas(lv_event_get_layer(event), bounds, view->theme_, frame);
     DrawThemeBackgroundEffects(canvas, view->theme_, frame);
+    canvas.SetGeometryEnabled(true);
     kynangso::face_art::Draw(canvas, view->mode_, frame,
                              view->status_mode_ == RobotEyesMode::Speaking);
+    canvas.SetGeometryEnabled(false);
     DrawThemeForegroundEffects(canvas, view->theme_, frame);
 }
 
@@ -422,8 +470,10 @@ void RobotEyesView::SetAnimation(bool enabled) {
     }
 #if CONFIG_LV_USE_GIF
     if (gif_loaded_) {
-        if (enabled && visible_) lv_gif_resume(gif_);
-        else lv_gif_pause(gif_);
+        if (enabled && visible_)
+            lv_gif_resume(gif_);
+        else
+            lv_gif_pause(gif_);
     }
 #endif
     Render();
@@ -548,10 +598,15 @@ void RobotEyesView::RenderMouth() {
     const int target = speech_target_;
     speech_level_ = target > speech_level_ ? (target + speech_level_) / 2
                                            : std::max(target, static_cast<int>(speech_level_) - 36);
-    const int mouth_height = 4 + speech_level_ * 26 / 255;
-    const int mouth_width = std::max(40, static_cast<int>(width_) / 3) - speech_level_ / 24;
+    const int mouth_height =
+        std::max(3, (4 + speech_level_ * 26 / 255) * theme_.geometry.mouth_height / 100);
+    const int mouth_width =
+        std::max(24, (std::max(40, static_cast<int>(width_) / 3) - speech_level_ / 24) *
+                         theme_.geometry.mouth_width / 100);
     lv_obj_set_size(mouth_, mouth_width, mouth_height);
-    lv_obj_set_pos(mouth_, (width_ - mouth_width) / 2, height_ * 4 / 5 - mouth_height / 2);
+    const int mouth_y =
+        height_ * 4 / 5 - mouth_height / 2 + theme_.geometry.mouth_y * height_ / 144;
+    lv_obj_set_pos(mouth_, (width_ - mouth_width) / 2, mouth_y);
     lv_obj_set_style_radius(mouth_, theme_.style == "pixel" ? 0 : mouth_height / 2, 0);
     if (mouth_height >= 10) {
         lv_obj_remove_flag(mouth_inside_, LV_OBJ_FLAG_HIDDEN);

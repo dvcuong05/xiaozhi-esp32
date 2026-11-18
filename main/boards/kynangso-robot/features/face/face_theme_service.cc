@@ -10,7 +10,8 @@ namespace kynangso {
 namespace {
 constexpr size_t kMaxUserThemes = 16;
 constexpr size_t kMaxBuiltInThemes = 7;
-constexpr size_t kMaxThemeCatalog = kMaxUserThemes + kMaxBuiltInThemes;
+constexpr size_t kMaxInternalThemes = 4;
+constexpr size_t kMaxThemeCatalog = kMaxUserThemes + kMaxInternalThemes + kMaxBuiltInThemes;
 }  // namespace
 
 FaceThemeService::FaceThemeService(RobotSettings& settings, SdStorage& storage,
@@ -116,6 +117,9 @@ cJSON* FaceThemeService::Snapshot() const {
         if (!item)
             continue;
         cJSON_AddBoolToObject(item, "builtin", entry.builtin);
+        cJSON_AddStringToObject(item, "storage",
+                                entry.builtin ? "builtin"
+                                              : (entry.internal_storage ? "internal" : "sd"));
         cJSON_AddItemToArray(items, item);
     }
     return root;
@@ -123,7 +127,11 @@ cJSON* FaceThemeService::Snapshot() const {
 
 std::string FaceThemeService::Refresh() {
     SdStorage::Listing listing;
-    const auto listed = storage_.List("/robot/themes", 0, listing);
+    const bool sd_mounted = storage_.GetStatus().state == "mounted";
+    const auto listed = sd_mounted
+                            ? storage_.List("/robot/themes", 0, listing)
+                            : SdStorage::Result{SdStorage::Code::Unavailable,
+                                                "Thẻ microSD chưa sẵn sàng."};
     std::vector<Entry> next;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -132,12 +140,13 @@ std::string FaceThemeService::Refresh() {
                 next.push_back(entry);
     }
     unsigned skipped = 0;
+    size_t sd_theme_count = 0;
     bool truncated = listing.more;
     for (const auto& file : listing.entries) {
         if (file.directory || file.name.size() < 6 ||
             file.name.substr(file.name.size() - 5) != ".json")
             continue;
-        if (next.size() >= kMaxThemeCatalog) {
+        if (sd_theme_count >= kMaxUserThemes || next.size() >= kMaxThemeCatalog) {
             truncated = true;
             break;
         }
@@ -164,17 +173,36 @@ std::string FaceThemeService::Refresh() {
             continue;
         }
         next.push_back({std::move(theme), false});
+        ++sd_theme_count;
+    }
+    for (const auto& manifest : settings_.LoadLocalFaceThemes()) {
+        if (next.size() >= kMaxThemeCatalog) {
+            truncated = true;
+            break;
+        }
+        FaceTheme theme;
+        std::string error;
+        if (!ParseFaceTheme(manifest, theme, error) || theme.HasGifExpressions() ||
+            std::any_of(next.begin(), next.end(),
+                        [&](const Entry& entry) { return entry.theme.id == theme.id; })) {
+            ++skipped;
+            continue;
+        }
+        next.push_back({std::move(theme), false, true});
     }
     std::lock_guard<std::mutex> lock(mutex_);
     // A busy SD card must not erase a previously loaded catalog.
-    if (listed || listed.code == SdStorage::Code::NotFound ||
-        listed.code == SdStorage::Code::Unavailable)
+    if (!sd_mounted || listed || listed.code == SdStorage::Code::NotFound)
         catalog_ = std::move(next);
-    sd_available_ = static_cast<bool>(listed) || listed.code == SdStorage::Code::NotFound;
+    sd_available_ = sd_mounted &&
+                    (static_cast<bool>(listed) || listed.code == SdStorage::Code::NotFound);
     skipped_ = skipped;
     truncated_ = truncated;
-    message_ = listed ? "Đã tải danh sách theme" : "Theme có sẵn vẫn dùng được. " + listed.message;
-    return listed || listed.code == SdStorage::Code::NotFound ? std::string{} : listed.message;
+    message_ = sd_available_ ? "Đã tải danh sách theme"
+                             : "Đang dùng theme có sẵn và bộ nhớ robot";
+    if (!sd_mounted || listed || listed.code == SdStorage::Code::NotFound)
+        return {};
+    return listed.message;
 }
 
 std::string FaceThemeService::Install(const std::string& manifest) {
@@ -182,15 +210,41 @@ std::string FaceThemeService::Install(const std::string& manifest) {
     std::string error;
     if (!ParseFaceTheme(manifest, theme, error))
         return error;
+    const auto sd_status = storage_.GetStatus();
+    const bool sd_mounted = sd_status.state == "mounted";
+    if (theme.HasGifExpressions() && !sd_mounted)
+        return "Theme GIF cần microSD; theme JSON đơn giản có thể lưu trong bộ nhớ robot.";
+    if (!sd_mounted && sd_status.state != "unmounted")
+        return "microSD chưa sẵn sàng: " + sd_status.message + " Hãy kết nối hoặc tháo thẻ an toàn rồi lưu lại.";
     {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& entry : catalog_)
             if (entry.theme.id == theme.id)
                 return "ID theme đã tồn tại; hãy chọn ID mới.";
-        const auto user_theme_count = std::count_if(
-            catalog_.begin(), catalog_.end(), [](const Entry& entry) { return !entry.builtin; });
-        if (user_theme_count >= kMaxUserThemes)
-            return "Kho theme đã đủ 16 gói SD. Hãy xóa bớt gói rồi tải lại danh sách.";
+        const auto sd_theme_count = std::count_if(catalog_.begin(), catalog_.end(),
+                                                  [](const Entry& entry) {
+                                                      return !entry.builtin && !entry.internal_storage;
+                                                  });
+        const auto internal_theme_count = std::count_if(
+            catalog_.begin(), catalog_.end(),
+            [](const Entry& entry) { return entry.internal_storage; });
+        if (sd_mounted && sd_theme_count >= kMaxUserThemes)
+            return "Kho thẻ nhớ đã đủ 16 theme. Hãy xóa bớt theme trên thẻ rồi thử lại.";
+        if (!sd_mounted && internal_theme_count >= kMaxInternalThemes)
+            return "Bộ nhớ robot lưu tối đa 4 theme JSON. Hãy xóa theme rồi thử lại.";
+    }
+    const std::string canonical = EncodeFaceTheme(theme);
+    if (canonical.empty())
+        return "Không đủ bộ nhớ để tạo theme.";
+    if (!sd_mounted) {
+        const auto saved = settings_.SaveLocalFaceTheme(canonical);
+        if (saved == ESP_ERR_INVALID_STATE)
+            return "ID theme đã tồn tại trong bộ nhớ robot; hãy chọn ID mới.";
+        if (saved == ESP_ERR_NO_MEM)
+            return "Bộ nhớ robot đã đủ 4 theme JSON. Hãy xóa theme rồi thử lại.";
+        if (saved != ESP_OK)
+            return "Không lưu được theme trong bộ nhớ robot: " + std::string(esp_err_to_name(saved));
+        return Refresh();
     }
     for (const char* path : {"/robot", "/robot/themes"}) {
         auto result = storage_.MakeDirectory(path);
@@ -206,9 +260,6 @@ std::string FaceThemeService::Install(const std::string& manifest) {
         if (files != GifLoadResult::Ok)
             return error.empty() ? "Chưa thể kiểm tra file GIF; thử lại sau." : error;
     }
-    const std::string canonical = EncodeFaceTheme(theme);
-    if (canonical.empty())
-        return "Không đủ bộ nhớ để tạo theme.";
     auto result = storage_.Upload("/robot/themes/" + theme.id + ".json", 0, canonical.size(),
                                   canonical.data(), canonical.size());
     if (!result)
@@ -223,15 +274,24 @@ std::string FaceThemeService::Delete(const std::string& id) {
         if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
             return "ID theme không hợp lệ.";
 
+    bool internal_storage = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto found = std::find_if(catalog_.begin(), catalog_.end(), [&](const Entry& entry) {
             return entry.theme.id == id && !entry.builtin;
         });
         if (found == catalog_.end())
-            return "Chỉ có thể xóa theme tùy chỉnh trên thẻ nhớ.";
+            return "Chỉ có thể xóa theme tùy chỉnh.";
         if (active_.id == id)
             return "Hãy chuyển sang theme khác trước khi xóa theme đang dùng.";
+        internal_storage = found->internal_storage;
+    }
+
+    if (internal_storage) {
+        const auto removed = settings_.DeleteLocalFaceTheme(id);
+        if (removed != ESP_OK)
+            return "Không xóa được theme trong bộ nhớ robot: " + std::string(esp_err_to_name(removed));
+        return Refresh();
     }
 
     auto directory = storage_.Remove("/robot/themes/" + id);
@@ -612,6 +672,7 @@ bool FaceThemeService::ApplyRequestedGif(uint32_t generation, const std::string&
 
 void FaceThemeService::Run() {
     bool initial_scan = false;
+    bool catalog_loaded = false;
     while (!stop_.load()) {
         std::string action, id, manifest;
         {
@@ -635,15 +696,18 @@ void FaceThemeService::Run() {
             if (action != "refresh")
                 message_ = error.empty() ? "Đã hoàn tất" : error;
             busy_ = false;
-        } else if (!initial_scan && storage_.GetStatus().state == "mounted") {
+        } else if (!catalog_loaded ||
+                   (!initial_scan && storage_.GetStatus().state == "mounted")) {
+            const bool sd_mounted = storage_.GetStatus().state == "mounted";
             Refresh();
+            catalog_loaded = true;
             FaceTheme restore;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                initial_scan = sd_available_;
+                initial_scan = initial_scan || (sd_mounted && sd_available_);
                 restore = active_;
             }
-            if (initial_scan && restore.style == "gif-poc") {
+            if (sd_mounted && initial_scan && restore.style == "gif-poc") {
                 auto error = LoadGifPair(restore);
                 if (error.empty()) {
                     apply_(restore);

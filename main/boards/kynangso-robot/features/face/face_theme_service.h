@@ -29,6 +29,7 @@ private:
     struct Entry {
         FaceTheme theme;
         bool builtin;
+        bool internal_storage = false;
     };
     struct GifCacheEntry {
         std::string theme_id;

@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #include <esp_log.h>
 #include <nvs.h>
@@ -20,6 +21,7 @@ constexpr int32_t kRotationVersion = 4;
 constexpr int32_t kBootVersion = 2;
 constexpr uint8_t kFaceConfigVersion = 2;
 constexpr int32_t kBootVolume = 45;
+constexpr size_t kLocalFaceThemeSlots = 4;
 
 class NvsHandle {
 public:
@@ -427,6 +429,100 @@ esp_err_t RobotSettings::SaveFaceTheme(const std::string& manifest) {
     return WriteNamespace("face_theme", [&manifest](nvs_handle_t handle) {
         return nvs_set_str(handle, "manifest", manifest.c_str());
     });
+}
+
+std::vector<std::string> RobotSettings::LoadLocalFaceThemes() const {
+    std::vector<std::string> themes;
+    std::lock_guard<std::mutex> lock(mutex_);
+    NvsHandle handle("face_themes", NVS_READONLY);
+    if (handle.error != ESP_OK)
+        return themes;
+
+    for (size_t i = 0; i < kLocalFaceThemeSlots; ++i) {
+        char key[8];
+        std::snprintf(key, sizeof(key), "theme%u", static_cast<unsigned>(i));
+        size_t size = 0;
+        if (nvs_get_str(handle.value, key, nullptr, &size) != ESP_OK || size < 2 || size > 2049)
+            continue;
+        std::string manifest(size, '\0');
+        if (nvs_get_str(handle.value, key, manifest.data(), &size) != ESP_OK)
+            continue;
+        manifest.resize(size - 1);
+        themes.push_back(std::move(manifest));
+    }
+    return themes;
+}
+
+esp_err_t RobotSettings::SaveLocalFaceTheme(const std::string& manifest) {
+    FaceTheme theme;
+    std::string parse_error;
+    if (!ParseFaceTheme(manifest, theme, parse_error) || theme.HasGifExpressions())
+        return ESP_ERR_INVALID_ARG;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    NvsHandle handle("face_themes", NVS_READWRITE);
+    if (handle.error != ESP_OK)
+        return handle.error;
+
+    int free_slot = -1;
+    for (size_t i = 0; i < kLocalFaceThemeSlots; ++i) {
+        char key[8];
+        std::snprintf(key, sizeof(key), "theme%u", static_cast<unsigned>(i));
+        size_t size = 0;
+        const auto result = nvs_get_str(handle.value, key, nullptr, &size);
+        if (result == ESP_ERR_NVS_NOT_FOUND) {
+            if (free_slot < 0)
+                free_slot = static_cast<int>(i);
+            continue;
+        }
+        if (result != ESP_OK || size < 2 || size > 2049)
+            continue;
+        std::string saved(size, '\0');
+        if (nvs_get_str(handle.value, key, saved.data(), &size) != ESP_OK)
+            continue;
+        saved.resize(size - 1);
+        FaceTheme existing;
+        std::string ignored;
+        if (ParseFaceTheme(saved, existing, ignored) && existing.id == theme.id)
+            return ESP_ERR_INVALID_STATE;
+    }
+    if (free_slot < 0)
+        return ESP_ERR_NO_MEM;
+
+    char key[8];
+    std::snprintf(key, sizeof(key), "theme%u", static_cast<unsigned>(free_slot));
+    auto result = nvs_set_str(handle.value, key, manifest.c_str());
+    if (result == ESP_ERR_NVS_NOT_ENOUGH_SPACE)
+        return ESP_ERR_NO_MEM;
+    if (result == ESP_OK)
+        result = nvs_commit(handle.value);
+    return result;
+}
+
+esp_err_t RobotSettings::DeleteLocalFaceTheme(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    NvsHandle handle("face_themes", NVS_READWRITE);
+    if (handle.error != ESP_OK)
+        return handle.error;
+
+    for (size_t i = 0; i < kLocalFaceThemeSlots; ++i) {
+        char key[8];
+        std::snprintf(key, sizeof(key), "theme%u", static_cast<unsigned>(i));
+        size_t size = 0;
+        if (nvs_get_str(handle.value, key, nullptr, &size) != ESP_OK || size < 2 || size > 2049)
+            continue;
+        std::string saved(size, '\0');
+        if (nvs_get_str(handle.value, key, saved.data(), &size) != ESP_OK)
+            continue;
+        saved.resize(size - 1);
+        FaceTheme theme;
+        std::string ignored;
+        if (!ParseFaceTheme(saved, theme, ignored) || theme.id != id)
+            continue;
+        const auto result = nvs_erase_key(handle.value, key);
+        return result == ESP_OK ? nvs_commit(handle.value) : result;
+    }
+    return ESP_ERR_NVS_NOT_FOUND;
 }
 
 FaceConfig RobotSettings::LoadFace() const {

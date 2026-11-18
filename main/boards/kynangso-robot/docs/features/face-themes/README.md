@@ -39,7 +39,7 @@ Theme và biểu cảm mặc định là hai thiết lập riêng. Cả 21 biể
 
 ## Gói theme tùy chỉnh
 
-Không cần microSD cho theme tích hợp. Gói tùy chỉnh được lưu ở /robot/themes/<id>.json; giới hạn 16 gói do người dùng thêm, tối đa 2 KiB mỗi gói. Bỏ thẻ SD không ảnh hưởng theme đang chạy hoặc snapshot NVS.
+Theme tích hợp không cần microSD. Theme JSON tùy chỉnh ưu tiên lưu ở `/robot/themes/<id>.json` nếu thẻ đang gắn; khi không có thẻ, robot lưu tối đa 4 theme trong NVS. Thẻ microSD chứa tối đa 16 theme tùy chỉnh, tối đa 2 KiB mỗi manifest. GIF chỉ lưu trên microSD; lựa chọn theme đang chạy vẫn được lưu trong NVS.
 
 JSON mẫu:
 
@@ -52,7 +52,7 @@ Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhậ
 ## Luồng và giới hạn kỹ thuật
 
 1. Web gọi GET /api/face_themes để đọc catalog; chọn theme qua POST /api/face_themes. MCP dùng self.robot.face_theme với các action list/status/refresh/select.
-2. FaceThemeService đọc gói JSON trên worker riêng qua SdStorage; tối đa 7 theme dựng sẵn và 16 theme tùy chỉnh. Chọn theme lưu snapshot vào NVS rồi cập nhật display trên application task.
+2. FaceThemeService đọc catalog trên worker riêng: tối đa 7 theme dựng sẵn, 16 theme trên microSD và 4 theme JSON trong NVS. Khi có thẻ, theme mới được lưu trên thẻ; khi không có thẻ, chỉ manifest JSON nhỏ được lưu vào NVS. Chọn theme lưu snapshot đang dùng vào NVS rồi cập nhật display trên application task.
 3. RobotEyesView vẽ theo design space 240×144 và tự co theo FaceRegion LVGL. Nền theme phủ toàn layout TFT theo kích thước firmware khai báo; vùng thông tin bên dưới chọn màu chữ có tương phản.
 4. Renderer chạy theo timer 40 ms khi mặt đang hiển thị. Ẩn mặt hoặc tắt animation sẽ dừng cập nhật khung hình. GIF được giải mã bởi LVGL trong một widget dùng chung; bộ nhớ ảnh được tái sử dụng giữa các biểu cảm.
 
@@ -69,7 +69,7 @@ Build firmware không thay thế kiểm tra thực tế. Sau khi nạp, kiểm t
 
 ## Quản lý theme trên webserver robot
 
-Trang **Dashboard → Biểu cảm robot → Kho theme khuôn mặt** có hai tab. **Theme JSON · Tạo nhanh** cho phép đặt tên/mã, chọn style có sẵn, chỉnh bốn màu và xem preview trực tiếp của cả 21 biểu cảm. Nút **Lưu theme vào thẻ nhớ** gửi manifest version 1 qua API theme hiện có; firmware xác thực rồi ghi `/robot/themes/<id>.json`. Mã bị trùng sẽ bị từ chối, không ghi đè theme đang có. Danh sách theme đang cài nằm bên dưới hai tab và vẫn dùng chung cho thao tác chọn/xóa.
+Trang **Dashboard → Biểu cảm robot → Kho theme khuôn mặt** có hai tab. **Theme JSON · Tạo nhanh** cho phép đặt tên/mã, chọn style có sẵn, chỉnh bốn màu và xem preview trực tiếp của cả 21 biểu cảm. Nút **Lưu theme vào robot** gửi manifest version 1 qua API theme hiện có. Firmware ưu tiên ghi `/robot/themes/<id>.json` khi microSD sẵn sàng; nếu không có thẻ, robot lưu tối đa 4 manifest nhỏ trong NVS. ID trùng bị từ chối, không ghi đè. Danh sách bên dưới hiển thị nơi lưu để chọn hoặc xóa đúng theme.
 
 Tab **Theme GIF · Biểu cảm động** giữ quy trình upload nhiều file và mapping thủ công. Mỗi dòng hiển thị ảnh GIF động từ `URL.createObjectURL(File)` trong trình duyệt. Đây là preview cục bộ; file nguồn không được gửi tới robot cho tới khi người dùng bấm cài. Khi chuẩn hóa, web worker xử lý tuần tự từng file rồi gửi từng chunk đã thu nhỏ lên SD; không gom cả bộ GIF vào RAM ESP32. Firmware tiếp tục chỉ nạp GIF cần hiển thị, với cache tối đa hai ảnh theo giới hạn hiện hành.
 

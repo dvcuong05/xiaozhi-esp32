@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <esp_err.h>
 
@@ -92,6 +93,9 @@ public:
     esp_err_t SaveFace(const FaceConfig& config);
     std::string LoadFaceTheme() const;
     esp_err_t SaveFaceTheme(const std::string& manifest);
+    std::vector<std::string> LoadLocalFaceThemes() const;
+    esp_err_t SaveLocalFaceTheme(const std::string& manifest);
+    esp_err_t DeleteLocalFaceTheme(const std::string& id);
     InfoShuttleConfig LoadInfoShuttle() const;
     esp_err_t SaveInfoShuttle(const InfoShuttleConfig& config);
 

@@ -64,6 +64,7 @@ private:
     static esp_err_t ApiQrConfigHandler(httpd_req_t* req);
     static esp_err_t ApiQrShowHandler(httpd_req_t* req);
     static esp_err_t ApiVolumeHandler(httpd_req_t* req);
+    static esp_err_t ApiDiagnosticsHandler(httpd_req_t* req);
     static esp_err_t BluetoothPageHandler(httpd_req_t* req);
     static esp_err_t ApiBluetoothStatusHandler(httpd_req_t* req);
     static esp_err_t ApiBluetoothScanHandler(httpd_req_t* req);

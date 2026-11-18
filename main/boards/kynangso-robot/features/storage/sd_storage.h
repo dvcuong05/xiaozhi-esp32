@@ -23,6 +23,15 @@ namespace kynangso {
 // probes run in a sleeping worker; file transfers run outside the audio/UI tasks.
 class SdStorage {
 public:
+    enum class DiagnosticEvent : uint8_t {
+        Boot,
+        DiagnosticsEnabled,
+        SdMounted,
+        SdMountFailed,
+        SdUnmounted,
+        SdUnmountFailed,
+        SdIoError,
+    };
     enum class Code { Ok, Busy, Unavailable, Invalid, NotFound, Exists, Io, Limit };
     struct Result {
         Code code = Code::Ok;
@@ -81,10 +90,15 @@ public:
     static constexpr size_t kPageSize = 24;
     static constexpr char kMusicRoot[] = "/robot/music";
     static constexpr size_t kMaxMusicTracks = 512;
+    static constexpr size_t kDiagnosticQueueCapacity = 16;
+    static constexpr size_t kDiagnosticFileLimitBytes = 32 * 1024;
 
     SdStorage();
     ~SdStorage();
-    void Start();
+    void Start(bool diagnostics_enabled = false);
+    void SetDiagnosticsEnabled(bool enabled);
+    void RecordDiagnostic(DiagnosticEvent event, int32_t code = 0);
+    uint32_t DiagnosticDroppedCount() const { return diagnostic_dropped_.load(); }
     Status GetStatus() const;
     Result Request(const std::string& action);
     Result List(const std::string& path, size_t offset, Listing& listing);
@@ -130,6 +144,17 @@ private:
     void* dma_sector_buffer_ = nullptr;
     bool bus_initialized_ = false;
     std::atomic<unsigned> playback_files_{0};
+    std::atomic<bool> diagnostics_enabled_{false};
+    std::atomic<uint32_t> diagnostic_dropped_{0};
+    struct DiagnosticRecord {
+        DiagnosticEvent event;
+        int32_t code;
+        uint32_t uptime_ms;
+    };
+    mutable std::mutex diagnostic_mutex_;
+    std::array<DiagnosticRecord, kDiagnosticQueueCapacity> diagnostic_queue_{};
+    size_t diagnostic_head_ = 0;
+    size_t diagnostic_count_ = 0;
     std::string upload_path_;
     uint64_t upload_total_ = 0;
     uint64_t upload_offset_ = 0;
@@ -169,6 +194,9 @@ private:
     void SetState(const char* state, const std::string& message);
     void InvalidateSpace();
     void ClearUpload();
+    bool PopDiagnostic(DiagnosticRecord& record);
+    bool HasPendingDiagnostics() const;
+    void WriteDiagnostic(const DiagnosticRecord& record);
     Result RemoveTree(const std::string& full_path, unsigned depth);
     Result BuildPhotoIndex();
     void InvalidatePhotoIndex();

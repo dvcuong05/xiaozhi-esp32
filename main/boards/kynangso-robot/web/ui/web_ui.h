@@ -111,8 +111,11 @@ static constexpr char kIndexHtml[] =
 
         <section class="feature-group"><article class="card wide"><h2>Phần mở rộng tùy chọn</h2><p>OLED áp dụng ngay sau khi lưu. Bluetooth và touch cần khởi động lại robot.</p><label class="check"><input id="extBluetooth" type="checkbox"> Bluetooth D1 Mini (UART TX10 / RX21)</label><label class="check"><input id="extOled" type="checkbox"> OLED phụ (SDA1 / SCL2 hoặc chân đã lưu)</label><label class="check"><input id="extTouch" type="checkbox"> Touch TTP223 (GPIO20)</label><button onclick="saveExtensions()">Lưu phần mở rộng</button><div id="extStatus" class="statusline"></div></article></section>
         <section class="feature-group" id="diagnostics">
-            <div class="group-head"><div><span class="group-kicker">06 · Hệ thống</span><h2>Chẩn đoán</h2><p>Mở console trực tiếp khi cần tìm nguyên nhân sự cố.</p></div><span class="group-count">Chỉ đồng bộ khi bật</span></div>
-            <div class="group-grid"><article class="card wide"><div class="card-head"><div><h2>Console robot</h2><p>Khi tắt, firmware không giữ bộ đệm và không gửi log qua web.</p></div><span class="tag">OPT-IN</span></div><div class="console-actions"><button id="logToggle" class="primary" onclick="toggleLogs()">Bật xem console</button><button class="ghost" onclick="clearLogs()">Xóa màn hình</button><span id="logStatus" class="statusline" style="margin:0">Đang tắt.</span></div><pre id="consoleLog" class="console" aria-live="polite"></pre><p class="mini-note">Chỉ hiện log phát sinh từ lúc kết nối; tự ngắt khi rời trang.</p></article></div>
+            <div class="group-head"><div><span class="group-kicker">06 · Hệ thống</span><h2>Chẩn đoán</h2><p>Chọn lưu sự kiện offline trên thẻ hoặc xem console trực tiếp.</p></div><span class="group-count">Chỉ hoạt động khi bật</span></div>
+            <div class="group-grid">
+                <article class="card wide"><div class="card-head"><div><h2>Nhật ký chẩn đoán offline</h2><p>Lưu một số sự kiện firmware vào microSD để xem lại khi robot gặp sự cố.</p></div><span class="tag">MICROSD · TÙY CHỌN</span></div><label class="check"><input id="offlineDiagnosticsEnabled" type="checkbox"> Bật lưu sự kiện hệ thống</label><div class="row" style="margin-top:10px"><button class="primary" onclick="saveOfflineDiagnostics()">Lưu lựa chọn</button><span id="offlineDiagnosticsStatus" class="statusline" style="flex:1;margin:0">Đang tải trạng thái…</span></div><p class="mini-note">Chỉ ghi mã sự kiện và mã lỗi; không ghi âm, nội dung hội thoại hay gửi dữ liệu ra mạng. Giới hạn tối đa 64 KiB, tự xoay vòng và dọn log quá 7 ngày. File nằm trong /robot/logs/.</p></article>
+                <article class="card wide"><div class="card-head"><div><h2>Console robot</h2><p>Khi tắt, firmware không giữ bộ đệm và không gửi log qua web.</p></div><span class="tag">OPT-IN</span></div><div class="console-actions"><button id="logToggle" class="primary" onclick="toggleLogs()">Bật xem console</button><button class="ghost" onclick="clearLogs()">Xóa màn hình</button><span id="logStatus" class="statusline" style="margin:0">Đang tắt.</span></div><pre id="consoleLog" class="console" aria-live="polite"></pre><p class="mini-note">Chỉ hiện log phát sinh từ lúc kết nối; tự ngắt khi rời trang.</p></article>
+            </div>
         </section>
     </section>    <div class="footer">KyNangSo Robot · tenclass.net transport · board-local control panel</div>
 </main>
@@ -120,6 +123,9 @@ static constexpr char kIndexHtml[] =
     const $=id=>document.getElementById(id); let selectedMode=0, logSocket=null;
     function say(id,text,good=false){$(id).textContent=text;$(id).className='statusline'+(good?' good':'')}
     async function json(url,options={}){const r=await fetch(url,options);const text=await r.text();let d={};try{d=text?JSON.parse(text):{}}catch(_){d={error:text}}if(!r.ok)throw new Error(d.error||'HTTP '+r.status);return d}
+    function showOfflineDiagnostics(d){$('offlineDiagnosticsEnabled').checked=!!d.enabled;const card=d.sd_state==='mounted'?'microSD sẵn sàng':('microSD: '+d.sd_state+(d.enabled?' · chưa ghi được log':''));const dropped=Number(d.dropped||0);say('offlineDiagnosticsStatus',(d.enabled?'Đang bật':'Đang tắt')+' · '+card+' · sự kiện bị bỏ: '+dropped,d.enabled&&d.sd_state==='mounted')}
+    async function loadOfflineDiagnostics(){try{showOfflineDiagnostics(await json('/api/diagnostics'))}catch(e){say('offlineDiagnosticsStatus','Không đọc được trạng thái: '+e.message)}}
+    async function saveOfflineDiagnostics(){const enabled=$('offlineDiagnosticsEnabled').checked;try{showOfflineDiagnostics(await json('/api/diagnostics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})}))}catch(e){say('offlineDiagnosticsStatus',e.message)}}
     function chooseMode(mode){selectedMode=mode;document.querySelectorAll('.mode').forEach(b=>b.classList.toggle('active',Number(b.dataset.mode)===mode));}
     function appendLog(text){const box=$('consoleLog');box.textContent+=text;if(box.textContent.length>24000)box.textContent=box.textContent.slice(-20000);box.scrollTop=box.scrollHeight}
     function clearLogs(){$('consoleLog').textContent=''}
@@ -156,6 +162,7 @@ static constexpr char kIndexHtml[] =
         }catch(e){say('extStatus',e.message)}
     }
     async function load(){
+        loadOfflineDiagnostics();
         try{const d=await json('/api/extensions');const btSupported=d.bluetooth_supported!==false;$('extBluetooth').disabled=!btSupported;$('extBluetooth').checked=btSupported&&d.bluetooth;$('extOled').checked=d.oled;$('extTouch').checked=d.touch;if(!btSupported)say('extStatus','Bluetooth D1 Mini chưa được bật trong firmware; công tắc được khóa an toàn.')}catch(e){say('extStatus',e.message)}
         loadVolume();
         loadFace();

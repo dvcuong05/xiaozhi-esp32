@@ -310,8 +310,8 @@ thị:
 
 Các mục dưới đây xếp theo mức sẵn sàng triển khai, không phải cam kết hoàn thành cùng lúc.
 
-1. **Nhật ký chẩn đoán offline**: dùng microSD tùy chọn với dung lượng/tuổi thọ giới hạn;
-   chỉ ghi sự kiện hệ thống, không ghi âm hoặc nội dung hội thoại.
+1. [x] **Nhật ký chẩn đoán offline**: microSD tùy chọn, giới hạn dung lượng/tuổi thọ;
+   chỉ ghi mã sự kiện hệ thống, không ghi âm hoặc nội dung hội thoại. [Workflow](features/diagnostics/README.md).
 2. **Tin tức và dữ liệu thị trường Việt Nam**: trước khi code cần chốt provider/API, quyền dùng
    dữ liệu và attribution; RSS công khai không mặc nhiên cho phép dùng trong sản phẩm thương mại.
 3. **SmartThings**: tích hợp backend-only sau khi tài khoản và TV đã được ghép, API quyền điều

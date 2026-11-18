@@ -273,13 +273,20 @@ kết nối. Khi socket bị ngắt, cleanup của phiên HTTPD cũng tháo hook
 Dashboard có mục **Console log robot**. Mặc định mục này tắt hoàn toàn. Khi
 người dùng bấm **Bật xem console**, trình duyệt mới mở WebSocket tới
 `/api/logs`; firmware lúc đó tạm móc vào `esp_log` và gửi các dòng log mới
-phát sinh tới đúng phiên xem. Firmware không lưu lịch sử log, không tải lại
-log cũ và giới hạn hàng đợi gửi để một đợt log dày không chiếm hết HTTP server.
+phát sinh tới đúng phiên xem. Console không lưu lịch sử log, không tải lại log
+cũ và giới hạn hàng đợi gửi để một đợt log dày không chiếm hết HTTP server.
 
 Khi người dùng bấm tắt, đóng trang hoặc WebSocket lỗi, firmware tháo hook log
-và dừng đồng bộ. Vì vậy lúc dashboard không xem console, không có kết nối log,
-buffer log hay traffic log qua Wi-Fi. WebSocket này dùng chung HTTP port 80,
+và dừng đồng bộ. Vì vậy lúc dashboard không xem console, không có kết nối,
+bộ đệm console hay traffic console qua Wi-Fi. WebSocket này dùng chung HTTP port 80,
 không có TLS/xác thực; chỉ dùng trong LAN tin cậy như các API robot khác.
+
+Dashboard cũng có công tắc riêng **Lưu sự kiện hệ thống** để ghi nhật ký
+chẩn đoán offline lên microSD. Tính năng mặc định tắt và chỉ lưu mã sự kiện
+cố định (khởi động, trạng thái thẻ và lỗi I/O), không lưu prompt, transcript,
+âm thanh hay dòng `esp_log` tự do. File nằm trong `/robot/logs/`, giới hạn
+64 KiB và dọn file cũ hơn 7 ngày khi có lần ghi mới. Thẻ vắng/bận không làm
+ảnh hưởng phát audio; xem [workflow và giới hạn](docs/features/diagnostics/README.md).
 
 ## Nguồn tham khảo cho các tính năng robot
 

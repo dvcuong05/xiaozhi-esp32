@@ -256,6 +256,19 @@ bool RobotController::ConfigureInfoShuttle(const InfoShuttleConfig& config) {
     return true;
 }
 
+bool RobotController::OfflineDiagnosticsEnabled() const {
+    return settings_.LoadOfflineDiagnostics();
+}
+
+bool RobotController::ConfigureOfflineDiagnostics(bool enabled) {
+    if (settings_.SaveOfflineDiagnostics(enabled) != ESP_OK)
+        return false;
+    storage_.SetDiagnosticsEnabled(enabled);
+    if (enabled)
+        storage_.RecordDiagnostic(SdStorage::DiagnosticEvent::DiagnosticsEnabled);
+    return true;
+}
+
 bool RobotController::AdvanceInfoShuttle() {
     if (!settings_.LoadInfoShuttle().enabled)
         return false;

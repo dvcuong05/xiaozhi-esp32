@@ -1,14 +1,15 @@
 #include "web/server/web_server.h"
 #include "core/robot_controller.h"
 #include "core/robot_settings.h"
-#include "features/motion/robot_drive.h"
 #include "features/bluetooth/bluetooth_service.h"
+#include "features/motion/robot_drive.h"
+#include "features/storage/sd_storage.h"
+#include "sdkconfig.h"
 #include "web/server/sd_web_server.h"
 #include "web/server/tv_web_server.h"
+#include "web/ui/bluetooth_web_ui.h"
 #include "web/ui/robot_time_web_ui.h"
 #include "web/ui/web_ui.h"
-#include "web/ui/bluetooth_web_ui.h"
-#include "sdkconfig.h"
 
 #include <algorithm>
 #include <atomic>
@@ -534,6 +535,8 @@ bool WebServer::Start(int port) {
         {"/api/time", HTTP_POST, TimeApiHandler, this},
         {"/", HTTP_GET, RootHandler, this},
         {"/api/logs", HTTP_GET, LogWebSocketHandler, this, true, true},
+        {"/api/diagnostics", HTTP_GET, ApiDiagnosticsHandler, this},
+        {"/api/diagnostics", HTTP_POST, ApiDiagnosticsHandler, this},
         {"/api/notify", HTTP_POST, ApiNotifyHandler, this},
         {"/api/notify/stop", HTTP_POST, ApiNotifyStopHandler, this},
         {"/api/media/play", HTTP_POST, ApiMediaPlayHandler, this},
@@ -767,6 +770,40 @@ esp_err_t WebServer::LogWebSocketHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return server->log_stream_->HandleWebSocket(req);
+}
+
+esp_err_t WebServer::ApiDiagnosticsHandler(httpd_req_t* req) {
+    auto& controller = GetServer(req)->controller_;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (req->method == HTTP_POST) {
+        auto* root = ParseBody(req);
+        if (root == nullptr)
+            return ESP_FAIL;
+        const cJSON* enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+        const bool valid = cJSON_IsBool(enabled);
+        const bool value = cJSON_IsTrue(enabled);
+        cJSON_Delete(root);
+        if (!valid) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "enabled must be a boolean");
+        }
+        if (!controller.ConfigureOfflineDiagnostics(value)) {
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                       "Cannot save diagnostics setting");
+        }
+    }
+
+    const auto storage = controller.Storage().GetStatus();
+    auto* response = cJSON_CreateObject();
+    if (response == nullptr)
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                   "Cannot create diagnostics status");
+    cJSON_AddBoolToObject(response, "enabled", controller.OfflineDiagnosticsEnabled());
+    cJSON_AddStringToObject(response, "sd_state", storage.state.c_str());
+    cJSON_AddNumberToObject(response, "dropped", controller.Storage().DiagnosticDroppedCount());
+    cJSON_AddStringToObject(response, "path", "/robot/logs/system.jsonl");
+    cJSON_AddNumberToObject(response, "file_limit_bytes",
+                            kynangso::SdStorage::kDiagnosticFileLimitBytes);
+    return SendJson(req, response);
 }
 
 esp_err_t WebServer::ApiQrConfigHandler(httpd_req_t* req) {

@@ -656,4 +656,17 @@ esp_err_t RobotSettings::SaveInfoShuttle(const InfoShuttleConfig& config) {
     });
 }
 
+bool RobotSettings::LoadOfflineDiagnostics() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    NvsHandle handle("robot_diag", NVS_READONLY);
+    return handle.error == ESP_OK ? ReadBool(handle.value, "offline", false) : false;
+}
+
+esp_err_t RobotSettings::SaveOfflineDiagnostics(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return WriteNamespace("robot_diag", [enabled](nvs_handle_t handle) {
+        return nvs_set_u8(handle, "offline", enabled ? 1 : 0);
+    });
+}
+
 }  // namespace kynangso

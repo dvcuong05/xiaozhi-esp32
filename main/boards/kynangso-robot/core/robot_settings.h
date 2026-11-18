@@ -98,6 +98,8 @@ public:
     esp_err_t DeleteLocalFaceTheme(const std::string& id);
     InfoShuttleConfig LoadInfoShuttle() const;
     esp_err_t SaveInfoShuttle(const InfoShuttleConfig& config);
+    bool LoadOfflineDiagnostics() const;
+    esp_err_t SaveOfflineDiagnostics(bool enabled);
 
     static OledConfig DefaultOled();
     static bool ValidateMotor(const MotorConfig& config);

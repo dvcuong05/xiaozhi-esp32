@@ -7,6 +7,7 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_random.h>
+#include <esp_timer.h>
 #include <esp_vfs_fat.h>
 #include <cJSON.h>
 #include <sdmmc_cmd.h>
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <new>
 #include <string_view>
@@ -33,6 +35,10 @@ constexpr char kMusicMetadataPath[] = "/sdcard/robot/music/.metadata.json";
 constexpr char kMusicMetadataTemporaryPath[] = "/sdcard/robot/music/.metadata.json.tmp";
 constexpr char kMusicMetadataBackupPath[] = "/sdcard/robot/music/.metadata.json.bak";
 constexpr size_t kMusicMetadataLineBytes = 1024;
+constexpr char kDiagnosticDirectory[] = "/sdcard/robot/logs";
+constexpr char kDiagnosticCurrentPath[] = "/sdcard/robot/logs/system.jsonl";
+constexpr char kDiagnosticPreviousPath[] = "/sdcard/robot/logs/system.1.jsonl";
+constexpr time_t kDiagnosticRetentionSeconds = 7 * 24 * 60 * 60;
 constexpr uint32_t kWorkerStackBytes = 12 * 1024;
 constexpr uint32_t kMountCommand = 1;
 constexpr uint32_t kUnmountCommand = 2;
@@ -862,9 +868,10 @@ SdStorage::~SdStorage() {
     heap_caps_free(dma_sector_buffer_);
 }
 
-void SdStorage::Start() {
+void SdStorage::Start(bool diagnostics_enabled) {
     if (worker_ != nullptr)
         return;
+    diagnostics_enabled_.store(diagnostics_enabled);
     stopped_ = xSemaphoreCreateBinary();
     if (!stopped_) {
         SetState("error", "Không đủ bộ nhớ để khởi tạo microSD.");
@@ -898,6 +905,17 @@ void SdStorage::Worker(void* context) {
                 self.RefreshSpace();
             else if (command == kMusicCommand)
                 self.InvalidateMusicIndex();
+            if (self.card_ && self.diagnostics_enabled_.load() &&
+                self.playback_files_.load() == 0 && self.upload_path_.empty()) {
+                for (size_t i = 0; i < 2; ++i) {
+                    DiagnosticRecord record{};
+                    if (!self.PopDiagnostic(record))
+                        break;
+                    self.WriteDiagnostic(record);
+                }
+                if (self.HasPendingDiagnostics())
+                    xTaskNotify(self.worker_, 0, eNoAction);
+            }
             if (self.card_ && self.music_dirty_ && self.playback_files_.load() == 0 &&
                 self.upload_path_.empty()) {
                 self.BuildMusicIndex();
@@ -908,6 +926,122 @@ void SdStorage::Worker(void* context) {
     }
     xSemaphoreGive(self.stopped_);
     vTaskDelete(nullptr);
+}
+
+void SdStorage::SetDiagnosticsEnabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(diagnostic_mutex_);
+    diagnostics_enabled_.store(enabled);
+    if (!enabled) {
+        diagnostic_head_ = 0;
+        diagnostic_count_ = 0;
+    }
+}
+
+void SdStorage::RecordDiagnostic(DiagnosticEvent event, int32_t code) {
+    if (!diagnostics_enabled_.load())
+        return;
+    {
+        std::lock_guard<std::mutex> lock(diagnostic_mutex_);
+        if (!diagnostics_enabled_.load())
+            return;
+        if (diagnostic_count_ == diagnostic_queue_.size()) {
+            diagnostic_dropped_.fetch_add(1);
+            return;
+        }
+        const size_t index = (diagnostic_head_ + diagnostic_count_) % diagnostic_queue_.size();
+        diagnostic_queue_[index] = {event, code,
+                                    static_cast<uint32_t>(esp_timer_get_time() / 1000)};
+        ++diagnostic_count_;
+    }
+    if (worker_ != nullptr)
+        xTaskNotify(worker_, 0, eNoAction);
+}
+
+bool SdStorage::PopDiagnostic(DiagnosticRecord& record) {
+    std::lock_guard<std::mutex> lock(diagnostic_mutex_);
+    if (!diagnostics_enabled_.load() || diagnostic_count_ == 0)
+        return false;
+    record = diagnostic_queue_[diagnostic_head_];
+    diagnostic_head_ = (diagnostic_head_ + 1) % diagnostic_queue_.size();
+    --diagnostic_count_;
+    return true;
+}
+
+bool SdStorage::HasPendingDiagnostics() const {
+    std::lock_guard<std::mutex> lock(diagnostic_mutex_);
+    return diagnostics_enabled_.load() && diagnostic_count_ != 0;
+}
+
+void SdStorage::WriteDiagnostic(const DiagnosticRecord& record) {
+    std::lock_guard<std::mutex> lock(diagnostic_mutex_);
+    if (!diagnostics_enabled_.load() || !card_ || playback_files_.load() != 0 ||
+        !upload_path_.empty())
+        return;
+
+    const auto event_name = [](DiagnosticEvent event) -> const char* {
+        switch (event) {
+            case DiagnosticEvent::Boot:
+                return "boot";
+            case DiagnosticEvent::DiagnosticsEnabled:
+                return "diagnostics_enabled";
+            case DiagnosticEvent::SdMounted:
+                return "sd_mounted";
+            case DiagnosticEvent::SdMountFailed:
+                return "sd_mount_failed";
+            case DiagnosticEvent::SdUnmounted:
+                return "sd_unmounted";
+            case DiagnosticEvent::SdUnmountFailed:
+                return "sd_unmount_failed";
+            case DiagnosticEvent::SdIoError:
+                return "sd_io_error";
+        }
+        return "unknown";
+    };
+    const auto expire_old_file = [](const char* path, time_t now) {
+        if (now < 1577836800)
+            return;
+        struct stat info = {};
+        if (stat(path, &info) == 0 && info.st_mtime > 0 && now > info.st_mtime &&
+            now - info.st_mtime > kDiagnosticRetentionSeconds)
+            std::remove(path);
+    };
+
+    mkdir("/sdcard/robot", 0775);
+    if (mkdir(kDiagnosticDirectory, 0775) != 0 && errno != EEXIST) {
+        diagnostic_dropped_.fetch_add(1);
+        return;
+    }
+    const time_t now = time(nullptr);
+    expire_old_file(kDiagnosticCurrentPath, now);
+    expire_old_file(kDiagnosticPreviousPath, now);
+
+    struct stat info = {};
+    if (stat(kDiagnosticCurrentPath, &info) == 0 &&
+        info.st_size >= static_cast<off_t>(kDiagnosticFileLimitBytes - 128)) {
+        std::remove(kDiagnosticPreviousPath);
+        if (rename(kDiagnosticCurrentPath, kDiagnosticPreviousPath) != 0) {
+            diagnostic_dropped_.fetch_add(1);
+            return;
+        }
+    }
+
+    FILE* file = fopen(kDiagnosticCurrentPath, "ab");
+    if (!file) {
+        diagnostic_dropped_.fetch_add(1);
+        return;
+    }
+    char line[128] = {};
+    const unsigned long long epoch = now >= 1577836800 ? static_cast<unsigned long long>(now) : 0;
+    const int length = std::snprintf(
+        line, sizeof(line), "{\"uptime_ms\":%u,\"epoch\":%llu,\"event\":\"%s\",\"code\":%ld}\n",
+        static_cast<unsigned>(record.uptime_ms), epoch, event_name(record.event),
+        static_cast<long>(record.code));
+    const bool written =
+        length > 0 && static_cast<size_t>(length) < sizeof(line) &&
+        fwrite(line, 1, static_cast<size_t>(length), file) == static_cast<size_t>(length) &&
+        fflush(file) == 0;
+    if (fclose(file) != 0 || !written)
+        diagnostic_dropped_.fetch_add(1);
 }
 
 SdStorage::Status SdStorage::GetStatus() const {
@@ -964,6 +1098,7 @@ void SdStorage::Mount() {
         if (err != ESP_OK) {
             SetState("error", std::string("Không khởi tạo được SPI2: ") + esp_err_to_name(err));
             ESP_LOGW(kTag, "SPI2 init failed: %s", esp_err_to_name(err));
+            RecordDiagnostic(DiagnosticEvent::SdMountFailed, err);
             return;
         }
         bus_initialized_ = true;
@@ -987,6 +1122,7 @@ void SdStorage::Mount() {
         SetState("error", std::string("Không đọc được thẻ: ") + esp_err_to_name(err) +
                               ". Kiểm tra thẻ FAT32, dây nối và nguồn cấp.");
         ESP_LOGW(kTag, "SD mount failed: %s (CS48/SCK39/MOSI38/MISO40)", esp_err_to_name(err));
+        RecordDiagnostic(DiagnosticEvent::SdMountFailed, err);
         return;
     }
     // Only assign the reserved buffer when it fits the card's native sector.
@@ -1001,6 +1137,7 @@ void SdStorage::Mount() {
     InvalidateMusicIndex();
     RefreshSpace();
     ESP_LOGI(kTag, "SD ready: %s, SPI2 10MHz", card->cid.name);
+    RecordDiagnostic(DiagnosticEvent::SdMounted);
 }
 
 void SdStorage::Unmount() {
@@ -1019,6 +1156,7 @@ void SdStorage::Unmount() {
         auto err = esp_vfs_fat_sdcard_unmount(kMount, static_cast<sdmmc_card_t*>(card_));
         if (err != ESP_OK) {
             SetState("error", std::string("Không tháo được thẻ: ") + esp_err_to_name(err));
+            RecordDiagnostic(DiagnosticEvent::SdUnmountFailed, err);
             return;
         }
         card_ = nullptr;
@@ -1029,6 +1167,7 @@ void SdStorage::Unmount() {
     }
     InvalidatePhotoIndex();
     SetState("unmounted", "Đã ngắt kết nối. Có thể tháo thẻ.");
+    RecordDiagnostic(DiagnosticEvent::SdUnmounted);
     {
         std::lock_guard<std::mutex> music_lock(music_mutex_);
         heap_caps_free(music_index_);
@@ -1075,6 +1214,7 @@ SdStorage::Result SdStorage::Ready() const {
 
 SdStorage::Result SdStorage::IoError(const char* operation) {
     const int error = errno;
+    RecordDiagnostic(DiagnosticEvent::SdIoError, error);
     ESP_LOGW(kTag, "%s failed, errno=%d (%s)", operation, error, strerror(error));
     if (error == ENOSPC)
         return {Code::Limit, "Thẻ đã đầy. Hủy upload rồi xóa file để giải phóng dung lượng."};
@@ -2197,6 +2337,8 @@ SdStorage::Result SdStorage::Upload(const std::string& path, uint64_t offset, ui
             path.size() > music_root_length + 1 && path[music_root_length] == '/' &&
             path.find('/', music_root_length + 1) == std::string::npos && HasAudioExtension(path))
             InvalidateMusicIndex();
+        if (worker_ && HasPendingDiagnostics())
+            xTaskNotify(worker_, 0, eNoAction);
     }
     return {};
 }
@@ -2217,7 +2359,7 @@ SdStorage::Result SdStorage::AbortUpload(const std::string& path) {
     if (path == upload_path_)
         ClearUpload();
     InvalidateSpace();
-    if (music_dirty_ && worker_)
+    if (worker_ && (music_dirty_ || HasPendingDiagnostics()))
         xTaskNotify(worker_, 0, eNoAction);
     return {};
 }
@@ -2428,7 +2570,7 @@ void SdStorage::CloseAudioFile(FILE* file) {
     std::lock_guard<std::mutex> lock(io_mutex_);
     fclose(file);
     playback_files_.fetch_sub(1);
-    if (music_dirty_ && worker_)
+    if (worker_ && (music_dirty_ || HasPendingDiagnostics()))
         xTaskNotify(worker_, 0, eNoAction);
 }
 }  // namespace kynangso

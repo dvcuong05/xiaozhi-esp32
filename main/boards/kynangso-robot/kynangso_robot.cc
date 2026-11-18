@@ -24,6 +24,7 @@
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <cJSON.h>
 
@@ -947,7 +948,11 @@ public:
 
     virtual Display* GetDisplay() override { return display_; }
 
-    virtual void OnApplicationReady() override { sd_storage_.Start(); }
+    virtual void OnApplicationReady() override {
+        sd_storage_.Start(settings_.LoadOfflineDiagnostics());
+        sd_storage_.RecordDiagnostic(kynangso::SdStorage::DiagnosticEvent::Boot,
+                                     static_cast<int32_t>(esp_reset_reason()));
+    }
 
     void OnMediaPlaybackRequested() override {
         if (live_tv_)

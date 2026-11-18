@@ -45,6 +45,8 @@ public:
     bool AdvanceInfoShuttle();
     bool RefreshInfoShuttleWeather();
     bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
+    bool OfflineDiagnosticsEnabled() const;
+    bool ConfigureOfflineDiagnostics(bool enabled);
     bool ShowNews(std::string headline, std::string source);
     bool StartNameWheel(std::vector<std::string> names, std::string winner);
     bool PreviewEmotion(int preset);

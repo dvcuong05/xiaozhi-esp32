@@ -56,6 +56,8 @@ Có thể tải gói mẫu trong Dashboard, sửa style và màu, sau đó nhậ
 3. RobotEyesView vẽ theo design space 240×144 và tự co theo FaceRegion LVGL. Nền theme phủ toàn layout TFT theo kích thước firmware khai báo; vùng thông tin bên dưới chọn màu chữ có tương phản.
 4. Renderer chạy theo timer 40 ms khi mặt đang hiển thị. Ẩn mặt hoặc tắt animation sẽ dừng cập nhật khung hình. GIF được giải mã bởi LVGL trong một widget dùng chung; bộ nhớ ảnh được tái sử dụng giữa các biểu cảm.
 
+Theme GIF PoC cũ với hai file cố định không còn được liệt kê như theme tích hợp. Nếu NVS còn lưu lựa chọn PoC cũ, firmware chuyển lựa chọn về Classic Cyan khi khởi động; dữ liệu trên SD không bị tự ý xóa. Manifest PoC cũ nếu còn trên SD được xem như theme tùy chỉnh và có thể xóa từ Dashboard.
+
 holo và plasma thêm một số lớp hình có opacity; orbital vẽ vòng bằng các đoạn ngắn. Khối lượng vẽ vẫn giới hạn theo mỗi frame để giữ công việc audio và giao diện khác ổn định. Trên TFT 240×240, vùng artwork được scale từ layout hiện có; không cần nhập kích thước màn hình trên webserver.
 
 Nguồn cảm hứng tham khảo: [Kho giao diện DB-ROBOT](https://dbrobot.vn/theme.html). Đây là liên kết tham khảo ý tưởng thư viện theme; artwork và cách dựng trong firmware KyNangSo là bản tự triển khai.

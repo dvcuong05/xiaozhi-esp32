@@ -9,7 +9,7 @@
 namespace kynangso {
 namespace {
 constexpr size_t kMaxUserThemes = 16;
-constexpr size_t kMaxBuiltInThemes = 8;
+constexpr size_t kMaxBuiltInThemes = 7;
 constexpr size_t kMaxThemeCatalog = kMaxUserThemes + kMaxBuiltInThemes;
 }  // namespace
 
@@ -23,9 +23,7 @@ FaceThemeService::FaceThemeService(RobotSettings& settings, SdStorage& storage,
         {{"pixel", "Pixel Mint", "pixel", 0x66FFB2, 0xFFCF5C, 0x73CFFF, 0x03130F}, true},
         {{"aether", "Aether Hologram", "holo", 0x75F5FF, 0xA889FF, 0x48D7FF, 0x041326}, true},
         {{"orbit", "Quantum Orbit", "orbital", 0xA28BFF, 0xFF54D9, 0x62EFFF, 0x08091D}, true},
-        {{"prism", "Prism Reactor", "plasma", 0xFF76D8, 0x62F4FF, 0xFFD166, 0x17091D}, true},
-        {{"gif-poc", "GIF cũ (2 trạng thái)", "gif-poc", 0xFFFFFF, 0xFF70AE, 0x69D9FF, 0x000000},
-         true}};
+        {{"prism", "Prism Reactor", "plasma", 0xFF76D8, 0x62F4FF, 0xFFD166, 0x17091D}, true}};
 }
 
 FaceThemeService::~FaceThemeService() {
@@ -39,8 +37,17 @@ FaceThemeService::~FaceThemeService() {
 void FaceThemeService::Start() {
     std::string error;
     FaceTheme saved;
-    if (ParseFaceTheme(settings_.LoadFaceTheme(), saved, error))
+    if (ParseFaceTheme(settings_.LoadFaceTheme(), saved, error)) {
+        if (saved.style == "gif-poc") {
+            saved = FaceTheme{};
+            const auto migrated = EncodeFaceTheme(saved);
+            if (migrated.empty() || settings_.SaveFaceTheme(migrated) != ESP_OK)
+                ESP_LOGW("FaceTheme", "Could not persist migration from the removed two-GIF PoC theme");
+            else
+                ESP_LOGI("FaceTheme", "Migrated removed two-GIF PoC theme to Classic Cyan");
+        }
         active_ = std::move(saved);
+    }
     apply_(active_);
     stopped_ = xSemaphoreCreateBinary();
     if (stopped_ == nullptr || xTaskCreate(

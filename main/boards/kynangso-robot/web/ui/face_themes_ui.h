@@ -28,7 +28,7 @@
     R"THEME(  const title=document.createElement('strong');title.textContent=t.name;)THEME" \
     R"THEME(  const note=document.createElement('small');note.textContent=t.style==='gif-poc'?'GIF cũ · 2 trạng thái':(t.expressions&&t.expressions.length?'GIF · '+t.expressions.length+' biểu cảm':(t.builtin?'Có sẵn':'Thẻ nhớ')+' · '+t.style);)THEME" \
     R"THEME(  const button=document.createElement('button');button.textContent=t.id===d.active_id?'Đang dùng':'Chọn theme';button.className=t.id===d.active_id?'ghost':'primary';button.disabled=d.busy||faceThemePending;button.onclick=()=>faceThemeAction('select',t.id);card.append(preview,title,note,button);)THEME" \
-    R"THEME(  if(!t.builtin&&t.id!=='gif-poc'){const remove=document.createElement('button');remove.className='face-gif-delete';remove.textContent='Xóa theme';remove.disabled=d.busy||faceThemePending||t.id===d.active_id;remove.onclick=()=>{if(confirm('Xóa theme '+t.name+' cùng toàn bộ GIF trên thẻ nhớ?'))faceThemeAction('delete',t.id)};card.append(remove)}grid.append(card);)THEME" \
+    R"THEME(  if(!t.builtin){const remove=document.createElement('button');remove.className='face-gif-delete';remove.textContent='Xóa theme';remove.disabled=d.busy||faceThemePending||t.id===d.active_id;remove.onclick=()=>{if(confirm('Xóa theme '+t.name+' cùng toàn bộ GIF trên thẻ nhớ?'))faceThemeAction('delete',t.id)};card.append(remove)}grid.append(card);)THEME" \
     R"THEME( })THEME" \
     R"THEME( const warning=(d.skipped?' · Bỏ qua '+d.skipped+' gói lỗi':'')+(d.truncated?' · Danh sách đã đạt giới hạn':'');)THEME" \
     R"THEME( say('faceThemeStatus',(d.error||d.message||(d.sd_available?'Thẻ nhớ sẵn sàng.':'Đang dùng kho theme có sẵn.'))+warning,!d.error);)THEME" \

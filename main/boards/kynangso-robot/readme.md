@@ -150,6 +150,21 @@ xóa, MCP phải đọc danh sách trước, xác định đúng lịch theo tê
 thì hỏi lại. AI cần gọi tool và đọc `ok=true`; lời chatbot riêng lẻ không xác
 nhận thao tác đã hoàn thành.
 
+### 🌙 Ngày âm lịch Việt Nam trên `/time`
+
+Thẻ đồng hồ hiển thị thêm ngày âm hiện tại sau khi robot đồng bộ giờ. Firmware
+tự tính lịch Việt Nam theo múi giờ `UTC+7`, không gọi MCP/server và không cần
+microSD. API `GET /api/time` trả object `lunar` gồm `available`, `day`, `month`,
+`year`, `leap_month` và `label`; trường này chưa khả dụng nếu giờ chưa đồng bộ
+hoặc ngày nằm ngoài phạm vi năm 1900–2100.
+
+> Lịch tháng bắt đầu theo ngày sóc tại giờ dân sự Việt Nam. Firmware dùng thuật
+> toán chuyển đổi [Hồ Ngọc Đức](https://www.xemamlich.uhm.vn/calrules.html), dựa
+> trên các phép tính thiên văn Meeus. Đây là ngày âm dân sự UTC+7, không phải dữ
+> liệu lịch sử hiệu chỉnh theo múi giờ từng thời
+> kỳ. V1 chỉ hiển thị ngày âm hiện tại; ngày lễ, ngày giỗ và nhắc lặp âm lịch
+> chưa được thêm.
+
 TFT dùng chữ số lớn vẽ bằng hình học, vòng tiến độ và nền gradient; tập trung
 màu tím, nghỉ xanh lá, countdown xanh, báo thức cam, nhắc việc xanh dương.
 Các nhãn dùng Noto Sans 14 px, bitmap 1-bit riêng trong board với đủ chữ Việt

@@ -56,6 +56,9 @@ inline constexpr char kRobotTimePage[] =
     .clock-heading { justify-content: space-between; gap: 12px; color: #9dacc8; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
     #clock { margin-top: 8px; font-size: clamp(18px, 2.3vw, 24px); font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
     .timezone { display: block; margin-top: 5px; color: #8090ad; font-size: 11px; }
+    .lunar-date { display: flex; align-items: center; gap: 8px; width: fit-content; margin-top: 12px; padding: 7px 10px; border: 1px solid rgba(183,161,255,.2); border-radius: 999px; background: rgba(183,161,255,.08); color: #d8ceff; font-size: 12px; line-height: 1.35; }
+    .lunar-date[hidden] { display: none; }
+    .lunar-mark { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border-radius: 50%; background: rgba(183,161,255,.15); color: #c5aeff; font-size: 14px; }
     #msg { min-height: 20px; margin: 0 0 10px; color: var(--green); font-size: 13px; }
     .panel { border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(145deg, var(--panel-light), var(--panel)); box-shadow: 0 20px 55px rgba(0,0,0,.14); }
     #alert { margin-bottom: 18px; padding: 18px 20px; border-color: rgba(255,204,122,.45); background: linear-gradient(110deg, rgba(92,58,27,.9), rgba(35,31,39,.95)); }
@@ -183,6 +186,7 @@ inline constexpr char kRobotTimePage[] =
       <div class="clock-heading"><span>GIỜ TRÊN ROBOT</span><span id="clockState">ĐANG ĐỒNG BỘ</span></div>
       <div id="clock">Đang kết nối…</div>
       <small class="timezone">Múi giờ thiết bị · Asia/Ho_Chi_Minh (UTC+7)</small>
+      <div class="lunar-date" id="lunarDate" hidden><span class="lunar-mark" aria-hidden="true">☾</span><span></span></div>
     </div>
   </header>
 
@@ -433,6 +437,10 @@ inline constexpr char kRobotTimePage[] =
       $('#clockState').textContent = !state.available ? 'LỊCH CHƯA SẴN SÀNG' :
         !state.storage_ok ? 'LỖI LƯU LỊCH' : state.clock_ready ? 'ĐỒNG BỘ' : 'CHỜ ĐỒNG BỘ';
       setText('#clock', state.clock_ready ? state.now : 'Đang chờ đồng bộ giờ mạng');
+      const lunarDate = $('#lunarDate');
+      const lunarLabel = state.lunar && state.lunar.available ? state.lunar.label : '';
+      lunarDate.hidden = !lunarLabel;
+      if (lunarLabel) lunarDate.lastElementChild.textContent = lunarLabel;
       $('#alert').hidden = !state.alert;
       setText('#alertText', state.alert || '');
 

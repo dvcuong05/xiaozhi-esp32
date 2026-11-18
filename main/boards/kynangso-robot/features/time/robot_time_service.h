@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include "features/time/vietnamese_lunar_calendar.h"
 
 namespace kynangso {
 struct TimeView {
@@ -83,6 +84,9 @@ private:
     std::string timer_title_;
     uint32_t alert_serial_ = 0, presented_alert_ = 0;
     TimeView view_;
+    mutable int lunar_cache_key_ = 0;
+    mutable bool lunar_cache_valid_ = false;
+    mutable VietnameseLunarDate lunar_cache_;
     void Tick();
     void Load();
     bool Save();

@@ -28,6 +28,7 @@ set(KYNANGSO_BOARD_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/features/payment/robot_qr_code.cc"
     "${CMAKE_CURRENT_LIST_DIR}/features/storage/sd_storage.cc"
     "${CMAKE_CURRENT_LIST_DIR}/features/time/robot_time_service.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/features/time/vietnamese_lunar_calendar.cc"
     "${CMAKE_CURRENT_LIST_DIR}/integration/robot_bridge_provisioning.cc"
     "${CMAKE_CURRENT_LIST_DIR}/integration/robot_mcp_tools.cc"
     "${CMAKE_CURRENT_LIST_DIR}/integration/web_chat_bridge.cc"

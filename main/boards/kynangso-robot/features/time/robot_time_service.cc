@@ -290,6 +290,35 @@ std::string RobotTimeService::Status(const char* error, const char* scope) const
     cJSON_AddBoolToObject(j, "storage_ok", storage_ok_);
     cJSON_AddStringToObject(j, "timezone", "Asia/Ho_Chi_Minh (UTC+07:00)");
     cJSON_AddStringToObject(j, "now", LocalTime(now).c_str());
+    auto* lunar = cJSON_CreateObject();
+    bool lunar_ready = false;
+    if (now >= kValidTime) {
+        const time_t local_epoch = static_cast<time_t>(now + kZone);
+        tm local_date{};
+        if (gmtime_r(&local_epoch, &local_date)) {
+            const int year = local_date.tm_year + 1900;
+            const int month = local_date.tm_mon + 1;
+            const int day = local_date.tm_mday;
+            const int key = year * 10000 + month * 100 + day;
+            if (key != lunar_cache_key_) {
+                lunar_cache_key_ = key;
+                lunar_cache_valid_ = SolarToVietnameseLunarDate(day, month, year, &lunar_cache_);
+            }
+            lunar_ready = lunar_cache_valid_;
+        }
+    }
+    cJSON_AddBoolToObject(lunar, "available", lunar_ready);
+    if (lunar_ready) {
+        cJSON_AddNumberToObject(lunar, "day", lunar_cache_.day);
+        cJSON_AddNumberToObject(lunar, "month", lunar_cache_.month);
+        cJSON_AddNumberToObject(lunar, "year", lunar_cache_.year);
+        cJSON_AddBoolToObject(lunar, "leap_month", lunar_cache_.leap_month);
+        char label[64];
+        snprintf(label, sizeof(label), "Ngày %d tháng %d%s năm %d âm lịch", lunar_cache_.day,
+                 lunar_cache_.month, lunar_cache_.leap_month ? " nhuận" : "", lunar_cache_.year);
+        cJSON_AddStringToObject(lunar, "label", label);
+    }
+    cJSON_AddItemToObject(j, "lunar", lunar);
     cJSON_AddItemToObject(j, "entries", EntriesJson(scope));
     cJSON_AddBoolToObject(j, "running", running_);
     cJSON_AddBoolToObject(j, "paused", paused_);

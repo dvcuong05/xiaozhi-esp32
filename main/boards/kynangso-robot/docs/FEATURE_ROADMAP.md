@@ -1,323 +1,160 @@
-# KyNangSo Robot Feature Roadmap
+# Feature plan — KyNangSo Robot
 
-Đây là checklist triển khai cho firmware custom `kynangso-robot`. Các mục
-trong kế hoạch hiện tại đã được hiện thực; phần còn lại bên dưới chỉ là kiểm
-thử trên phần cứng và các ý tưởng mở rộng trong tương lai.
+Cập nhật lần cuối: 19/11/2026. Tài liệu này là mục lục trạng thái và đề xuất
+tính năng cho firmware custom `kynangso-robot`. Luồng kỹ thuật chi tiết nằm
+trong các tài liệu được liên kết và [README phần cứng](../readme.md).
 
-## Working rules
+## Quy ước trạng thái
 
-- [ ] Chạy `idf-init` trước mỗi lần build hoặc flash firmware.
-- [ ] Giữ thay đổi dành riêng cho robot trong `main/boards/kynangso-robot/`
-      nếu tính năng không cần chia sẻ cho board khác.
-- [ ] Build trước khi flash và ghi rõ giới hạn của kiểm thử phần cứng.
-- [ ] Cập nhật file này và `readme.md` khi trạng thái tính năng thay đổi.
+- **Hoàn thành**: phần mã nguồn và tích hợp đã có; bằng chứng build, triển khai
+  hoặc kiểm tra robot được ghi riêng, không suy ra từ dấu `[x]`.
+- **Nghiệm thu còn mở**: implementation đã có nhưng còn bước xác nhận trên
+  phần cứng/bản firmware hiện tại.
+- **Backlog đề xuất**: chưa chốt phạm vi hoặc điều kiện tiên quyết; chưa phải
+  cam kết triển khai.
+- **Tạm hoãn**: giữ quyết định hiện tại, không tính là việc đang làm.
 
-## Planned features
+## Nghiệm thu còn mở
 
-- [x] Màn hình chính động (Dynamic Main Screen) có thẻ toàn màn hình cho khuôn mặt, lịch kế
-      tiếp và thời tiết; dashboard cấu hình thẻ, thứ tự và chu kỳ. Radio/nhạc/TV/đồng hồ, hội
-      thoại cùng overlay ưu tiên tạm dừng tính năng. Workflow: features/info-shuttle/README.md.
-- [x] Nối weather provider Open-Meteo ở MCP backend với robot qua WSS Device Bridge
-      `weather.current`; backend cache theo địa điểm 15 phút, giới hạn 256 địa điểm. Robot giữ
-      dữ liệu gần nhất khi mất mạng; MCP `self.robot.dynamic_main_screen.refresh_weather` cho phép
-      xếp yêu cầu cập nhật nền theo giọng nói. Thẻ vẫn chỉ hiện khi cấu hình Dynamic Main Screen bật.
-      Backend geocoding ưu tiên kết quả thủ đô `PPLC` nếu có nhiều địa danh trùng tên (ví dụ Hà Nội);
-      trường hợp còn mơ hồ vẫn yêu cầu người dùng bổ sung tỉnh/thành.
+Các mục dưới đây không phải feature thiếu mã nguồn. Chúng cần thiết bị thật,
+thẻ nhớ hoặc nhiều robot để xác nhận hành vi cuối cùng.
 
-- [x] Thư viện nhạc web sửa trực tiếp ca sĩ/album/thể loại; lưu override theo tên
-      file trong `/robot/music` vào `.metadata.json` trên thẻ, merge sau ID3 trước tên file khi dựng index;
-      tìm kiếm và phát playlist vẫn tra catalog RAM, có thao tác khôi phục metadata.
-- [x] Player nhạc SD trên web: index thời lượng ID3 `TLEN` hoặc tính từ frame
-      MP3 khi thiếu tag, hiển thị bài
-      đang phát/vị trí thực tế/thời lượng/thanh tiến trình và chuyển bài kế tiếp;
-      catalog chỉ lặp về bài đầu sau bài cuối. Chưa xác nhận trên robot thật.
-- [x] Nâng cấu hình N16R8 lên flash 16 MiB: CSV riêng của board, NVS 64 KiB,
-      hai OTA slot 3,9375 MiB và assets 8 MiB; hướng dẫn chuyển lần đầu qua
-      USB/serial, backup flash và dọn phần mở rộng NVS. Cần xác nhận giữ cấu hình,
-      boot/assets và OTA/rollback trên robot thật.
-- [x] MicroSD đợt 1: SPI2 CS42/SCK41/MOSI40/MISO39; GPIO39 thay nút giảm âm lượng theo xác nhận chủ robot. Module microSD đời trước đã nhận thẻ ở VCC 5 V; mount ở worker, lỗi/thiếu thẻ không chặn boot, không tự format.
-- [x] Chuyển sang module microSD mini: SPI2 CS48/SCK39/MOSI38/MISO40, VCC 3,3 V; GPIO48 thay LED tích hợp và không dùng các nút âm lượng vật lý. Không dùng GPIO35–37 vì cấu hình bật Octal PSRAM, các chân này dành cho bộ nhớ. Source/docs đã cập nhật; cần kiểm tra mount với module mới trên robot thật.
-- [x] MicroSD đợt 2: trang `/storage` có trạng thái/dung lượng, danh sách phân trang UTF-8, mkdir, upload/download giới hạn, xóa file và thư mục đệ quy có xác nhận, hủy upload và tháo thẻ an toàn; thêm volume 0–100 trên dashboard. Hoàn tất ở mức source, còn kiểm tra thẻ thật.
-- [x] MicroSD đợt 3: `sd_status`, `sd_search`, `sd_play`, `sd_album_play`, `sd_artist_play`, `sd_stop` qua MCP/device WSS; thư viện phẳng `/robot/music`, upload file luôn vào thư mục đang mở; nhạc phải tải trực tiếp vào folder này mới lập chỉ mục, ID3v2.3/2.4 ưu tiên và fallback tên file `Ca sĩ - Tên bài - Album - Thể loại`. Catalog tối đa 512 bài trên PSRAM dựng sau mount/upload/xóa; hoãn index khi phát SD. Tìm tên bài/ca sĩ/album/thể loại có dấu hoặc không dấu, xếp hạng ổn định; web có bộ lọc, trạng thái index và nút cập nhật. Không ghi catalog lên thẻ. Cần kiểm tra trên robot thật.
-- [x] Duyệt thư viện nhạc lớn trên web: API tìm kiếm trả tổng số kết quả và phân trang offset/limit; giao diện chọn 25/50 bài mỗi trang, sắp xếp theo tên bài/ca sĩ/album/thể loại/thời lượng và lọc bài thiếu metadata. Chỉ đọc catalog RAM, không quét thẻ mỗi lần đổi trang.
-- [x] Audio Visualizer trên TFT: chỉ nhạc/radio đang phát PCM mới chuyển sang
-    spectrum FFT 512 điểm, 12 dải tần với palette nhiều màu trên nền midnight;
-    không bật vì boot/beep/thông báo/TTS. Dừng media thì khôi phục mắt robot.
-- [x] Chatbot speaking giữ mắt cyan và thêm miệng đóng/mở theo mức TTS,
-    tự khép khi im lặng; emotion không làm mất animation miệng.
-- [x] Nhạc tenclass qua `play_music` trên transport TTS vẫn hiện spectrum;
-    TFT có tên bài, lời hiện tại và dòng trước từ `sentence_start`. Không
-    tải thêm LRC, không lưu cả bài; giữ QR priority và reset khi hết session.
-- [x] QR địa chỉ IP webserver qua `self.network.ip2qrcode` và dashboard.
-- [x] Tích hợp music MCP theo provider: Zing MP3 migrate vào client Python
-    trong MCP server; radio-browser là provider/tool riêng. Firmware nhận URL
-    đã chuẩn hóa; deployment không cần repo hay service API Zing chạy riêng.
-    Track dùng `media.play` với metadata/LRC có giới hạn, `media.stop` dừng
-    track; radio vẫn có lifecycle riêng `radio.start`/`radio.stop`.
-- [x] Radio player hiển thị tên đài và metadata stream (tần số nếu nguồn có,
-    thể loại, quốc gia, codec, bitrate) trên TFT ngay khi nhận lệnh phát;
-    `/api/radio/status` và `radio.status` trả thông tin kênh đang phát. Radio
-    Browser không có tần số FM/AM.
-- [x] Dừng nhạc online/SD hoặc radio đang phát và trở về `idle` bằng double-tap cảm biến TTP223.
-- [x] Chạm đơn chuyển bài kế tiếp trong danh sách album/ca sĩ đang phát từ SD; chỉ chuyển trong đúng playlist. Cần kiểm tra thao tác trên robot thật.
-- [x] Báo thức, nhắc việc, countdown và Pomodoro: module riêng của board,
-    lịch NVS tối đa 8 mục, giờ Việt Nam UTC+7, lịch lặp theo ngày; phiên đếm
-    đơn điệu có pause/resume/stop và ẩn/hiện. Trang `/time`, API `/api/time`,
-    MCP `self.time.schedule` / `self.time.timer`; truy vấn lịch hôm nay/lịch
-    kế tiếp, đổi tên/giờ/ngày lặp, bỏ một lần lặp và nhắc việc lặp theo thứ.
-    TFT gradient theo mode, chữ số lớn, vòng tiến độ, thông báo đến hạn và
-    chạm xác nhận. Chuông tái sử dụng popup; snooze 5 phút. Source đã triển
-    khai; xác nhận phần cứng còn mở, countdown/Pomodoro không tiếp tục sau reboot.
-- [ ] Kết nối API và hiện camera giao thông HCM
-- [ ] Tính năng smarthome: điều khiển các thiết bị qua API,..
-- [ ] Tính năng stream IP camera của gia đình (cần plan mua thiết bị phù hợp có public api tích hợp,vv)
-- [x] Kho theme khuôn mặt: 7 theme tích hợp và gói JSON cài qua SD; thêm 4 gói tải từ MyRobot (Red Devil, Capybara, Shiba, Mochi), renderer procedural nhẹ và giữ snapshot NVS khi thiếu thẻ. [Workflow, kho tải và giới hạn](features/face-themes/README.md). Build thành công; chờ nghiệm thu các gói mới trên TFT thật.
-- [x] Theme GIF biểu cảm chính thức: 17 trạng thái, chuẩn hóa trên trình duyệt, lưu GIF và manifest lên microSD; firmware chỉ nạp GIF cần thiết, cache tối đa hai file và hoãn đọc thẻ khi đang phát audio SD. Build và harness chuẩn hóa đã qua; cần nạp firmware mới để nghiệm thu trực quan toàn bộ trạng thái trên robot. [Workflow và giới hạn](features/face-themes/README.md).
-- [x] Live TV: catalog SQLite tại MCP server, `/tv` quản lý/tìm/phát/dừng kênh;
-      MCP `tv_search/play/stop/status`, RPC hai chiều trên WSS hiện có.
-      MJPEG 240×240/12 fps + Opus dùng audio player chung; một phiên TV,
-      frame PSRAM hữu hạn, retry/lease/FFmpeg cleanup, tên kênh góc phải TFT
-      hỗ trợ tiếng Việt. Chạm đôi/nút Stop dừng hình/tiếng. Đã thay tên/tool/
-      route thử nghiệm bằng module chính thức, nạp firmware và deploy VPS.
-      [Workflow](features/live-tv/README.md) và [kế hoạch/kết quả kiểm chứng](features/live-tv/PLAN.md).
-      Hình/tiếng và dấu tiếng Việt được người dùng xác nhận; hai track chưa
-      có PTS chung nên chưa cam kết đồng bộ môi chính xác mọi nguồn HLS.
-- [x] TFT shuttle cho phép bật/tắt và chọn face/calendar/weather, cùng thứ tự ngẫu nhiên/tuần tự và chu kỳ; tile mới ngoài ba loại này vẫn là backlog.
-- [ ] Tạm hoãn (pause) bằng TTP223; chạm đơn chuyển bài trong playlist album/ca sĩ và double-tap dừng nhạc/radio đã triển khai ở trên.
-- [x] Quay chọn ngẫu nhiên qua MCP: nhận 2-16 lựa chọn (tên, hoạt động, món ăn, phương án), MCP hỗ trợ prompt tiếng Việt/English và giữ nguyên nhãn; backend chọn bằng `secrets.choice`, gửi `wheel.start` tới robot đích để TFT chạy vòng quay/pháo giấy. [Workflow firmware](features/name-wheel/README.md); backend xem `docs/features/random-picker/README.md`.
-- [ ] Tính năng trade chứng khoán, hỏi đáp và vẽ màn hình track mã chứng khoán
-- [ ] Làm lại tính năng đọc tin tức của Việt Nam nguồn báo chí của Việt Nam, giá cả thị trường của Việt Nam
-- [x] Cấp token WSS theo từng robot qua enrollment/USB UART, cấu hình NVS và registry nhiều thiết bị trên MCP server. Đã deploy, nạp/provision/revoke/reboot một robot và kiểm tra cùng client giả lập; hai robot vật lý còn chờ; [kế hoạch](features/device-bridge/PLAN.md).
+- [ ] **Theme tùy chỉnh V2 và GIF**: sau khi nạp firmware hiện tại, thử lưu,
+  preview và khôi phục theme hình học; thử trường hợp không có microSD và có
+  microSD; kiểm tra mapping đủ 21 biểu cảm, GIF lỗi/thiếu, chuyển biểu cảm khi
+  phát nhạc SD và mức dùng PSRAM. Người dùng đã xác nhận GIF Cherry PoC chạy
+  mượt; kết quả đó chưa thay cho kiểm tra editor V2 trên bản hiện tại.
+- [ ] **microSD trên cấu hình đang dùng**: thử khởi động lại nhiều lần, thao tác
+  đọc/ghi, phát MP3, mở album ảnh và GIF; thử thiếu thẻ, lỗi mount, kết nối lại
+  và tháo an toàn. Đối chiếu sơ đồ với pin map hiện hành trong README; không
+  tháo thẻ khi đang I/O.
+- [ ] **Lịch và âm thanh nhắc**: kiểm tra nhắc lặp qua các ngày, chờ đồng bộ NTP,
+  chuông khi robot đang phát media/nghe/nói, âm thanh fallback khi không có SD,
+  và chạm xác nhận/snooze. Countdown/Pomodoro dùng thời gian đơn điệu và không
+  khôi phục sau reboot theo quyết định hiện tại.
+- [ ] **Nhật ký offline**: bật/tắt chủ động, xác nhận mặc định tắt, kiểm tra file
+  `/robot/logs/system.jsonl`, xoay vòng/giới hạn dung lượng và bảo đảm không có
+  log được gửi qua mạng. [Workflow](features/diagnostics/README.md).
+- [ ] **Device Bridge nhiều robot**: đã provision và thử một robot thật cùng
+  client giả lập; xác nhận thêm ít nhất hai robot thật trực tuyến đồng thời và
+  kiểm tra lệnh/MCP luôn đi đúng `device_id`.
+- [ ] **Smoke test sau các thay đổi gần đây**: xác nhận OLED theo pin SDA1/SCL2,
+  TFT đúng chiều, motor/Stop, mic/loa, touch, Wi-Fi reconnect, QR và chuyển giao
+  diện giữa mắt robot, nhạc/radio, TV và lịch.
 
-### Ý tưởng mở rộng từ trao đổi về mạch robot (18/10/2026)
+### Live TV — nghiệm thu mở rộng tùy chọn
 
-Ghi chú: đã đối chiếu câu hỏi và câu trả lời trong bản export của session
-ChatGPT. Đây là backlog để bạn chọn dần, không có nghĩa mọi mục đã được chốt
-để triển khai.
+Chủ robot đã xác nhận TV chạy liên tục hơn 25 phút với hình và tiếng ổn; đây là
+mốc nghiệm thu thực tế đã đạt. Nếu cần tăng độ tin cậy trước khi mở rộng nguồn
+kênh hoặc số robot, có thể chạy thêm soak test 30–60 phút và đo RAM/FPS/WSS,
+đứt mạng, cùng độ lệch A/V. Đây là kiểm tra tăng cường, không phải điều kiện để
+coi feature đã triển khai.
 
-- [ ] **P0 - Khảo sát phần cứng trước khi lập trình:** xác nhận module
-      microSD, chân còn dùng được và xung đột bus với TFT; kiểm tra mức logic,
-      nguồn cấp và định dạng thẻ. Xác nhận mạch TTP223, VL53L1X, bộ phát/thu IR,
-      loại đèn Edison và driver. Với thông tin 3 V/120 mA, chưa được giả định
-      LED là addressable hay 120 mA cho từng đèn/cả cụm; không cấp dòng tải từ
-      GPIO ESP32. Sơ đồ ngày 15/11/2026 đã dành GPIO19 cho nhánh LED Edison;
-      chân này trùng native USB D−, chưa có driver điều khiển LED trong firmware.
-      OLED mặc định chuyển sang SDA1/SCL2; nguồn D1 đổi sang 3,3 V.
-      Kiểm tra driver LED và nguồn dưới tải vẫn chưa được nghiệm thu.
-- [x] **P1 - Nền tảng lưu trữ microSD:** `SdStorage` sở hữu SPI2/FatFs,
-      mount/unmount, trạng thái lỗi, truy cập file giới hạn và đồng bộ vòng đời.
-      Async HTTP worker phục vụ quản lý file, không chặn audio/main loop.
-      Không có chân card-detect: nhận lỗi khi I/O, cần remount thủ công; không
-      cam kết hot-plug. Kiểm thử nguồn/thẻ thật còn mở.
-- [x] **P1 - Phát nhạc và âm thanh offline:** duyệt/phát file local qua player
-      dùng chung; thiết kế Audio Manager để ưu tiên TTS, nhạc, hiệu ứng và tránh
-      tranh chấp I2S/loa. `/storage` phát `.mp3`, `.ogg`, `.opus` qua cùng
-      `NotifyPlayer`/`AudioStreamDecoder` như HTTP. MP3 dùng streaming decoder
-      Espressif, trộn stereo về mono/resample, giữ visualizer và timestamp subtitle.
-      Thẻ được giữ mở khi phát; thao tác ghi/xóa/tải/tháo bị từ chối. MCP dùng
-      passthrough cho MP3 nguồn hợp lệ, Opus cho codec khác/HLS hoặc đoạn cắt có
-      giới hạn thời gian. Không tạo player riêng hoặc đưa provider vào firmware.
-      Build ESP-IDF 6.1 đã qua; app còn 91.328 byte (~3%). Chưa có playlist/tự
-      chuyển bài hoặc WAV; nghe loa, heap/CPU, lyrics và ngắt phát trên robot
-      thật vẫn cần kiểm chứng.
-- [x] **P1 - Tương tác TTP223:** GPIO20, chạm đơn luân phiên biểu cảm mắt kèm
-      âm báo ngắn và lưu biểu cảm làm mặc định idle trong NVS khi robot rảnh
-      (không tự chạy bánh xe), chạm đôi bắt đầu hội thoại, hủy phiên nghe hoặc
-      ngắt lời để chuyển sang nghe thủ công tùy trạng thái; nhấn giữ dừng
-      motor/routine/nhịp cảm xúc ở mọi trạng thái. Dùng debounce và nhận diện
-      chạm đơn/đôi của thư viện nút bấm; tắt USB Serial/JTAG phụ của board.
-      Chưa kiểm chứng trên robot thật.
-- [ ] Âm thanh local và phản ứng chuyển động theo chạm: chỉ xem xét sau khi
-      thống nhất âm báo và có điều kiện an toàn cho bánh xe; không tự bật mặc định.
-- [ ] **P1 - Tránh vật cản bằng VL53L1X:** đọc ToF theo chu kỳ, dừng an toàn khi
-      cảm biến lỗi hoặc dữ liệu quá cũ; tích hợp vào routine khám phá/di chuyển
-      để giảm tốc, dừng hoặc đổi hướng. Ngưỡng phải hiệu chỉnh trên robot thật.
-- [ ] **P1 - Ngôn ngữ ánh sáng cho ba đèn sau:** quy ước trạng thái khởi động,
-      ready/listening/processing/speaking, vui khi chạm, di chuyển/rẽ, vật cản,
-      dừng khẩn cấp, pin yếu và lỗi. Tách hiệu ứng khỏi state machine; xác nhận
-      driver, PWM và tổng dòng trước khi bật hiệu ứng dài hoặc theo nhạc.
-- [ ] **P1 - Điều khiển thiết bị bằng IR:** thêm tool/lệnh tổng quát và phát mã
-      IR; bắt đầu với các lệnh TV Samsung phổ biến, đồng thời ghi rõ giới hạn
-      của remote Smart đời mới có thể cần Bluetooth/SmartThings cho một số lệnh.
-      Nếu cần học remote, bổ sung module thu tương thích và lưu mã đã học trên
-      microSD; kiểm tra tương thích model trước khi mở rộng sang máy lạnh.
-- [ ] **P2 - SmartThings qua MCP/backend:** sau khi xác nhận TV đã được thêm và
-      điều khiển được trong SmartThings, tích hợp qua service MCP ở
-      `xiaozhi-kynangso-services`; backend giữ credential và gọi API, ESP32 chỉ
-      gửi tool request/nhận kết quả. Không lưu token SmartThings trên robot.
-      IR và SmartThings là hai đường điều khiển riêng, không giả định thay thế
-      hoàn toàn cho nhau.
-- [ ] **P2 - Hồ sơ robot và tài nguyên trên thẻ:** cấu hình JSON có validate
-      cho tốc độ, ngưỡng cảm biến, âm lượng và chế độ; nạp âm thanh cảm xúc,
-      biểu cảm/animation OLED và tính cách từ file nhẹ, có fallback khi thiếu
-      hoặc hỏng. Không lưu Wi-Fi token, SmartThings token hay bí mật dạng rõ.
-- [ ] **P2 - Nhật ký và dữ liệu offline:** ghi sự kiện lỗi/reset, mất Wi-Fi,
-      dừng motor khẩn cấp và thống kê cảm biến để chẩn đoán; có giới hạn dung
-      lượng/ghi luân phiên. Không lưu hội thoại hoặc ghi âm mặc định; nếu thêm
-      ghi âm hay bộ nhớ hội thoại thì cần bật chủ động, kiểm soát thời hạn và
-      cung cấp cách xóa dữ liệu.
-- [x] **P2 - Xem ảnh từ microSD trên TFT:** `/robot/images/` làm root cố định,
-      thư mục con là album. Index lazy trên PSRAM tối đa 256 ảnh, làm mới sau thay
-      đổi file/mount; MCP hỗ trợ tìm ảnh, hiện JPEG, trình chiếu ngẫu nhiên có giới hạn và dừng; web /storage cho album chọn tuần tự hoặc ngẫu nhiên không lặp, thời gian mỗi ảnh 5–60 giây, tự kết thúc và có nút dừng. Uploader web tối ưu ảnh ngay trên trình duyệt;
-      giới hạn và dừng. Uploader web tối ưu ảnh ngay trên trình duyệt (đầu vào tối
-      đa 5 MiB, cạnh dài 480 px, JPEG đầu ra tối đa 512 KiB); firmware vẫn giữ
-      giới hạn giải mã 512 KiB/512 × 512 và giải mã ngoài task giao diện. Cần xác
-      nhận upload/hiển thị trên TFT thật.
-- [ ] **P3 - Cầu nối loa Bluetooth:** chỉ làm prototype nếu thực sự cần loa BT;
-      dùng một ESP32 có Bluetooth Classic/A2DP làm co-processor nhận PCM từ S3
-      (đánh giá I2S trước), đo độ trễ và xử lý audio focus/reconnect. ESP32-S3
-      hiện tại không tự đảm nhiệm A2DP Classic.
-- [ ] **P3 - Laser chỉ điểm có kiểm soát:** xác minh class/công suất, bước sóng,
-      driver và hướng lắp trước. Mặc định tắt, lệnh bật có chủ ý và timeout;
-      chỉ chiếu cố định xuống mặt sàn/bề mặt an toàn, không quét tự động vào
-      người, thú cưng hay bề mặt phản quang. Dùng LED chiếu điểm thay laser cho
-      trò chơi với thú cưng.
-## Completed implementation
+Chi tiết và bằng chứng: [kế hoạch Live TV](features/live-tv/PLAN.md) và
+[workflow firmware](features/live-tv/README.md).
 
-- [x] Refactor kiến trúc firmware: board khởi tạo phần cứng, HTTP/MCP cùng
-      gọi `RobotController`, NVS tập trung trong `RobotSettings`, OLED có
-      service riêng sở hữu I2C/framebuffer/task; bỏ C wrapper và global board.
-- [x] Tổ chức source theo `core/`, `features/`, `display/`, `integration/` và
-      `web/`; HTTP handler ở `web/server/`, giao diện nhúng ở `web/ui/`.
-      Source firmware khai báo trong `board_sources.cmake`; xem bản đồ module
-      và hướng dẫn thêm file trong `readme.md`.
-- [x] OTA KyNangSo: source hỗ trợ rollout theo robot, khách yêu cầu cập nhật,
-      kiểm tra model/partition/assets/SHA-256, tiến độ TFT và telemetry qua WSS.
-      Xem `features/firmware-ota/README.md`; nghiệm thu tải/reboot/rollback trên
-      phần cứng là bước riêng sau build và kiểm thử backend.
-- [x] Tập trung quyền hiển thị TFT theo thứ tự QR → boot → visualizer → eyes;
-      QR hết hạn quay về chế độ phù hợp với playback/boot hiện tại.
-- [x] Chuyển mẫu visualizer qua mailbox cố định, giới hạn UI 25 FPS và xử lý
-      playback stopped; bỏ callback xếp hàng theo từng PCM frame.
-- [x] Core dùng boot config do board cung cấp; giữ branding, defaults/migration
-      NVS và tên Wi-Fi provisioning của KyNangSo trong board riêng.
-- [x] Board custom, TFT ST7789, OLED SSD1306, robot drive, microphone,
-      speaker, eyes và web server được tách dưới `kynangso-robot`.
-- [x] Web dashboard điều khiển Forward/Backward/Left/Right, Stop, đảo
-      chiều từng motor, cấu hình TFT/OLED và gửi prompt qua MCP queue.
-- [x] Hai routine chuyển động: `Hiếu động` chạy lặp vô hạn tới khi Stop hoặc
-      có lệnh mới; `Dancing` chạy routine ngắn có giới hạn.
-- [x] MCP điều khiển chuyển động, Stop, routine, emotion, OLED mode, IP,
-      status và văn bản tạm thời trên OLED.
-- [x] OLED clock, marquee, status, off; hỗ trợ tiếng Việt bitmap, emoji đơn
-      sắc, xoay 180 độ, contrast, invert và lưu cấu hình NVS.
-- [x] OLED boot hiển thị lời chào `KyNangSo Robot` và IP local trước khi
-      chuyển về mode đã lưu khi Wi-Fi/robot sẵn sàng.
-- [x] OLED status hiển thị giờ, ngày dạng `dd-MMM`, cột sóng Wi-Fi và trạng
-      thái `IDLE`/`LISTENING`/`SPEAKING`.
-- [x] TFT 240x240 hỗ trợ xoay cấu hình qua webserver và panel offset `(80, 0)`
-      cho phần cứng lắp ngang hiện tại.
-- [x] TFT dùng nền đen, mắt robot cyan `#0abde3`, emotion custom, wake-up,
-      blink, glance, curiosity và animation riêng cho speaking/listening.
-- [x] Boot console trên TFT có hiệu ứng gõ chữ và vùng log cuộn; âm thanh
-      typing đã được loại bỏ để không làm chậm boot hoặc ảnh hưởng hội thoại.
-- [x] Tích hợp audio starting và robot-eye wake; không phát typing sound.
-- [x] QR thanh toán mặc định đổi qua web/NVS, QR URL/text tạm qua MCP,
-      QR IP hiện tại; bitmap ngân hàng gốc giữ làm mặc định khi chưa cấu hình.
-      Ma trận 1-bit, quiet zone 4 module, caption tùy chọn, giữ 5–120 giây
-      và phục hồi đúng UI. Cấu hình lỗi từ chối hiển thị thay vì đổi người nhận.
-- [x] Audio Visualizer nhận PCM playback và vẽ các cột màu trên TFT; không
-      dùng font trong overlay boot-time để tránh phụ thuộc font assets.
-- [x] QR payment dùng bitmap 37x37 chỉ khoảng 185 byte, không cần QR runtime
-      decoder/renderer; thời lượng MCP hỗ trợ 5–120 giây, mặc định 30 giây.
-- [x] Build firmware bằng ESP-IDF 6.1 cho ESP32-S3; cấu hình flash 16 MiB
-      cấp 3,9375 MiB cho mỗi OTA slot thay cho giới hạn 2,9375 MiB cũ.
-      Dung lượng trống thực tế phụ thuộc binary của từng lần build.
+## Backlog đề xuất — chưa chốt triển khai
 
-## Current implementation status
+Thứ tự dưới đây là gợi ý theo mức phụ thuộc, không phải cam kết hay thứ tự bắt
+buộc. Trước khi chọn một mục, cần chốt hành vi người dùng, nguồn dữ liệu/phần
+cứng, giới hạn tài nguyên và phần nào thuộc MCP server.
 
-Tất cả hạng mục trong kế hoạch hiện tại đã hoàn tất ở mức mã nguồn:
+### Dịch vụ và dữ liệu
 
-- [x] P0 — Điều khiển robot và routine từ webserver/MCP.
-- [x] P0 — Gửi câu chữ tùy chọn lên OLED mà không ghi đè marquee đã lưu.
-- [x] P0 — Hiển thị IP, status và đổi OLED mode từ MCP.
-- [x] P1 — Mắt robot sinh động: blink, glance, curiosity, emotion và state
-      animation.
-- [x] P1 — OLED status dùng ngày `dd-MMM` và layout hai cột.
-- [x] P1 — QR thanh toán trên TFT với thời gian hiển thị đủ dài để quét.
-- [x] P1 — Routine chạy trong task FreeRTOS riêng, không chặn audio/main loop.
-- [x] P1 — Boot OLED hiển thị tên robot và IP trước khi về mode bình thường.
-- [x] P1 - Audio Visualizer nhận PCM media và tính FFT thật trên main task,
-      mailbox 512 mẫu cố định, tối đa 25 FPS; TTS chỉ điều khiển miệng robot.
+- [ ] **Tin tức và dữ liệu thị trường Việt Nam**: cải thiện trải nghiệm hỏi tin,
+  giá và mã chứng khoán, có thể hiển thị tóm tắt/biểu đồ trên TFT. Tái sử dụng
+  hợp đồng hiển thị `display.news` hiện có; chốt provider, giấy phép dữ liệu,
+  attribution, đơn vị và tần suất cập nhật ở MCP server trước khi mở rộng.
+  Firmware chỉ nhận nội dung đã rút gọn. Tham khảo
+  [hợp đồng hiển thị tin tức](features/news/README.md).
+- [ ] **Kết quả xổ số tỉnh/thành và Vietlott**: tìm nguồn chính thức, thời điểm
+  cập nhật và quyền sử dụng; MCP truy vấn theo đài/ngày, robot đọc kết quả và
+  có thể trình bày hiệu ứng quay số trên TFT. Không dùng hiệu ứng quay làm
+  nguồn kết quả ngẫu nhiên hay thay cho dữ liệu công bố.
+- [ ] **Nhà thông minh**: xác định thiết bị và API cần điều khiển trước. Với
+  SmartThings, ghép TV/tài khoản và xác nhận quyền API; backend giữ credential,
+  firmware chỉ gửi yêu cầu MCP. IR là đường điều khiển riêng, không giả định
+  thay thế hoàn toàn SmartThings.
+- [ ] **Gói dịch vụ và thanh toán**: trước tiên xác định gói, quyền lợi, chủ thể
+  sở hữu robot và quy tắc gia hạn/thu hồi. Sau đó thiết kế entitlement giữa
+  `myrobot.kynangso.com`, MCP server và firmware; chưa thêm cơ chế thanh toán
+  hoặc khóa tính năng phía robot khi nghiệp vụ chưa chốt.
 
-Không còn mục implementation nào đang chờ trong kế hoạch đã chốt. Các thay
-đổi tiếp theo chỉ nên mở roadmap mới sau khi xác định rõ phạm vi và ảnh hưởng
-đến bộ nhớ, audio hoặc giao thức MCP.
+### Trải nghiệm hội thoại
 
-- [x] P1 - Track từ MCP dùng player chung `NotifyPlayer` với source `Media`,
-      nhận metadata và timed lyrics qua `media.play`; `media.stop` dừng track.
-      Radio dùng provider/tool và lifecycle riêng. Provider Zing MP3, LRC và
-      URL proxy thuộc MCP server, không firmware.
+- [ ] **Gia sư học tập**: gom Toán, Lý, Hóa, Văn, Sinh, Sử (Việt Nam và thế giới)
+  vào một trải nghiệm; xác định cách hỏi/giải thích theo độ tuổi và dùng MCP cho
+  nội dung cần tra cứu.
+- [ ] **Gia sư ngôn ngữ**: Anh, Pháp, Trung, Hàn, Nhật, Thái, Nga và Việt; chốt
+  các chế độ luyện nói, sửa câu và bài tập thay vì chỉ liệt kê ngôn ngữ.
+- [ ] **Kể chuyện và hài hước cho trẻ**: xác định nhóm tuổi, độ dài, giọng đọc,
+  nội dung phù hợp và cách dừng/phát tiếp.
+- [ ] **Gói âm thanh và phản hồi chạm**: hiện đã có âm báo chạm ngắn; cân nhắc
+  cho người dùng chọn thêm âm thanh theo cảm xúc từ SD. Chuyển động bánh xe theo
+  chạm vẫn phải tùy chọn, mặc định tắt và chỉ mở sau khi xác nhận điều kiện an
+  toàn cũng như không làm gián đoạn audio/hội thoại.
+- [ ] **Lịch âm trong `/time`**: ngày âm, ngày lễ/sự kiện và nhắc lịch; chọn
+  thuật toán/lịch nguồn đáng tin cậy, quy tắc múi giờ và cách xử lý năm nhuận.
+- [ ] **Thần số học/tử vi**: nếu triển khai, xác định đây là nội dung giải trí,
+  cách hỏi dữ liệu cần thiết và cách tránh trình bày suy đoán như thông tin chắc
+  chắn.
 
-## Hardware validation backlog
-- [ ] Báo thức/nhắc việc: tạo, liệt kê hôm nay/kế tiếp, đổi tên/giờ/ngày lặp,
-      bỏ một lần, bật/tắt/xóa bằng giọng nói và web; đúng UTC+7, lưu reboot,
-      chờ NTP, báo bù trong 10 phút; xác nhận/snooze, đủ 8 lịch và lỗi NVS.
-      Kiểm tra nhắc việc lặp qua nhiều ngày và chuông khi media đang phát/lúc nghe nói.
-- [ ] Countdown/Pomodoro: pause/resume, từng pha tập trung/nghỉ/nghỉ dài,
-      đổi giờ NTP không đổi đếm, ẩn/hiện, hết phiên về mặt robot; TFT không
-      cắt chữ Việt, ưu tiên QR/album/boot và touch khi thông báo đang hiện.
-- [ ] MicroSD: xác nhận qua nhiều lần reboot với nguồn module 5 V, đọc log `RobotSD`, kiểm tra thiếu thẻ/lỗi mount vẫn có Wi-Fi/web/audio, mount lại và tháo an toàn. Sơ đồ PNG/SVG sẽ do chủ robot cập nhật.
-- [ ] Upload/download file có tên tiếng Việt, so SHA-256 trước/sau, file rỗng và nhiều khối; từ chối trùng tên, sai offset, vượt giới hạn và traversal. Thử ngắt upload, đầy thẻ, tháo thẻ lúc I/O; xác nhận web Stop và hội thoại vẫn phản hồi khi truyền file.
+### Phần cứng và tích hợp tại nhà
 
-- [ ] Sau refactor, xác nhận cấu hình NVS cũ vẫn được giữ; đổi mode OLED từ
-      HTTP và MCP cho cùng kết quả, xoay TFT/OLED và reboot không mất cấu hình.
-- [ ] Xác nhận QR hết hạn khi đang nghe radio, kết thúc playback khi QR đang
-      hiện, và boot audio không làm visualizer giành màn hình trước READY.
-Đây không phải là feature chưa implement; các mục này cần robot thật để xác
-nhận vì build không thể kiểm tra dây nối, cực tính motor hoặc chất lượng hiển
-thị:
+Các mục này chỉ chuyển sang implementation sau khi có đúng module, pin, driver,
+nguồn cấp và cách điều khiển để kiểm tra trên robot.
 
-- [ ] Nâng bánh khỏi mặt đất, xác nhận Forward/Backward và Left/Right, Stop,
-      timeout và cờ đảo chiều motor.
-- [ ] Xác nhận TFT sau khi khởi động lại với offset `(80, 0)` và góc lắp thực tế.
-- [ ] Xác nhận OLED 0/180 độ, layout status và IP trên module 128x32.
-- [ ] Xác nhận INMP441, wake/VAD, loa, ngắt audio và reconnect Wi-Fi/protocol.
-- [ ] Kiểm tra thời gian boot từ power-on tới Wi-Fi, web server, IP và READY.
-- [ ] Quét thử QR ở nhiều khoảng cách và xác nhận QR tự quay lại mắt robot sau
-      timeout.
+- [ ] **Tránh vật cản VL53L1X**: module hiện chưa lắp. Xác nhận giao tiếp, vị trí,
+  ngưỡng khoảng cách và phản ứng an toàn; lỗi hoặc dữ liệu cũ phải dừng chuyển
+  động thay vì tiếp tục routine.
+- [ ] **Đèn Edison phía sau**: xác nhận loại đèn, driver và dòng tải. GPIO19 theo
+  sơ đồ không được cấp tải trực tiếp; kiểm tra xung đột USB D− và hiệu quả với
+  nguồn thực tế trước khi định nghĩa hiệu ứng.
+- [ ] **Điều khiển hồng ngoại**: xác nhận module phát; nếu cần học remote thì
+  chọn thêm module thu. Bắt đầu với tập lệnh và model TV/điều hòa cụ thể.
+- [ ] **Camera giao thông TP.HCM và camera IP gia đình**: hai use case riêng;
+  cần xác nhận API/URL, quyền truy cập, codec/độ phân giải và khả năng giải mã
+  trên robot. Không mặc định Live TV HLS hỗ trợ được mọi camera.
+- [ ] **Loa Bluetooth**: chỉ làm prototype khi có nhu cầu rõ; chọn phần cứng
+  co-processor, đường PCM, độ trễ, audio focus và reconnect trước.
+- [ ] **Hồ sơ/tài nguyên robot trên SD**: chỉ mở rộng khi có cấu hình cụ thể cần
+  chia sẻ giữa các máy; schema phải validate và có fallback. Không lưu Wi-Fi,
+  token hoặc bí mật dạng rõ trên thẻ.
 
+## Tạm hoãn và quyết định đã chốt
 
-## Decisions and references
+- Tạm hoãn pause nhạc/radio bằng TTP223. Chạm đôi hiện dừng playback và đưa
+  robot về `idle`; chạm đơn chuyển bài chỉ áp dụng trong playlist album/ca sĩ
+  từ SD.
+- Countdown/Pomodoro không cần khôi phục sau reboot; tiếp tục dùng bộ đếm đơn
+  điệu khi robot đang chạy.
+- Laser chưa đưa vào roadmap triển khai. Nếu có nhu cầu tương tác sau này, ưu
+  tiên LED chỉ điểm an toàn và rà soát phần cứng trước.
 
-- Board definition mô tả phần cứng và nhận diện OTA; firmware tùy biến bổ sung
-  các module sản phẩm. Giữ module robot trong thư mục board hiện tại, chỉ đưa
-  logic ra phần dùng chung khi có hợp đồng độc lập với phần cứng/branding.
-- Tham khảo checkout `TienHuyIoT/xiaozhi-esp32_vietnam`, nhánh `develop_vn`,
-  commit `287e0ea`, về cách tách player/UI/MCP; không nhập nguyên bộ feature
-  hoặc thay audio pipeline chỉ vì dự án tham khảo dùng cách đó.
-- Luồng và trách nhiệm sau refactor được mô tả trong
-  [`readme.md`](../readme.md), phần “MCP va routine robot”.
-- Board vẫn dùng transport và MCP chính thức của XiaoZhi/tenclass.net.
-- `hudrucan/xiaozhi-desk-robot` là repository reference cho ý tưởng UI và
-  hành vi robot; không sao chép GPIO, board identity hoặc giả định backend.
-- Boot OLED độc lập với mode OLED đã lưu, kể cả `OFF`, để luôn có thể hiển thị
-  IP local trong giai đoạn kết nối.
-- Khi READY, OLED quay về mode đã lưu và TFT chuyển sang robot eyes.
-- QR được lưu trong `features/payment/payment_qr_bitmap.h`; không lưu thông tin tài khoản dạng
-  text trong firmware ngoài dữ liệu bitmap người dùng cung cấp.
-- [ ] Kiểm tra boot/beep/TTS không bật spectrum; nhạc/radio chỉ bật sau PCM
-      đầu tiên, dừng/reconnect/QR expiry khôi phục đúng mode. Xác nhận miệng
-      nói theo TTS và khép khi pause/listening; không ảnh hưởng wake/VAD/audio.
-- [ ] Replay nhạc bằng tool tenclass `search_music` → `play_music`: spectrum
-      hiện sau PCM đầu tiên, tên bài/lyrics tiếng Trung hoặc Việt đọc được;
-      sau bài hát, câu nói thường trở lại mắt/miệng. Thử QR trong lúc hát.
-- [ ] Quét QR URL/IP và QR thanh toán mới trên TFT thật, kiểm tra đúng người
-      nhận/số tiền, giữ sau reboot; QR tạm/IP không thay mặc định. Thử record
-      NVS lỗi, xoay TFT, renew timer và expiry khi nhạc/boot/eyes đang hoạt động.
+## Hoàn thành
 
-## Thứ tự backlog sau rà soát (17/11/2026)
+Các mục đã rời backlog implementation. Trạng thái kiểm chứng cụ thể được ghi
+trong feature doc hoặc README; dấu hoàn thành không có nghĩa mọi tổ hợp phần
+cứng/nguồn dữ liệu đều đã được kiểm thử.
 
-Các mục dưới đây xếp theo mức sẵn sàng triển khai, không phải cam kết hoàn thành cùng lúc.
+| Nhóm | Phạm vi đã hoàn thành | Tài liệu |
+| --- | --- | --- |
+| Nền tảng firmware | Tách module board, core/feature/display/integration/web; `RobotController`, quản lý settings/NVS; webserver và dashboard; điều khiển motor/routine qua web và MCP. | [README board](../readme.md) |
+| Bộ nhớ flash | Cấu hình flash 16 MiB cho board N16R8, partition riêng, NVS mở rộng, hai OTA slot và vùng assets. | [README board](../readme.md) |
+| Kết nối và phát hành | Device Bridge WSS với token theo robot, enrollment/provision USB, registry nhiều thiết bị; managed OTA có kiểm tra tương thích, SHA-256 và rollback của bootloader. | [Device Bridge](features/device-bridge/README.md), [OTA](features/firmware-ota/README.md) |
+| TFT, OLED và giao diện | TFT 240×240, OLED tùy chọn, cấu hình web/MCP, font tiếng Việt cho OLED chạy chữ, màn hình thông tin động, QR, ưu tiên lớp hiển thị và khôi phục giao diện. | [README board](../readme.md), [màn hình thông tin](features/info-shuttle/README.md) |
+| Biểu cảm và theme | 21 biểu cảm; theme LVGL dựng sẵn; editor theme JSON màu/hình học; theme GIF nhiều file, mapping 21 trạng thái, preview trong trình duyệt và nạp GIF theo nhu cầu từ SD. | [Workflow và giới hạn](features/face-themes/README.md) |
+| Cảm biến chạm TTP223 | Chạm đơn chọn biểu cảm/kế tiếp trong playlist SD; chạm đôi điều khiển hội thoại hoặc dừng media; nhấn giữ dừng motor. Không hỗ trợ pause media. | [README board](../readme.md) |
+| Âm nhạc và radio | Zing MP3 trong MCP server, radio là provider riêng; phát track/metadata/lyrics bằng player chung; radio status trên TFT; spectrum chỉ hiện với nhạc/radio; speaking có miệng robot. | [Sơ đồ MCP music/radio](features/music-radio-mcp-flow.svg) |
+| microSD và nội dung offline | Quản lý file/thư mục; phát MP3/Ogg/Opus, tìm và chuyển bài trong playlist SD; xem JPEG/album; chuông lịch có fallback khi không có SD; nhật ký chẩn đoán offline bật chủ động. | [README board](../readme.md), [nhật ký offline](features/diagnostics/README.md) |
+| Lịch và bộ hẹn giờ | Báo thức, nhắc việc lặp, countdown và Pomodoro; trang `/time`, API và MCP; quản lý lịch hội thoại; giao diện TFT theo từng mode. | [README board](../readme.md) |
+| Thời tiết và chọn ngẫu nhiên | Open-Meteo qua MCP/WSS, làm mới theo yêu cầu và thẻ thời tiết; Random Wheel 2–16 lựa chọn, tiếng Việt/English, nhãn giữ nguyên, vòng quay TFT và pháo giấy. | [Màn hình thông tin](features/info-shuttle/README.md), [Random Wheel](features/name-wheel/README.md) |
+| Live TV | Danh sách kênh phía MCP, trang `/tv`, MCP search/play/status/stop; video MJPEG và audio Opus dùng tài nguyên giới hạn, tên kênh hỗ trợ tiếng Việt trên TFT. Người dùng đã xác nhận hình/tiếng ổn và chạy liên tục hơn 25 phút. | [Workflow](features/live-tv/README.md), [kết quả kiểm chứng](features/live-tv/PLAN.md) |
 
-1. [x] **Nhật ký chẩn đoán offline**: microSD tùy chọn, giới hạn dung lượng/tuổi thọ;
-   chỉ ghi mã sự kiện hệ thống, không ghi âm hoặc nội dung hội thoại. [Workflow](features/diagnostics/README.md).
-2. **Tin tức và dữ liệu thị trường Việt Nam**: trước khi code cần chốt provider/API, quyền dùng
-   dữ liệu và attribution; RSS công khai không mặc nhiên cho phép dùng trong sản phẩm thương mại.
-3. **SmartThings**: tích hợp backend-only sau khi tài khoản và TV đã được ghép, API quyền điều
-   khiển được xác minh; không đưa credential lên robot.
-4. **Tính năng phụ thuộc phần cứng**: VL53L1X, đèn Edison, IR, camera IP và Bluetooth cần xác nhận
-   module/driver, chân GPIO, nguồn và cách điều khiển trước khi triển khai.
+### Tài liệu tham khảo
 
-Tạm hoãn theo quyết định hiện tại: pause bằng TTP223. Laser chưa đưa vào kế hoạch triển khai;
-ưu tiên LED chỉ điểm an toàn nếu sau này cần trò chơi tương tác.
+- [Sơ đồ mạch hiện hành (PNG)](circuit_diagram.png) · [SVG](circuit_diagram.svg).
+- [Tổ chức module và luồng MCP](../readme.md).
+- Kế hoạch backend đi kèm nằm trong repo `xiaozhi-kynangso-services`; trạng
+  thái deploy/backend cần được xác nhận tại tài liệu của repo đó, không suy ra
+  từ việc firmware đã build.

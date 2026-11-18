@@ -99,7 +99,7 @@ Tên trường `steps` được giữ để tương thích API cũ nhưng **khô
 - `POST /api/storage?op=play&path=<đường dẫn URL-encoded>`: phát file MP3 (`.mp3`) và Ogg/Opus (`.ogg`, `.opus`) trực tiếp từ microSD. `/storage` hiện nút Phát cho ba đuôi này; `POST /api/storage?op=stop` dừng playback. `SdAudioInput` chỉ đọc file có giới hạn, còn `NotifyPlayer` và `AudioStreamDecoder` dùng chung cho SD/HTTP. Decoder được chọn một lần từ nội dung đầu stream, nên đổi tên file không chuyển đổi định dạng. MP3 dùng parser/decoder streaming của Espressif, trộn stereo về mono và resample theo output của board; PCM đi qua cùng hàng đợi loa, visualizer và tiến độ subtitle. Trong lúc file đang phát, xóa/ghi/tải file hoặc tháo thẻ bị từ chối để bảo vệ luồng đọc; sau khi dừng có thể thao tác lại. Không cần mạng để tải audio từ thẻ.
 - `GET /api/storage/download?path=<đường dẫn URL-encoded>`: tải file tối đa 1 GiB dạng attachment, đọc từng khối 4096 byte. Tác vụ file HTTP chạy bằng async request ở worker riêng, tối đa một tác vụ tại một thời điểm; motor Stop và các API điều khiển vẫn được HTTP task phục vụ. Tài nguyên I/O thẻ được tuần tự hóa với mount/unmount.
 
-MicroSD hỗ trợ quản lý file, phát offline MP3/Ogg Opus và xem JPEG trên TFT. Chưa có playlist/tự chuyển bài hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho KyNangSo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir`. Sound pack và nhật ký offline vẫn là backlog riêng; NVS không chuyển sang thẻ. Module microSD đời trước đã được thử với VCC 5 V; module microSD mini mới dùng VCC 3,3 V theo thông tin phần cứng. Không suy rộng mức nguồn giữa hai module; xem ghi chú pin map ở trên.
+MicroSD hỗ trợ quản lý file, phát offline MP3/Ogg Opus, tìm và phát playlist theo album/ca sĩ, chuyển bài trong playlist, xem JPEG/album trên TFT, chuông lịch tùy chọn và nhật ký chẩn đoán offline bật chủ động. Playlist hiện giới hạn trong album/ca sĩ; chưa có hàng đợi tùy ý hoặc WAV. `CONFIG_ENABLE_MP3_PLAYBACK` bật mặc định cho KyNangSo Robot; board khác có thể bật nếu đủ flash/RAM. Decoder và resampler MP3 chỉ tồn tại trong phiên phát; scratch PCM cố định tối đa 4.608 byte, hàng đợi loa vẫn có giới hạn. Có thể tạo `/robot/music`, `/robot/sounds`, `/robot/images`, `/robot/profiles`, `/robot/logs`, `/robot/ir` và `/robot/ringtones`. Hiệu ứng âm thanh riêng theo cảm xúc vẫn là ý tưởng chưa triển khai; nhật ký offline mặc định tắt và không gửi dữ liệu qua mạng. NVS vẫn lưu trong flash. Module microSD đời trước đã được thử với VCC 5 V; module microSD mini mới dùng VCC 3,3 V theo thông tin phần cứng. Không suy rộng mức nguồn giữa hai module; xem ghi chú pin map ở trên.
 - `GET/POST /api/tft_config`: `{ "rotation": 0|90|180|270 }`. Do màn hình lắp xoay phải 90° và mapping phần cứng ST7789 của `esp_lvgl_port`, dùng 90° để bù và hiển thị đúng chiều. Lưu NVS và vẽ lại toàn màn hình qua LVGL, giữ sau khi khởi động lại.
 - `GET/POST /api/qr_config`: `{ "payload": "nội dung QR gốc", "caption": "chú thích" }`. Payload tối đa 256 byte UTF-8, caption 96 byte, không nhận ký tự điều khiển. Lưu một QR mặc định trong NVS; payload rỗng chọn lại bitmap ngân hàng ban đầu. GET trả thêm `valid` và `source`; không cache response vì có thể chứa dữ liệu tài khoản.
 - `POST /api/qr/show`: `{ "type": "payment|custom|ip", "duration_ms": 30000 }`; `custom` nhận thêm `payload` và `caption`, chỉ hiện tạm, không lưu. `ip` tạo URL `http://<IP hiện tại>/`; `payment` chỉ dùng QR chủ robot đã lưu hoặc bitmap ban đầu. Thời lượng 5–120 giây, mặc định 30; response `scheduled` không phải xác nhận màn hình đã vẽ xong.
@@ -209,11 +209,13 @@ nhìn sâu xuống sàn rồi đảo sang bên với nhịp chuyển nhanh và d
 Độ lệch nhẹ giữa hai mắt cùng chớp đơn/chớp kép tạo vẻ tò mò, tinh nghịch;
 chu kỳ khoảng 14 giây khi bật hoạt ảnh. Khẩu hình khi nói vẫn theo âm thanh.
 
-Bộ mặt có 16 lựa chọn: bình thường, vui, buồn, giận, ngạc nhiên, buồn ngủ,
-suy nghĩ, lắng nghe, cười lớn, yêu thích, chóng mặt, lơ đãng, tinh nghịch,
-tự tin, ngáp và nháy mắt. Mắt cười cong, mắt khép khi cười lớn, trái tim,
-mắt xoắn, lông mày nghiêng, giọt nước mắt và miệng ngáp giúp phân biệt rõ
-từng trạng thái. Có màu hồng phụ cho má/trái tim; phong cách chính vẫn cyan.
+Robot hỗ trợ 21 biểu cảm: bình thường, vui, buồn, giận, ngạc nhiên, buồn ngủ,
+bối rối, lắng nghe, cười, yêu thích, chóng mặt, mất tập trung, tinh nghịch,
+tự tin, ngáp, nháy mắt, đang nói, ăn ngon, khóc, ngại ngùng và ngầu. Buồn
+(sad) khác khóc (crying); ăn ngon (delicious) và ngại ngùng (embarrassed) có
+trạng thái riêng. Mắt cười cong, mắt khép khi cười, trái tim, mắt xoắn, lông
+mày nghiêng, giọt nước mắt và miệng ngáp giúp phân biệt rõ từng trạng thái.
+Có màu hồng phụ cho má/trái tim; màu sắc còn tùy theme.
 `laugh`/`joy` khác `happy`, `confident`/`cool` có kính riêng; `love`, `dizzy`,
 `distracted`, `devil`, `yawn` và `playful`/`wink` được nhận qua emotion hội thoại
 và MCP `self.robot.set_emotion`. Gói lặp cùng emotion không đặt lại frame.

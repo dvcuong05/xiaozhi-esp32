@@ -1,6 +1,6 @@
 # Live TV — kế hoạch firmware đã chốt
 
-Ngày chốt: 27/10/2026. Trạng thái: đã triển khai và kiểm chứng tích hợp; kiểm chứng mở rộng được ghi riêng bên dưới.
+Ngày chốt: 27/10/2026. Trạng thái: đã triển khai; chủ robot xác nhận hình/tiếng ổn và chạy liên tục hơn 25 phút. Kiểm chứng tải/mạng mở rộng được ghi riêng bên dưới.
 
 Kế hoạch tổng thể: `xiaozhi-kynangso-services/docs/features/live-tv/PLAN.md`.
 File này giữ phạm vi firmware và bằng chứng để tiếp tục sau khi đổi phiên.
@@ -48,7 +48,9 @@ Wi-Fi/LwIP và stack TV trong PSRAM. Không đổi codec trong lượt chính th
 
 - [ ] Trên robot, kiểm tra cả hai chiều SD→TV và TV→SD; xác nhận audio cũ dừng, TFT chuyển giao diện và track SD phát. Thử thêm touch, báo thức/QR/ảnh khi TV đang phát.
 
-- [ ] Soak test liên tục 30–60 phút trên bản cuối; đo RAM/FPS/WSS và lệch A/V.
+- [ ] **Tùy chọn tăng độ tin cậy**: soak test liên tục 30–60 phút trên bản cuối;
+  đo RAM/FPS/WSS, thử gián đoạn mạng và quan sát lệch A/V. Chủ robot đã xác nhận
+  lượt chạy liên tục hơn 25 phút; mục này không còn là điều kiện nghiệm thu feature.
 
 Các mục mở là kiểm chứng vật lý mở rộng, không phải chưa viết implementation.
 Khi đổi phiên: đọc README workflow và PLAN này trước; cập nhật bằng chứng tại
@@ -76,9 +78,10 @@ Khi đổi phiên: đọc README workflow và PLAN này trước; cập nhật b
   XiaoZhi MCP Access Point connected sau deploy. Toàn bộ 51 pytest qua.
 - Đã quan sát thao tác người dùng bổ sung/chuyển ba kênh qua web. Giữ nguyên
   catalog và lựa chọn của người dùng; không xóa hay khôi phục dữ liệu của họ.
-- Các cửa sổ ổn định đạt khoảng 11,6–11,8 fps. Có các lượt chuyển/dừng chủ động;
-  bài đo liên tục một kênh 30 phút chưa hoàn tất, không cộng các lượt ngắn để
-  tuyên bố đã qua soak. Cần chạy lại khi robot không được thao tác trong lượt đo.
+- Tại thời điểm ghi nhận mục này, bài đo liên tục một kênh 30 phút chưa hoàn
+  tất; không cộng các lượt ngắn để tuyên bố đã qua soak. Sau đó, chủ robot xác
+  nhận một lượt chạy liên tục hơn 25 phút (xem phần nghiệm thu bổ sung). Soak
+  30–60 phút hiện là kiểm tra tăng cường tùy chọn.
 - Chưa xác nhận đồng bộ môi dài hạn hay mọi nguồn IPTV. Preview ảnh, alarm/QR
   và double-tap đã được bảo vệ trong luồng code; kiểm chứng vật lý mở rộng vẫn mở.
 

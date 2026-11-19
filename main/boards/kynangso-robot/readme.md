@@ -195,9 +195,11 @@ MCP server đăng ký `lunar_calendar_events` cho câu hỏi về ngày lễ, ng
 sự kiện văn hóa theo một ngày. Bỏ trống ngày để tra hôm nay theo
 `Asia/Ho_Chi_Minh`; ngày cụ thể nhận `YYYY-MM-DD`, `DD.MM.YYYY`, `DD/MM/YYYY`
 hoặc `DD-MM-YYYY`. Ví dụ: “Hôm nay có sự kiện âm lịch gì?”, “Ngày 2026-11-18 có lễ
-gì?” hoặc “Ngày 25.09.2026 là ngày âm nào, có phải Tết Trung Thu không?”.
-Khi câu hỏi gắn phép đổi ngày âm/dương với một lễ hội có tên, tool này trả ngày
-âm và sự kiện trong cùng một lần gọi để chỉ hiện một tờ lịch trên TFT. Không gọi
+gì?” hoặc “Ngày 25.09.2026 là ngày âm nào, có phải Tết Trung Thu không?”. Câu
+“25.09.2026 tức Tết Trung Thu âm lịch là ngày mấy?” cũng phải gọi tool này với
+ngày đã chuẩn hóa thành `2026-09-25`, không chọn công cụ đổi ngày offline chỉ vì
+câu hỏi có cụm “ngày âm”. Tool trả ngày âm và sự kiện trong cùng một lần gọi để
+chỉ hiện một tờ lịch trên TFT. Không gọi
 tiếp `self.calendar.lunar` cho cùng yêu cầu vì nó sẽ thay màn hình bằng bản lịch
 không có dữ liệu sự kiện. Backend lấy danh sách sự kiện tháng từ Nhật Nguyệt,
 lọc theo ngày dương thực tế, giữ tối đa ba mục ngắn và cache kết quả trong sáu
@@ -207,7 +209,9 @@ Server gửi một lệnh Device Bridge `calendar.lunar.events` qua WSS đã xá
 gồm ngày dương và tối đa ba tiêu đề/icon nhỏ. Firmware kiểm tra dữ liệu, tự đổi
 ngày dương sang âm bằng thuật toán offline hiện có rồi xếp việc vẽ vào
 `Application::Schedule()`. TFT hiện tờ lịch toàn màn hình trong 5 giây, với
-điểm nhấn đỏ son, vàng ấm, xanh ngọc và icon hình học nhẹ theo nhóm sự kiện;
+điểm nhấn đỏ son, vàng ấm, xanh ngọc, lớp nền khói tĩnh và họa tiết tiết chế;
+trăng lưỡi liềm đánh dấu ngày âm, mặt trời đánh dấu ngày dương, icon sự kiện đổi
+theo nhóm lễ hội.
 Nếu có sự kiện, TFT chỉ hiện tên chính và icon tương ứng, không hiện dòng múi
 giờ hoặc nhãn dự phòng; nếu API được hỏi nhưng không có mục trong ngày, card báo
 rõ trạng thái đó. Robot không gọi HTTP, không parse payload lịch tháng và không

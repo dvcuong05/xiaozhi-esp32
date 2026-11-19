@@ -578,10 +578,11 @@ void RegisterRobotMcpTools(kynangso::RobotController& controller) {
         "với day/month/year theo âm lịch. Với lunar_to_solar, leap_mode nhận auto, regular hoặc "
         "leap. Dùng auto nếu chưa biết; nếu tháng có cả tháng thường và tháng nhuận, kết quả sẽ "
         "đánh dấu needs_clarification và đưa hai ngày để hỏi lại, không được tự đoán. Năm hỗ trợ "
-        "1900–2100. Ngày âm không hợp lệ sẽ được báo rõ. Chỉ dùng tool này khi người dùng chỉ "
-        "hỏi đổi ngày mà không gắn với lễ hội/sự kiện; nếu có tên ngày lễ hoặc hỏi sự kiện ứng "
-        "với một ngày, dùng MCP server lunar_calendar_events để ngày âm và tên sự kiện cùng hiện "
-        "trên TFT.",
+        "1900-2100. Ngày âm không hợp lệ sẽ được báo rõ. Chỉ dùng tool này khi người dùng chỉ "
+        "hỏi đổi ngày mà không gắn với lễ hội/sự kiện. Nếu người dùng vừa hỏi ngày âm vừa nhắc "
+        "Tết Trung Thu, ngày lễ hay sự kiện, kể cả câu '25.09.2026 tức Tết Trung Thu âm lịch là "
+        "ngày mấy?', bắt buộc dùng MCP server lunar_calendar_events với date=2026-09-25 để ngày "
+        "âm và tên sự kiện cùng hiện trên TFT; không gọi self.calendar.lunar trước hoặc sau tool đó.",
         PropertyList({Property("op", kPropertyTypeString), Property("day", kPropertyTypeInteger, 0),
                       Property("month", kPropertyTypeInteger, 0),
                       Property("year", kPropertyTypeInteger, 0), lunar_leap_mode}),

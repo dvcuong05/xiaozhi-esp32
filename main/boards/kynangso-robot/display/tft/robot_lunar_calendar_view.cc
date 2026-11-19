@@ -21,6 +21,35 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, int x, int y, int width, int height, con
     lv_obj_set_style_text_align(label, align, 0);
     return label;
 }
+
+lv_obj_t* CreateShape(lv_obj_t* parent, int x, int y, int width, int height, uint32_t color,
+                      lv_opa_t opacity, int radius = LV_RADIUS_CIRCLE) {
+    auto* shape = lv_obj_create(parent);
+    lv_obj_remove_style_all(shape);
+    lv_obj_set_size(shape, width, height);
+    lv_obj_set_pos(shape, x, y);
+    lv_obj_set_style_bg_color(shape, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(shape, opacity, 0);
+    lv_obj_set_style_radius(shape, radius, 0);
+    lv_obj_remove_flag(shape, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(shape, LV_OBJ_FLAG_CLICKABLE);
+    return shape;
+}
+
+lv_obj_t* CreateOrnamentalRing(lv_obj_t* parent, int x, int y, int diameter, uint32_t color) {
+    auto* ring = lv_obj_create(parent);
+    lv_obj_remove_style_all(ring);
+    lv_obj_set_size(ring, diameter, diameter);
+    lv_obj_set_pos(ring, x, y);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(ring, lv_color_hex(color), 0);
+    lv_obj_set_style_border_opa(ring, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(ring, 1, 0);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+    return ring;
+}
 }  // namespace
 
 RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_font_t* font) {
@@ -33,6 +62,11 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
     lv_obj_set_style_bg_grad_dir(root_, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, 0);
     lv_obj_remove_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Soft, static ink-wash accents. They are plain LVGL shapes, with no timer or image asset.
+    CreateShape(root_, -width / 8, height * 2 / 3, width * 3 / 5, height / 5, 0x2DD4BF,
+                LV_OPA_10);
+    CreateShape(root_, width * 3 / 5, height / 3, width / 2, height / 4, 0xC084FC, LV_OPA_10);
 
     auto* glow = lv_obj_create(root_);
     lv_obj_remove_style_all(glow);
@@ -48,18 +82,26 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
     lv_obj_remove_style_all(card);
     lv_obj_set_size(card, width - 20, height - 28);
     lv_obj_center(card);
-    lv_obj_set_style_bg_color(card, lv_color_hex(0x13243A), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x14243A), 0);
+    lv_obj_set_style_bg_grad_color(card, lv_color_hex(0x1B3040), 0);
+    lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_90, 0);
-    lv_obj_set_style_border_color(card, lv_color_hex(0x2DD4BF), 0);
-    lv_obj_set_style_border_opa(card, LV_OPA_50, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x75D7C3), 0);
+    lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
     lv_obj_set_style_border_width(card, 1, 0);
     lv_obj_set_style_radius(card, 18, 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
     const int card_width = width - 20;
-    CreateLabel(card, 8, 7, card_width - 16, 18, "ÂM LỊCH VIỆT NAM", 0xF4D58D,
-                &robot_time_font_14, LV_TEXT_ALIGN_CENTER);
+    // Offset rings echo a moon halo and keep the ornament clear of the centered date text.
+    CreateOrnamentalRing(card, card_width - 36, 35, 21, 0xD8B86A);
+    CreateOrnamentalRing(card, card_width - 29, 42, 11, 0x75D7C3);
+    const int lunar_header_x = (card_width - 160) / 2;
+    CreateShape(card, lunar_header_x + 5, 10, 12, 12, 0xF4D58D, LV_OPA_COVER);
+    CreateShape(card, lunar_header_x + 11, 7, 12, 12, 0x14243A, LV_OPA_COVER);
+    CreateLabel(card, lunar_header_x + 25, 7, 130, 19, "ÂM LỊCH VIỆT NAM", 0xF4D58D,
+                &robot_time_font_14, LV_TEXT_ALIGN_LEFT);
     day_ = CreateLabel(card, 8, 24, card_width - 16, 50, "1", 0xFFF7D6,
                        &robot_info_bold_36, LV_TEXT_ALIGN_CENTER);
     month_ = CreateLabel(card, 8, 74, card_width - 16, 25, "THÁNG 1 · 2026", 0x73E0CF,
@@ -70,7 +112,7 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
     event_icon_ = lv_obj_create(card);
     lv_obj_remove_style_all(event_icon_);
     lv_obj_set_size(event_icon_, 22, 22);
-    lv_obj_set_pos(event_icon_, 13, 116);
+    lv_obj_set_pos(event_icon_, 13, 114);
     lv_obj_set_style_bg_color(event_icon_, lv_color_hex(0x3D3140), 0);
     lv_obj_set_style_bg_opa(event_icon_, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(event_icon_, LV_RADIUS_CIRCLE, 0);
@@ -86,21 +128,27 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
         lv_obj_remove_flag(part, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_remove_flag(part, LV_OBJ_FLAG_CLICKABLE);
     }
-    event_title_ = CreateLabel(card, 42, 116, card_width - 55, 24, "",
+    event_title_ = CreateLabel(card, 42, 114, card_width - 55, 25, "",
                                0xFFF1C1, &text_font_, LV_TEXT_ALIGN_LEFT);
 
     auto* divider = lv_obj_create(card);
     lv_obj_remove_style_all(divider);
     lv_obj_set_size(divider, card_width - 48, 1);
-    lv_obj_align(divider, LV_ALIGN_TOP_MID, 0, 145);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(0xE9B44C), 0);
+    lv_obj_align(divider, LV_ALIGN_TOP_MID, 0, 141);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(0xD8B86A), 0);
     lv_obj_set_style_bg_opa(divider, LV_OPA_70, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
 
-    CreateLabel(card, 8, 151, card_width - 16, 15, "DƯƠNG LỊCH", 0x7EE4D1,
-                &robot_time_font_14, LV_TEXT_ALIGN_CENTER);
-    solar_ = CreateLabel(card, 8, 168, card_width - 16, 22, "01.01.2026", 0xFFF1C1,
+    const int solar_header_x = (card_width - 126) / 2;
+    CreateShape(card, solar_header_x + 2, 153, 7, 7, 0xF4D58D, LV_OPA_COVER);
+    CreateShape(card, solar_header_x + 5, 149, 1, 3, 0xF4D58D, LV_OPA_COVER, 1);
+    CreateShape(card, solar_header_x + 5, 161, 1, 3, 0xF4D58D, LV_OPA_COVER, 1);
+    CreateShape(card, solar_header_x - 1, 156, 3, 1, 0xF4D58D, LV_OPA_COVER, 1);
+    CreateShape(card, solar_header_x + 12, 156, 3, 1, 0xF4D58D, LV_OPA_COVER, 1);
+    CreateLabel(card, solar_header_x + 18, 146, 108, 20, "DƯƠNG LỊCH", 0x8DE0CF,
+                &robot_time_font_14, LV_TEXT_ALIGN_LEFT);
+    solar_ = CreateLabel(card, 8, 168, card_width - 16, 25, "01.01.2026", 0xFFF1C1,
                          &robot_info_bold_20, LV_TEXT_ALIGN_CENTER);
     SetFont(font);
     SetVisible(false);

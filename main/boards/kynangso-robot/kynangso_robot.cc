@@ -12,6 +12,7 @@
 #include "features/live_tv/robot_tv_controller.h"
 #include "features/motion/robot_drive.h"
 #include "features/storage/sd_storage.h"
+#include "features/time/vietnamese_lunar_calendar.h"
 #include "integration/robot_bridge_provisioning.h"
 #include "integration/robot_mcp_tools.h"
 #include "led/single_led.h"
@@ -29,6 +30,7 @@
 #include <cJSON.h>
 
 #include <cstring>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -478,20 +480,84 @@ public:
                                      std::strncmp(type->valuestring, "display.", 8) == 0;
         const bool wheel_command = cJSON_IsString(type) && type->valuestring &&
                                    std::strncmp(type->valuestring, "wheel.", 6) == 0;
+        const bool calendar_command = cJSON_IsString(type) && type->valuestring &&
+                                      std::strcmp(type->valuestring, "calendar.lunar.events") == 0;
         if (tv_command) {
             cJSON_Delete(root);
             return tv_controller_ &&
                    tv_controller_->HandleCommand(payload_json, result_json, error);
         }
         if (!cJSON_IsObject(root) ||
-            (!sd_command && !tv_command && !display_command && !wheel_command)) {
+            (!sd_command && !tv_command && !display_command && !wheel_command &&
+             !calendar_command)) {
             cJSON_Delete(root);
             return reject("unsupported board command");
         }
         const std::string command(type->valuestring);
         cJSON* response = cJSON_CreateObject();
         bool accepted = false;
-        if (command == "display.weather") {
+        if (command == "calendar.lunar.events") {
+            const cJSON* day_json = cJSON_GetObjectItemCaseSensitive(root, "day");
+            const cJSON* month_json = cJSON_GetObjectItemCaseSensitive(root, "month");
+            const cJSON* year_json = cJSON_GetObjectItemCaseSensitive(root, "year");
+            const cJSON* total_count_json = cJSON_GetObjectItemCaseSensitive(root, "total_count");
+            const cJSON* events_json = cJSON_GetObjectItemCaseSensitive(root, "events");
+            const auto is_integer = [](const cJSON* value) {
+                return cJSON_IsNumber(value) && value->valuedouble == value->valueint;
+            };
+            const int day = is_integer(day_json) ? day_json->valueint : 0;
+            const int month = is_integer(month_json) ? month_json->valueint : 0;
+            const int year = is_integer(year_json) ? year_json->valueint : 0;
+            const int total_count = is_integer(total_count_json) ? total_count_json->valueint : -1;
+            kynangso::LunarCalendarEvents events{};
+            size_t event_count = 0;
+            if (cJSON_IsArray(events_json) &&
+                cJSON_GetArraySize(events_json) <= kynangso::kMaxLunarCalendarEvents) {
+                const cJSON* item = nullptr;
+                cJSON_ArrayForEach(item, events_json) {
+                    if (!cJSON_IsObject(item)) {
+                        event_count = kynangso::kMaxLunarCalendarEvents + 1;
+                        break;
+                    }
+                    const cJSON* title_json = cJSON_GetObjectItemCaseSensitive(item, "title");
+                    const cJSON* icon_json = cJSON_GetObjectItemCaseSensitive(item, "icon");
+                    if (!cJSON_IsString(title_json) || !title_json->valuestring ||
+                        title_json->valuestring[0] == '\0' ||
+                        std::strlen(title_json->valuestring) >=
+                            kynangso::kLunarCalendarEventTitleBytes ||
+                        !is_integer(icon_json) || icon_json->valueint < 0 ||
+                        icon_json->valueint > 3) {
+                        event_count = kynangso::kMaxLunarCalendarEvents + 1;
+                        break;
+                    }
+                    auto& event = events[event_count++];
+                    std::snprintf(event.title.data(), event.title.size(), "%s",
+                                  title_json->valuestring);
+                    event.icon = static_cast<uint8_t>(icon_json->valueint);
+                }
+            } else {
+                event_count = kynangso::kMaxLunarCalendarEvents + 1;
+            }
+
+            kynangso::VietnameseLunarDate lunar{};
+            if (!controller_ || total_count < 0 || total_count > 255 ||
+                event_count > kynangso::kMaxLunarCalendarEvents ||
+                total_count < static_cast<int>(event_count) ||
+                !kynangso::SolarToVietnameseLunarDate(day, month, year, &lunar)) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("calendar.lunar.events requires a valid date and event list");
+            }
+            controller_->ShowLunarCalendarResult(day, month, year, lunar, events, event_count,
+                                                  total_count, true);
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddNumberToObject(response, "total_count", total_count);
+            cJSON_AddNumberToObject(response, "lunar_day", lunar.day);
+            cJSON_AddNumberToObject(response, "lunar_month", lunar.month);
+            cJSON_AddNumberToObject(response, "lunar_year", lunar.year);
+            cJSON_AddBoolToObject(response, "leap_month", lunar.leap_month);
+            accepted = true;
+        } else if (command == "display.weather") {
             const cJSON* summary_json = cJSON_GetObjectItemCaseSensitive(root, "summary");
             if (!cJSON_IsString(summary_json) || !summary_json->valuestring ||
                 std::strlen(summary_json->valuestring) > 192 || !controller_ ||

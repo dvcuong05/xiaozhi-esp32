@@ -77,7 +77,10 @@ public:
                        std::shared_ptr<const kynangso::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
     void ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
-                                 const kynangso::VietnameseLunarDate& lunar);
+                                 const kynangso::VietnameseLunarDate& lunar,
+                                 const kynangso::LunarCalendarEvents& events = {},
+                                 size_t event_count = 0, size_t total_event_count = 0,
+                                 bool events_loaded = false);
 
 protected:
     void OnThemeTextFontChanged(const lv_font_t* text_font) override;

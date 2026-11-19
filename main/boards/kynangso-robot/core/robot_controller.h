@@ -5,6 +5,7 @@
 #include "features/bluetooth/bluetooth_service.h"
 #include "features/face/face_theme_service.h"
 #include "features/motion/robot_drive.h"
+#include "features/time/lunar_calendar_event.h"
 #include "features/time/robot_time_service.h"
 #include "integration/web_chat_bridge.h"
 #include "sdkconfig.h"
@@ -46,7 +47,9 @@ public:
     bool RefreshInfoShuttleWeather();
     bool SetInfoShuttleWeather(std::string summary, int icon_kind = -1);
     void ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
-                                 const VietnameseLunarDate& lunar);
+                                 const VietnameseLunarDate& lunar,
+                                 LunarCalendarEvents events = {}, size_t event_count = 0,
+                                 size_t total_event_count = 0, bool events_loaded = false);
     bool OfflineDiagnosticsEnabled() const;
     bool ConfigureOfflineDiagnostics(bool enabled);
     bool ShowNews(std::string headline, std::string source);

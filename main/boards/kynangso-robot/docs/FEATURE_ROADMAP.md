@@ -101,8 +101,9 @@ cứng, giới hạn tài nguyên và phần nào thuộc MCP server.
   cho người dùng chọn thêm âm thanh theo cảm xúc từ SD. Chuyển động bánh xe theo
   chạm vẫn phải tùy chọn, mặc định tắt và chỉ mở sau khi xác nhận điều kiện an
   toàn cũng như không làm gián đoạn audio/hội thoại.
-- [ ] **Lễ âm và nhắc lịch âm (V2)**: chọn danh sách ngày lễ/ngày giỗ, quy tắc
-  năm nhuận và cách xử lý ngày 30 không tồn tại trước khi thêm nhắc lặp âm lịch.
+- [ ] **Nhắc lịch âm**: tra cứu sự kiện âm lịch theo ngày đã có qua MCP và TFT;
+  trước khi thêm nhắc lặp âm lịch, chốt quy tắc năm nhuận, ngày 30 không tồn
+  tại, nguồn dữ liệu và hành vi khi server mất kết nối.
 - [ ] **Thần số học/tử vi**: nếu triển khai, xác định đây là nội dung giải trí,
   cách hỏi dữ liệu cần thiết và cách tránh trình bày suy đoán như thông tin chắc
   chắn.
@@ -181,13 +182,14 @@ cứng/nguồn dữ liệu đều đã được kiểm thử.
 
 - **Lịch cá nhân** — báo thức, nhắc việc lặp, countdown, Pomodoro; trang `/time`,
   API/MCP và UI TFT theo từng mode. [README board](../readme.md)
-- **Ngày âm lịch V1** — hiển thị ngày âm Việt Nam trên `/time` và MCP
+- **Ngày âm lịch và sự kiện V1** — hiển thị ngày âm Việt Nam trên `/time` và MCP
   `self.calendar.lunar` hỗ trợ ngày âm hôm nay, đổi dương → âm, âm → dương
   offline theo UTC+7; phát hiện tháng nhuận để hỏi lại thay vì đoán. Không cần
-  worker, dịch vụ ngoài hay dữ liệu lưu trên robot. Kết quả MCP hiện thành tờ
-  lịch toàn màn hình trên TFT trong 5 giây; form nhắc việc hiển thị ngày âm ngay
-  dưới trường chọn ngày. Thuật toán, luồng hiển thị và giới hạn năm được ghi tại
-  [README board](../readme.md).
+  worker hoặc dữ liệu lưu trên robot. MCP server `lunar_calendar_events` lấy
+  sự kiện tháng từ Nhật Nguyệt, cache có giới hạn và gửi tối đa ba tiêu đề qua
+  Device Bridge; robot tính ngày âm offline rồi vẽ tờ lịch màu trên TFT trong
+  5 giây. Form nhắc việc vẫn hiển thị ngày âm ngay dưới trường chọn ngày. Nhắc
+  việc lặp theo ngày âm còn nằm trong kế hoạch. [Workflow và giới hạn](../readme.md).
 - **Thời tiết và Random Wheel** — Open-Meteo qua MCP/WSS, làm mới theo yêu cầu;
   vòng quay 2–16 lựa chọn, tiếng Việt/English, giữ nhãn và hiệu ứng pháo giấy.
   [Màn hình thông tin](features/info-shuttle/README.md) ·

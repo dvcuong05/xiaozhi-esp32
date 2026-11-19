@@ -162,11 +162,12 @@ hoặc ngày nằm ngoài phạm vi năm 1900–2100.
 > toán chuyển đổi [Hồ Ngọc Đức](https://www.xemamlich.uhm.vn/calrules.html), dựa
 > trên các phép tính thiên văn Meeus. Đây là ngày âm dân sự UTC+7, không phải dữ
 > liệu lịch sử hiệu chỉnh theo múi giờ từng thời
-> kỳ. Ngày lễ, ngày giỗ và nhắc lặp âm lịch chưa được thêm.
+> kỳ. Bộ chuyển đổi nhỏ này vẫn là nguồn chính cho tra cứu offline, trang `/time`
+> và form nhắc việc; dữ liệu sự kiện được lấy riêng từ MCP server.
 
 MCP firmware đăng ký `self.calendar.lunar` để hỏi ngày âm hôm nay và đổi ngày
 hai chiều. Tool chạy hoàn toàn trên robot, dùng cùng thuật toán offline với
-thẻ `/time`; không cần provider hoặc endpoint mới ở MCP server. Thao tác:
+thẻ `/time`. Thao tác:
 
 | `op` | Dữ liệu | Ví dụ câu lệnh |
 | --- | --- | --- |
@@ -187,6 +188,29 @@ lúc tờ lịch đang hiện, kết quả sẽ đóng và không bật lại sa
 khi chọn ngày giờ nhắc việc, nhãn ngay dưới ô ngày giờ tự tính và hiển thị ngày
 âm tương ứng. Trang dùng `POST /api/time` với `op=lunar_date`; cùng bộ chuyển đổi
 offline trên firmware bảo đảm kết quả nhất quán, không cần mạng hoặc microSD.
+
+### 🎎 Tra cứu sự kiện âm lịch
+
+MCP server đăng ký `lunar_calendar_events` cho câu hỏi về ngày lễ, ngày giỗ và
+sự kiện văn hóa theo một ngày. Bỏ trống ngày để tra hôm nay theo
+`Asia/Ho_Chi_Minh`; ngày cụ thể dùng `YYYY-MM-DD`. Ví dụ: “Hôm nay có sự kiện
+âm lịch gì?”, “Ngày 2026-11-18 có lễ gì?” hoặc “What lunar-calendar events
+are today?”. Backend lấy danh sách sự kiện tháng từ Nhật Nguyệt, lọc theo ngày
+dương thực tế, giữ tối đa ba mục ngắn và cache kết quả trong sáu giờ; nếu nguồn
+tạm lỗi có thể dùng cache cũ tối đa 24 giờ và đánh dấu `stale`.
+
+Server gửi một lệnh Device Bridge `calendar.lunar.events` qua WSS đã xác thực,
+gồm ngày dương và tối đa ba tiêu đề/icon nhỏ. Firmware kiểm tra dữ liệu, tự đổi
+ngày dương sang âm bằng thuật toán offline hiện có rồi xếp việc vẽ vào
+`Application::Schedule()`. TFT hiện tờ lịch toàn màn hình trong 5 giây, với
+điểm nhấn đỏ son, vàng ấm, xanh ngọc và icon hình học nhẹ theo nhóm sự kiện;
+nếu không có mục trong ngày, card báo rõ trạng thái đó. Robot không gọi HTTP,
+không parse payload lịch tháng và không lưu danh sách sự kiện trong RAM/NVS.
+TFT chỉ nhận lệnh khi đang ở giao diện khuôn mặt bình thường để không che
+TV, ảnh, âm thanh hay các chế độ ưu tiên; MCP ACK cho biết lệnh đã được xếp.
+Tra cứu chỉ ngày âm/dương vẫn dùng `self.calendar.lunar`; không phụ thuộc API.
+Sự kiện online cần robot kết nối WSS và nguồn lịch truy cập được. Nhắc việc lặp
+theo ngày âm chưa thuộc phiên bản này.
 
 TFT dùng chữ số lớn vẽ bằng hình học, vòng tiến độ và nền gradient; tập trung
 màu tím, nghỉ xanh lá, countdown xanh, báo thức cam, nhắc việc xanh dương.

@@ -338,7 +338,7 @@ bool RobotController::ShowMarketBulletin(kynangso::MarketBulletin bulletin) {
         const auto& tile = bulletin.tiles[i];
         if ((tile.category != "agriculture" && tile.category != "gold_silver" &&
              tile.category != "fuel" && tile.category != "fx") ||
-            tile.source.size() > 48 || tile.updated_at.size() > 32 ||
+            tile.updated_at.size() > 32 ||
             tile.row_count > tile.rows.size())
             return false;
         for (size_t previous = 0; previous < i; ++previous) {
@@ -351,7 +351,7 @@ bool RobotController::ShowMarketBulletin(kynangso::MarketBulletin bulletin) {
                        return byte < 0x20 || byte == 0x7f;
                    });
         };
-        if (!valid_text(tile.source, 48) || !valid_text(tile.updated_at, 32))
+        if (!valid_text(tile.updated_at, 32))
             return false;
         if (tile.available != (tile.row_count > 0))
             return false;

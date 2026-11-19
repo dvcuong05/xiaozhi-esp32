@@ -17,7 +17,6 @@ struct MarketBulletinRow {
 
 struct MarketBulletinTile {
     std::string category;
-    std::string source;
     std::string updated_at;
     bool available = false;
     bool stale = false;

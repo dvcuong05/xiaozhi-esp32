@@ -34,18 +34,18 @@ MCP tool `market_data(category, query, device_id, display_on_robot)` chấp nh�
 | Tỷ giá USD, EUR | `fx` / `tỷ giá` / `ngoại tệ` | Giá ngoại tệ |
 | Hỏi chung “giá cả thị trường thế nào?” | `all` | Cả bốn tile theo thứ tự bảng trên |
 
-Một truy vấn một nhóm chỉ gửi một tile. Hỏi tổng quan gửi đủ bốn nhóm theo thứ tự **nông sản → vàng → xăng dầu → ngoại tệ**. Nếu một nhóm chưa có báo giá đã crawl, tile vẫn giữ tiêu đề nhóm và ghi “Chưa có báo giá đã crawl”; robot không điền giá thay thế.
+Một truy vấn một nhóm chỉ gửi một tile. Hỏi tổng quan gửi đủ bốn nhóm theo thứ tự **nông sản → vàng → xăng dầu → ngoại tệ**. Nếu một nhóm chưa có báo giá, tile vẫn giữ tên nhóm và chỉ ghi “Chưa có dữ liệu”; robot không điền giá thay thế.
 
-MCP trả về `tiles[]` với `category`, `title`, `source`, `effective_at`, `observed_at`, `available`, `stale` và các dòng `rows[]` (`label`, `value`). Khi trả lời bằng giọng nói, assistant chỉ đọc số liệu trong kết quả, nêu nguồn/thời điểm phù hợp và báo rõ dữ liệu cũ hoặc thiếu. `device_id` được dùng khi có nhiều robot; nếu không chọn được thiết bị, MCP vẫn trả dữ liệu nhưng `display.status` cho biết TFT chưa nhận bản tin.
+MCP trả về `tiles[]` với `category`, `title`, `source`, `effective_at`, `observed_at`, `available`, `stale` và các dòng `rows[]` (`label`, `value`). Khi trả lời bằng giọng nói, assistant chỉ đọc số liệu trong kết quả, nêu nguồn/thời điểm phù hợp và báo rõ dữ liệu cũ hoặc thiếu. Tên nguồn không được gửi sang TFT; robot vẫn giữ timestamp rút gọn và dấu hiệu dữ liệu cũ. `device_id` được dùng khi có nhiều robot; nếu không chọn được thiết bị, MCP vẫn trả dữ liệu nhưng `display.status` cho biết TFT chưa nhận bản tin.
 
 ## Hợp đồng Device Bridge
 
-MCP gửi một lệnh WSS `display.market_bulletin` chứa từ 1 đến 4 tile. Payload được giới hạn dưới 3.500 byte để nằm trong giới hạn 4.096 byte của Device Bridge; nếu cần, backend rút gọn cân bằng số dòng chỉ dành cho TFT. Robot xác thực nhóm, số tile, số dòng và độ dài chuỗi trước khi xếp payload vào hàng đợi ứng dụng. Firmware dùng category để chọn tiêu đề và màu cố định; không nhận HTML, ảnh hoặc nội dung tùy ý để vẽ.
+MCP gửi một lệnh WSS `display.market_bulletin` chứa từ 1 đến 4 tile. Payload được giới hạn dưới 3.500 byte để nằm trong giới hạn 4.096 byte của Device Bridge; nếu cần, backend rút gọn cân bằng số dòng chỉ dành cho TFT. Robot xác thực nhóm, số tile, số dòng và độ dài chuỗi trước khi xếp payload vào hàng đợi ứng dụng. Firmware dùng category để chọn tiêu đề, icon vector và màu cố định; không nhận HTML, ảnh hoặc nội dung tùy ý để vẽ.
 
 - Mỗi tile hiển thị **7 giây khi thực sự ở foreground**. Bản tin tạm phủ mặt robot và màn hình chính thông thường. Nếu báo thức, phát media/TV hoặc một màn hệ thống ưu tiên cao đang chiếm TFT, bộ đếm tile tạm dừng rồi tiếp tục khi TFT rảnh.
 - Danh sách dài tự cuộn dọc trong tile; cuộn lặp lại đến khi hết 7 giây hiển thị.
 - Chỉ sau khi tile cuối chạy đủ thời gian, phiên mới kết thúc và TFT quay lại nội dung trước đó.
-- Màn hình chỉ tạo một view LVGL tái sử dụng; tối đa 4 tile, 8 dòng mỗi tile. Không tải ảnh, không ghi microSD/NVS, không polling và không thêm xử lý lên audio task.
+- Màn hình dùng một view LVGL tái sử dụng, tận dụng gần hết diện tích TFT; font giá 10 px, tối đa 4 tile và 8 dòng mỗi tile. Không hiện tiêu đề phụ, tên nguồn hoặc footer. Không tải ảnh, không ghi microSD/NVS, không polling và không thêm xử lý lên audio task.
 - Hiện là trải nghiệm TFT; OLED phụ không nhận bảng giá.
 
 ## Vận hành và giới hạn dữ liệu

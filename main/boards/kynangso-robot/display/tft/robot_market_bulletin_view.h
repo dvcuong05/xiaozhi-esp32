@@ -22,19 +22,20 @@ private:
     int width_;
     int height_;
     lv_obj_t* root_ = nullptr;
+    lv_obj_t* icon_badge_ = nullptr;
     lv_obj_t* title_ = nullptr;
     lv_obj_t* sequence_ = nullptr;
-    lv_obj_t* source_ = nullptr;
+    lv_obj_t* updated_at_ = nullptr;
     lv_obj_t* stale_badge_ = nullptr;
     lv_obj_t* rows_ = nullptr;
-    lv_obj_t* footer_ = nullptr;
-    lv_obj_t* accent_ = nullptr;
     lv_timer_t* scroll_timer_ = nullptr;
     size_t scroll_index_ = 0;
     size_t first_scroll_index_ = 0;
     lv_font_t text_font_{};
+    lv_font_t compact_font_{};
 
     void Build();
+    void BuildCategoryIcon(const std::string& category, uint32_t accent);
     void StopScroll();
     void StartScroll();
     static void OnScrollTimer(lv_timer_t* timer);

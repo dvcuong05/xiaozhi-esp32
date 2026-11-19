@@ -576,6 +576,81 @@ public:
             cJSON_AddStringToObject(response, "status", "queued");
             cJSON_AddBoolToObject(response, "oled_available", controller_->IsOledAvailable());
             accepted = true;
+        } else if (command == "display.market_bulletin") {
+            const cJSON* tiles_json = cJSON_GetObjectItemCaseSensitive(root, "tiles");
+            kynangso::MarketBulletin bulletin{};
+            bool valid = cJSON_IsArray(tiles_json) && cJSON_GetArraySize(tiles_json) >= 1 &&
+                         cJSON_GetArraySize(tiles_json) <= kynangso::kMarketBulletinMaxTiles;
+            if (valid) {
+                const cJSON* tile_json = nullptr;
+                cJSON_ArrayForEach(tile_json, tiles_json) {
+                    if (!cJSON_IsObject(tile_json)) {
+                        valid = false;
+                        break;
+                    }
+                    const cJSON* category_json =
+                        cJSON_GetObjectItemCaseSensitive(tile_json, "category");
+                    const cJSON* source_json = cJSON_GetObjectItemCaseSensitive(tile_json, "source");
+                    const cJSON* updated_json =
+                        cJSON_GetObjectItemCaseSensitive(tile_json, "updated_at");
+                    const cJSON* available_json =
+                        cJSON_GetObjectItemCaseSensitive(tile_json, "available");
+                    const cJSON* stale_json = cJSON_GetObjectItemCaseSensitive(tile_json, "stale");
+                    const cJSON* rows_json = cJSON_GetObjectItemCaseSensitive(tile_json, "rows");
+                    if (!cJSON_IsString(category_json) || !category_json->valuestring ||
+                        !cJSON_IsString(source_json) || !source_json->valuestring ||
+                        !cJSON_IsString(updated_json) || !updated_json->valuestring ||
+                        !cJSON_IsBool(available_json) || !cJSON_IsBool(stale_json) ||
+                        !cJSON_IsArray(rows_json) ||
+                        cJSON_GetArraySize(rows_json) > kynangso::kMarketBulletinMaxRows ||
+                        std::strlen(category_json->valuestring) > 24 ||
+                        std::strlen(source_json->valuestring) > 48 ||
+                        std::strlen(updated_json->valuestring) > 32) {
+                        valid = false;
+                        break;
+                    }
+
+                    auto& tile = bulletin.tiles[bulletin.tile_count++];
+                    tile.category = category_json->valuestring;
+                    tile.source = source_json->valuestring;
+                    tile.updated_at = updated_json->valuestring;
+                    tile.available = cJSON_IsTrue(available_json);
+                    tile.stale = cJSON_IsTrue(stale_json);
+                    const cJSON* row_json = nullptr;
+                    cJSON_ArrayForEach(row_json, rows_json) {
+                        if (!cJSON_IsObject(row_json)) {
+                            valid = false;
+                            break;
+                        }
+                        const cJSON* label_json =
+                            cJSON_GetObjectItemCaseSensitive(row_json, "label");
+                        const cJSON* value_json =
+                            cJSON_GetObjectItemCaseSensitive(row_json, "value");
+                        if (!cJSON_IsString(label_json) || !label_json->valuestring ||
+                            !cJSON_IsString(value_json) || !value_json->valuestring ||
+                            std::strlen(label_json->valuestring) > 48 ||
+                            std::strlen(value_json->valuestring) > 40) {
+                            valid = false;
+                            break;
+                        }
+                        auto& row = tile.rows[tile.row_count++];
+                        row.label = label_json->valuestring;
+                        row.value = value_json->valuestring;
+                    }
+                    if (!valid)
+                        break;
+                }
+            }
+            if (!valid || !controller_ || !controller_->ShowMarketBulletin(std::move(bulletin))) {
+                cJSON_Delete(response);
+                cJSON_Delete(root);
+                return reject("display.market_bulletin requires 1-4 bounded market tiles");
+            }
+            cJSON_AddStringToObject(response, "status", "queued");
+            cJSON_AddNumberToObject(response, "tile_count",
+                                    static_cast<double>(cJSON_GetArraySize(tiles_json)));
+            cJSON_AddNumberToObject(response, "tile_duration_ms", 7000);
+            accepted = true;
         } else if (command == "wheel.start") {
             const cJSON* names_json = cJSON_GetObjectItemCaseSensitive(root, "names");
             const cJSON* winner_json = cJSON_GetObjectItemCaseSensitive(root, "winner");

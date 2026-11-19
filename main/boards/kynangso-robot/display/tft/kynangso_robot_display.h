@@ -4,12 +4,14 @@
 #include <functional>
 #include "features/bluetooth/bluetooth_service.h"
 #include "core/robot_settings.h"
+#include "features/market/market_bulletin.h"
 #include "features/time/robot_time_service.h"
 #include "display/lcd_display.h"
 #include "display/tft/robot_eyes.h"
 #include "display/tft/robot_info_shuttle_view.h"
 #include "display/tft/robot_lunar_calendar_view.h"
 #include "display/tft/robot_name_wheel_view.h"
+#include "display/tft/robot_market_bulletin_view.h"
 #include "display/tft/robot_screen_layout.h"
 #include "display/tft/robot_spectrum.h"
 #include "display/tft/robot_time_view.h"
@@ -73,6 +75,7 @@ public:
     bool IsLiveTvVisible();
     bool CanStartNameWheel();
     bool StartNameWheel(std::vector<std::string> names, std::string winner);
+    void ShowMarketBulletin(kynangso::MarketBulletin bulletin);
     void ShowPaymentQr(int duration_ms = 30000,
                        std::shared_ptr<const kynangso::RobotQrCode> code = nullptr,
                        const std::string& caption = {});
@@ -91,6 +94,7 @@ private:
         Bluetooth,
         BootConsole,
         PaymentQr,
+        MarketBulletin,
         LunarCalendar,
         AudioVisualizer,
         NameWheel,
@@ -139,6 +143,14 @@ private:
     lv_timer_t* sd_image_timer_ = nullptr;
     std::unique_ptr<LvglImage> sd_image_;
     bool sd_image_active_ = false;
+    bool market_bulletin_active_ = false;
+    bool market_bulletin_timer_paused_ = true;
+    kynangso::MarketBulletin market_bulletin_{};
+    size_t market_bulletin_index_ = 0;
+    uint32_t market_bulletin_remaining_ms_ = 0;
+    uint32_t market_bulletin_started_at_ = 0;
+    lv_timer_t* market_bulletin_timer_ = nullptr;
+    std::unique_ptr<kynangso::RobotMarketBulletinView> market_bulletin_view_;
     lv_obj_t* live_tv_overlay_ = nullptr;
     lv_obj_t* live_tv_image_view_ = nullptr;
     lv_obj_t* live_tv_title_ = nullptr;
@@ -185,6 +197,7 @@ private:
     static void OnBootConsoleTimer(lv_timer_t* timer);
     static void OnPaymentQrTimer(lv_timer_t* timer);
     static void OnLunarCalendarTimer(lv_timer_t* timer);
+    static void OnMarketBulletinTimer(lv_timer_t* timer);
     static void OnSdImageTimer(lv_timer_t* timer);
     static void OnInfoShuttleTimer(lv_timer_t* timer);
     static void OnInfoShuttleNotificationTimer(lv_timer_t* timer);

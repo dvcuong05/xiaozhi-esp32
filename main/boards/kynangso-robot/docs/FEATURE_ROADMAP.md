@@ -69,12 +69,13 @@ cứng, giới hạn tài nguyên và phần nào thuộc MCP server.
 
 ### 📡 Dịch vụ và dữ liệu
 
-- [ ] **Tin tức và dữ liệu thị trường Việt Nam**: cải thiện trải nghiệm hỏi tin,
-  giá và mã chứng khoán, có thể hiển thị tóm tắt/biểu đồ trên TFT. Tái sử dụng
-  hợp đồng hiển thị `display.news` hiện có; chốt provider, giấy phép dữ liệu,
-  attribution, đơn vị và tần suất cập nhật ở MCP server trước khi mở rộng.
-  Firmware chỉ nhận nội dung đã rút gọn. Tham khảo
-  [hợp đồng hiển thị tin tức](features/news/README.md).
+- [x] **Tin tức và dữ liệu thị trường Việt Nam**: MCP `news_headlines` truy vấn bản tin; MCP
+  `market_data` đọc báo giá đã crawl trong SQLite cho nông sản, vàng, xăng dầu và ngoại tệ.
+  TFT nhận payload có cấu trúc: một tile theo nhóm hoặc đủ bốn tile theo thứ tự nông sản →
+  vàng → xăng dầu → ngoại tệ. Mỗi tile hiện 7 giây, tự cuộn danh sách dài và chỉ kết thúc
+  sau tile cuối. Dữ liệu thiếu/cũ được ghi rõ; robot không gọi website nguồn. Cổ phiếu vẫn
+  là feature riêng. Xem [workflow bản tin thị trường trên TFT](features/market-data/README.md)
+  và [workflow tin tức](features/news/README.md).
 - [ ] **Kết quả xổ số tỉnh/thành và Vietlott**: tìm nguồn chính thức, thời điểm
   cập nhật và quyền sử dụng; MCP truy vấn theo đài/ngày, robot đọc kết quả và
   có thể trình bày hiệu ứng quay số trên TFT. Không dùng hiệu ứng quay làm

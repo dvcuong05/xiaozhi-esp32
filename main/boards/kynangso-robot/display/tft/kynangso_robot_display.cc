@@ -85,6 +85,11 @@ KyNangSoRobotDisplay::~KyNangSoRobotDisplay() {
         lv_timer_delete(lunar_calendar_timer_);
         lunar_calendar_timer_ = nullptr;
     }
+    if (market_bulletin_timer_ != nullptr) {
+        lv_timer_delete(market_bulletin_timer_);
+        market_bulletin_timer_ = nullptr;
+    }
+    market_bulletin_view_.reset();
     lunar_calendar_view_.reset();
     if (sd_image_timer_ != nullptr) {
         lv_timer_delete(sd_image_timer_);
@@ -293,6 +298,11 @@ void KyNangSoRobotDisplay::SetupUI() {
         width_, height_, text_font, [this]() { NameWheelFinished(); });
     lunar_calendar_view_ = std::make_unique<kynangso::RobotLunarCalendarView>(
         width_, height_, text_font);
+    market_bulletin_view_ = std::make_unique<kynangso::RobotMarketBulletinView>(width_, height_,
+                                                                                text_font);
+    market_bulletin_timer_ = lv_timer_create(OnMarketBulletinTimer, 7000, this);
+    if (market_bulletin_timer_ != nullptr)
+        lv_timer_pause(market_bulletin_timer_);
     ApplyUiMode();
 }
 
@@ -331,6 +341,10 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetBaseUiMode() const {
 
 KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
     const UiMode base_mode = GetBaseUiMode();
+    const bool market_can_use_base_screen =
+        base_mode == UiMode::NormalFace || (base_mode == UiMode::Time && !time_alert_);
+    if (market_can_use_base_screen && market_bulletin_active_)
+        return UiMode::MarketBulletin;
     if (base_mode == UiMode::NormalFace && lunar_calendar_active_)
         return UiMode::LunarCalendar;
     if (base_mode == UiMode::NormalFace && info_shuttle_active_)
@@ -340,7 +354,8 @@ KyNangSoRobotDisplay::UiMode KyNangSoRobotDisplay::GetUiMode() const {
 
 bool KyNangSoRobotDisplay::CanPresentInfoShuttle(UiMode base_mode) const {
     return info_shuttle_config_.enabled && boot_state_ == BootState::Finished &&
-           base_mode == UiMode::NormalFace && !lunar_calendar_active_ && !conversation_active_ &&
+           base_mode == UiMode::NormalFace && !market_bulletin_active_ &&
+           !lunar_calendar_active_ && !conversation_active_ &&
            face_preview_timer_ == nullptr && info_shuttle_view_ != nullptr &&
            screen_layout_ != nullptr && screen_layout_->CanShowInfoShuttle() &&
            (notification_label_ == nullptr ||
@@ -367,6 +382,22 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
     }
 
     const UiMode mode = GetUiMode();
+    if (market_bulletin_active_ && market_bulletin_timer_ != nullptr) {
+        if (mode == UiMode::MarketBulletin && market_bulletin_timer_paused_) {
+            const uint32_t period = std::max<uint32_t>(market_bulletin_remaining_ms_, 1);
+            lv_timer_set_period(market_bulletin_timer_, period);
+            lv_timer_reset(market_bulletin_timer_);
+            market_bulletin_started_at_ = lv_tick_get();
+            lv_timer_resume(market_bulletin_timer_);
+            market_bulletin_timer_paused_ = false;
+        } else if (mode != UiMode::MarketBulletin && !market_bulletin_timer_paused_) {
+            const uint32_t elapsed = lv_tick_elaps(market_bulletin_started_at_);
+            market_bulletin_remaining_ms_ =
+                elapsed >= market_bulletin_remaining_ms_ ? 1 : market_bulletin_remaining_ms_ - elapsed;
+            lv_timer_pause(market_bulletin_timer_);
+            market_bulletin_timer_paused_ = true;
+        }
+    }
     const auto set_visible = [](lv_obj_t* object, bool visible) {
         if (object == nullptr) {
             return;
@@ -393,6 +424,8 @@ void KyNangSoRobotDisplay::ApplyUiMode() {
     set_visible(audio_visualizer_, mode == UiMode::AudioVisualizer);
     if (lunar_calendar_view_ != nullptr)
         lunar_calendar_view_->SetVisible(mode == UiMode::LunarCalendar);
+    if (market_bulletin_view_ != nullptr)
+        market_bulletin_view_->SetVisible(mode == UiMode::MarketBulletin);
     if (name_wheel_view_)
         name_wheel_view_->SetVisible(mode == UiMode::NameWheel);
     set_visible(sd_image_overlay_, mode == UiMode::SdImage);
@@ -552,6 +585,51 @@ void KyNangSoRobotDisplay::ShowLunarCalendarResult(
         return;
     }
     lv_timer_set_repeat_count(lunar_calendar_timer_, 1);
+}
+
+void KyNangSoRobotDisplay::ShowMarketBulletin(kynangso::MarketBulletin bulletin) {
+    DisplayLockGuard lock(this);
+    if (!lock || !setup_ui_called_ || market_bulletin_view_ == nullptr ||
+        market_bulletin_timer_ == nullptr || bulletin.tile_count == 0 ||
+        bulletin.tile_count > bulletin.tiles.size())
+        return;
+
+    market_bulletin_ = std::move(bulletin);
+    market_bulletin_index_ = 0;
+    market_bulletin_remaining_ms_ = 7000;
+    market_bulletin_started_at_ = 0;
+    market_bulletin_timer_paused_ = true;
+    market_bulletin_active_ = true;
+    market_bulletin_view_->SetTile(market_bulletin_.tiles[0], 0,
+                                   market_bulletin_.tile_count);
+    ApplyUiMode();
+}
+
+void KyNangSoRobotDisplay::OnMarketBulletinTimer(lv_timer_t* timer) {
+    auto* display = static_cast<KyNangSoRobotDisplay*>(lv_timer_get_user_data(timer));
+    if (display == nullptr || display->market_bulletin_timer_ != timer ||
+        !display->market_bulletin_active_)
+        return;
+
+    if (display->market_bulletin_index_ + 1 < display->market_bulletin_.tile_count) {
+        ++display->market_bulletin_index_;
+        display->market_bulletin_remaining_ms_ = 7000;
+        display->market_bulletin_view_->SetTile(
+            display->market_bulletin_.tiles[display->market_bulletin_index_],
+            display->market_bulletin_index_, display->market_bulletin_.tile_count);
+        lv_timer_set_period(timer, 7000);
+        lv_timer_reset(timer);
+        display->market_bulletin_started_at_ = lv_tick_get();
+        display->market_bulletin_timer_paused_ = false;
+        return;
+    }
+
+    display->market_bulletin_active_ = false;
+    display->market_bulletin_remaining_ms_ = 0;
+    display->market_bulletin_timer_paused_ = true;
+    lv_timer_pause(timer);
+    display->market_bulletin_ = {};
+    display->ApplyUiMode();
 }
 
 void KyNangSoRobotDisplay::HideLunarCalendar() {

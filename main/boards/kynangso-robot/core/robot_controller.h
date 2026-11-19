@@ -5,6 +5,7 @@
 #include "features/bluetooth/bluetooth_service.h"
 #include "features/face/face_theme_service.h"
 #include "features/motion/robot_drive.h"
+#include "features/market/market_bulletin.h"
 #include "features/time/lunar_calendar_event.h"
 #include "features/time/robot_time_service.h"
 #include "integration/web_chat_bridge.h"
@@ -53,6 +54,7 @@ public:
     bool OfflineDiagnosticsEnabled() const;
     bool ConfigureOfflineDiagnostics(bool enabled);
     bool ShowNews(std::string headline, std::string source);
+    bool ShowMarketBulletin(kynangso::MarketBulletin bulletin);
     bool StartNameWheel(std::vector<std::string> names, std::string winner);
     bool PreviewEmotion(int preset);
     bool PreviewFace(int emotion);

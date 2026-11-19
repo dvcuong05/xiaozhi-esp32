@@ -330,6 +330,46 @@ bool RobotController::ShowNews(std::string headline, std::string source) {
     return true;
 }
 
+bool RobotController::ShowMarketBulletin(kynangso::MarketBulletin bulletin) {
+    if (bulletin.tile_count == 0 || bulletin.tile_count > bulletin.tiles.size())
+        return false;
+
+    for (size_t i = 0; i < bulletin.tile_count; ++i) {
+        const auto& tile = bulletin.tiles[i];
+        if ((tile.category != "agriculture" && tile.category != "gold_silver" &&
+             tile.category != "fuel" && tile.category != "fx") ||
+            tile.source.size() > 48 || tile.updated_at.size() > 32 ||
+            tile.row_count > tile.rows.size())
+            return false;
+        for (size_t previous = 0; previous < i; ++previous) {
+            if (bulletin.tiles[previous].category == tile.category)
+                return false;
+        }
+        const auto valid_text = [](const std::string& value, size_t max_bytes) {
+            return value.size() <= max_bytes &&
+                   std::none_of(value.begin(), value.end(), [](unsigned char byte) {
+                       return byte < 0x20 || byte == 0x7f;
+                   });
+        };
+        if (!valid_text(tile.source, 48) || !valid_text(tile.updated_at, 32))
+            return false;
+        if (tile.available != (tile.row_count > 0))
+            return false;
+        for (size_t row = 0; row < tile.row_count; ++row) {
+            if (tile.rows[row].label.empty() || tile.rows[row].value.empty() ||
+                !valid_text(tile.rows[row].label, 48) ||
+                !valid_text(tile.rows[row].value, 40))
+                return false;
+        }
+    }
+
+    Application::GetInstance().Schedule(
+        [this, bulletin = std::move(bulletin)]() mutable {
+            display_.ShowMarketBulletin(std::move(bulletin));
+        });
+    return true;
+}
+
 bool RobotController::StartNameWheel(std::vector<std::string> names, std::string winner) {
     if (names.size() < 2 || names.size() > 16 || winner.empty() ||
         std::find(names.begin(), names.end(), winner) == names.end())

@@ -69,7 +69,7 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
     auto* divider = lv_obj_create(card);
     lv_obj_remove_style_all(divider);
     lv_obj_set_size(divider, card_width - 48, 1);
-    lv_obj_align(divider, LV_ALIGN_TOP_MID, 0, 153);
+    lv_obj_align(divider, LV_ALIGN_TOP_MID, 0, 147);
     lv_obj_set_style_bg_color(divider, lv_color_hex(0x8067B2), 0);
     lv_obj_set_style_bg_opa(divider, LV_OPA_50, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);

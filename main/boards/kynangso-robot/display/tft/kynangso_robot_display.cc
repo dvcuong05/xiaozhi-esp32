@@ -531,8 +531,7 @@ void KyNangSoRobotDisplay::SetTimeView(const kynangso::TimeView& view) {
 
 void KyNangSoRobotDisplay::ShowLunarCalendarResult(
     int solar_day, int solar_month, int solar_year, const kynangso::VietnameseLunarDate& lunar,
-    const kynangso::LunarCalendarEvents& events, size_t event_count, size_t total_event_count,
-    bool events_loaded) {
+    const kynangso::LunarCalendarEvents& events, size_t event_count, bool events_loaded) {
     DisplayLockGuard lock(this);
     if (!lock || !setup_ui_called_ || lunar_calendar_view_ == nullptr ||
         GetBaseUiMode() != UiMode::NormalFace)
@@ -543,7 +542,7 @@ void KyNangSoRobotDisplay::ShowLunarCalendarResult(
         lunar_calendar_timer_ = nullptr;
     }
     lunar_calendar_view_->Show(solar_day, solar_month, solar_year, lunar, events, event_count,
-                               total_event_count, events_loaded);
+                               events_loaded);
     lunar_calendar_active_ = true;
     ApplyUiMode();
     lunar_calendar_timer_ = lv_timer_create(OnLunarCalendarTimer, 5000, this);

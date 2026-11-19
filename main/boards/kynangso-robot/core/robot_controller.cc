@@ -302,12 +302,11 @@ bool RobotController::SetInfoShuttleWeather(std::string summary, int icon_kind) 
 void RobotController::ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
                                               const VietnameseLunarDate& lunar,
                                               LunarCalendarEvents events, size_t event_count,
-                                              size_t total_event_count, bool events_loaded) {
+                                              bool events_loaded) {
     Application::GetInstance().Schedule(
-        [this, solar_day, solar_month, solar_year, lunar, events, event_count,
-         total_event_count, events_loaded]() {
+        [this, solar_day, solar_month, solar_year, lunar, events, event_count, events_loaded]() {
             display_.ShowLunarCalendarResult(solar_day, solar_month, solar_year, lunar, events,
-                                             event_count, total_event_count, events_loaded);
+                                             event_count, events_loaded);
     });
 }
 

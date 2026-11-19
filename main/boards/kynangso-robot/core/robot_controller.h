@@ -49,7 +49,7 @@ public:
     void ShowLunarCalendarResult(int solar_day, int solar_month, int solar_year,
                                  const VietnameseLunarDate& lunar,
                                  LunarCalendarEvents events = {}, size_t event_count = 0,
-                                 size_t total_event_count = 0, bool events_loaded = false);
+                                 bool events_loaded = false);
     bool OfflineDiagnosticsEnabled() const;
     bool ConfigureOfflineDiagnostics(bool enabled);
     bool ShowNews(std::string headline, std::string source);

@@ -12,8 +12,7 @@ public:
     ~RobotLunarCalendarView();
 
     void Show(int solar_day, int solar_month, int solar_year, const VietnameseLunarDate& lunar,
-              const LunarCalendarEvents& events, size_t event_count, size_t total_event_count,
-              bool events_loaded);
+              const LunarCalendarEvents& events, size_t event_count, bool events_loaded);
     void SetVisible(bool visible);
     void SetFont(const lv_font_t* font);
 
@@ -28,7 +27,6 @@ private:
     lv_obj_t* event_icon_detail_ = nullptr;
     lv_obj_t* event_icon_tassel_ = nullptr;
     lv_obj_t* event_title_ = nullptr;
-    lv_obj_t* event_count_ = nullptr;
     lv_obj_t* solar_ = nullptr;
 
     void SetEventIcon(uint8_t icon);

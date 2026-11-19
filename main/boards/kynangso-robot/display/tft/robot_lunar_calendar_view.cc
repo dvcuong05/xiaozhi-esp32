@@ -86,10 +86,8 @@ RobotLunarCalendarView::RobotLunarCalendarView(int width, int height, const lv_f
         lv_obj_remove_flag(part, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_remove_flag(part, LV_OBJ_FLAG_CLICKABLE);
     }
-    event_title_ = CreateLabel(card, 42, 114, card_width - 55, 17, "Lịch âm Việt Nam",
+    event_title_ = CreateLabel(card, 42, 116, card_width - 55, 24, "",
                                0xFFF1C1, &text_font_, LV_TEXT_ALIGN_LEFT);
-    event_count_ = CreateLabel(card, 42, 131, card_width - 55, 13, "Tính offline · UTC+7",
-                               0x9CCBC8, &robot_time_font_14, LV_TEXT_ALIGN_LEFT);
 
     auto* divider = lv_obj_create(card);
     lv_obj_remove_style_all(divider);
@@ -136,7 +134,7 @@ void RobotLunarCalendarView::SetVisible(bool visible) {
 void RobotLunarCalendarView::Show(int solar_day, int solar_month, int solar_year,
                                   const VietnameseLunarDate& lunar,
                                   const LunarCalendarEvents& events, size_t event_count,
-                                  size_t total_event_count, bool events_loaded) {
+                                  bool events_loaded) {
     char solar[24];
     snprintf(solar, sizeof(solar), "%02d.%02d.%04d", solar_day, solar_month, solar_year);
     char month[32];
@@ -148,24 +146,14 @@ void RobotLunarCalendarView::Show(int solar_day, int solar_month, int solar_year
 
     event_count = std::min(event_count, events.size());
     if (!events_loaded) {
-        lv_label_set_text(event_title_, "Ngày âm lịch Việt Nam");
-        lv_label_set_text(event_count_, "Tính offline · UTC+7");
+        lv_label_set_text(event_title_, "");
         SetEventIcon(3);
     } else if (event_count == 0) {
-        lv_label_set_text(event_title_, "Chưa có sự kiện hôm nay");
-        lv_label_set_text(event_count_, "Lịch văn hóa Việt Nam");
+        lv_label_set_text(event_title_, "Không có sự kiện");
         SetEventIcon(3);
     } else {
-        const auto& event = events[0];
-        lv_label_set_text(event_title_, event.title.data());
-        char count_label[40];
-        if (total_event_count > 1)
-            snprintf(count_label, sizeof(count_label), "+%u sự kiện khác",
-                     static_cast<unsigned>(total_event_count - 1));
-        else
-            snprintf(count_label, sizeof(count_label), "SỰ KIỆN ÂM LỊCH");
-        lv_label_set_text(event_count_, count_label);
-        SetEventIcon(event.icon);
+        lv_label_set_text(event_title_, events[0].title.data());
+        SetEventIcon(events[0].icon);
     }
 }
 

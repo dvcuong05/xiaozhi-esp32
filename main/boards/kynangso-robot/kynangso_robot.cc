@@ -500,7 +500,6 @@ public:
             const cJSON* day_json = cJSON_GetObjectItemCaseSensitive(root, "day");
             const cJSON* month_json = cJSON_GetObjectItemCaseSensitive(root, "month");
             const cJSON* year_json = cJSON_GetObjectItemCaseSensitive(root, "year");
-            const cJSON* total_count_json = cJSON_GetObjectItemCaseSensitive(root, "total_count");
             const cJSON* events_json = cJSON_GetObjectItemCaseSensitive(root, "events");
             const auto is_integer = [](const cJSON* value) {
                 return cJSON_IsNumber(value) && value->valuedouble == value->valueint;
@@ -508,7 +507,6 @@ public:
             const int day = is_integer(day_json) ? day_json->valueint : 0;
             const int month = is_integer(month_json) ? month_json->valueint : 0;
             const int year = is_integer(year_json) ? year_json->valueint : 0;
-            const int total_count = is_integer(total_count_json) ? total_count_json->valueint : -1;
             kynangso::LunarCalendarEvents events{};
             size_t event_count = 0;
             if (cJSON_IsArray(events_json) &&
@@ -540,18 +538,15 @@ public:
             }
 
             kynangso::VietnameseLunarDate lunar{};
-            if (!controller_ || total_count < 0 || total_count > 255 ||
-                event_count > kynangso::kMaxLunarCalendarEvents ||
-                total_count < static_cast<int>(event_count) ||
+            if (!controller_ || event_count > kynangso::kMaxLunarCalendarEvents ||
                 !kynangso::SolarToVietnameseLunarDate(day, month, year, &lunar)) {
                 cJSON_Delete(response);
                 cJSON_Delete(root);
                 return reject("calendar.lunar.events requires a valid date and event list");
             }
             controller_->ShowLunarCalendarResult(day, month, year, lunar, events, event_count,
-                                                  total_count, true);
+                                                  true);
             cJSON_AddStringToObject(response, "status", "queued");
-            cJSON_AddNumberToObject(response, "total_count", total_count);
             cJSON_AddNumberToObject(response, "lunar_day", lunar.day);
             cJSON_AddNumberToObject(response, "lunar_month", lunar.month);
             cJSON_AddNumberToObject(response, "lunar_year", lunar.year);

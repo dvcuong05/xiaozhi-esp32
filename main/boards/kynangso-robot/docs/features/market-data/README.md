@@ -45,7 +45,11 @@ MCP gửi một lệnh WSS `display.market_bulletin` chứa từ 1 đến 4 tile
 - Mỗi tile hiển thị **7 giây khi thực sự ở foreground**. Bản tin tạm phủ mặt robot và màn hình chính thông thường. Nếu báo thức, phát media/TV hoặc một màn hệ thống ưu tiên cao đang chiếm TFT, bộ đếm tile tạm dừng rồi tiếp tục khi TFT rảnh.
 - Danh sách dài tự cuộn dọc trong tile; cuộn lặp lại đến khi hết 7 giây hiển thị.
 - Chỉ sau khi tile cuối chạy đủ thời gian, phiên mới kết thúc và TFT quay lại nội dung trước đó.
-- Màn hình dùng một view LVGL tái sử dụng, tận dụng gần hết diện tích TFT; font giá 10 px, tối đa 4 tile và 8 dòng mỗi tile. Không hiện tiêu đề phụ, tên nguồn hoặc footer. Không tải ảnh, không ghi microSD/NVS, không polling và không thêm xử lý lên audio task.
+- TFT dùng nền tối kiểu iOS với tông màu riêng cho nông sản, vàng, xăng dầu và ngoại tệ; mỗi dòng giá cao
+  23 px và khóa một dòng để tránh chữ rớt/dính. Ba nhóm nội địa đưa `VND` lên header, giữ phần đơn vị đo
+  như `/kg` hoặc `/chỉ` cạnh giá; ngoại tệ giữ nguyên `VND/MÃ`. Font giá 10 px, tối đa 4 tile và 8 dòng
+  mỗi tile. Không hiện tiêu đề phụ, tên nguồn hoặc footer; không tải ảnh, ghi microSD/NVS, polling hay
+  thêm xử lý lên audio task.
 - Hiện là trải nghiệm TFT; OLED phụ không nhận bảng giá.
 
 ## Vận hành và giới hạn dữ liệu

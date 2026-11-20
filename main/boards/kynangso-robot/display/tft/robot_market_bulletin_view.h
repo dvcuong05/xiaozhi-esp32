@@ -22,11 +22,13 @@ private:
     int width_;
     int height_;
     lv_obj_t* root_ = nullptr;
+    lv_obj_t* card_ = nullptr;
     lv_obj_t* icon_badge_ = nullptr;
     lv_obj_t* title_ = nullptr;
     lv_obj_t* sequence_ = nullptr;
     lv_obj_t* updated_at_ = nullptr;
-    lv_obj_t* stale_badge_ = nullptr;
+    lv_obj_t* currency_ = nullptr;
+    lv_obj_t* divider_ = nullptr;
     lv_obj_t* rows_ = nullptr;
     lv_timer_t* scroll_timer_ = nullptr;
     size_t scroll_index_ = 0;
